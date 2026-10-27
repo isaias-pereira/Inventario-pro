@@ -1,0 +1,4 @@
+- [x] Add free-text Tipo to product creation.
+- [x] Add admin product search/edit for description, type, code and linked EANs with atomic saves.
+- [x] Test validation, creation/edit form submissions and real Neon product reads (10 tests passed).
+- [ ] Verify authenticated save/read-back through the live UI; blocked by unavailable custom admin session/test credentials.
