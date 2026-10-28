@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import { toast } from 'sonner';
 import {
   buildNotificationBody,
@@ -146,7 +146,7 @@ export function useValidadeNotifications() {
     if (!token) { setLoading(false); return null; }
 
     try {
-      const { data, error } = await supabase.functions.invoke('manage-validade', {
+      const { data, error } = await invokeFunction('manage-validade', {
         body: { action: 'list_all' },
         headers: { Authorization: `Bearer ${token}` },
       });

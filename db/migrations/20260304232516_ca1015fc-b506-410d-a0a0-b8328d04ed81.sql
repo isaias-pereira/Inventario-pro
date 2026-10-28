@@ -25,4 +25,11 @@ CREATE TABLE public.shared_inventory (
 );
 
 -- Enable realtime for shared inventory
-ALTER PUBLICATION supabase_realtime ADD TABLE public.shared_inventory;
+-- (condicional: a publicação supabase_realtime só existe no Supabase; no Neon
+-- puro o realtime não se aplica e o comando é ignorado)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.shared_inventory';
+  END IF;
+END $$;

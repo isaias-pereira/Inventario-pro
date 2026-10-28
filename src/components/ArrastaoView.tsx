@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Loader2, Plus, Users, Clock, CalendarClock, ScanBarcode, Trash2, Check, History, ArrowLeft, ShoppingBasket, PackageX, AlertCircle, Eye, ChevronDown, ChevronUp, Download, List as ListIcon,
@@ -44,7 +44,7 @@ function getToken(): string | null {
 
 async function invoke(action: string, body: Record<string, unknown> = {}) {
   const token = getToken();
-  return supabase.functions.invoke('manage-arrastao', {
+  return invokeFunction('manage-arrastao', {
     body: { action, ...body },
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -173,7 +173,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
   // Product search
   const queryProduct = async (codigo: string) => {
     const token = authGetToken();
-    return supabase.functions.invoke('query-product', {
+    return invokeFunction('query-product', {
       body: { codigo },
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

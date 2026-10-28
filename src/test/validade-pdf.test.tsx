@@ -11,7 +11,7 @@ const { invoke, save, createWorkbook, saveSpreadsheet, fetchTipos } = vi.hoisted
   fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
 }));
 
-vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke } } }));
+vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { role: 'admin' }, getToken: () => 'token', isAdmin: true }),
 }));

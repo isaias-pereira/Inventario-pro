@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import { Search, Loader2, CalendarClock, FileText, User, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,7 @@ const ConsultaValidadeView = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       const token = getToken();
-      const { data } = await supabase.functions.invoke('manage-validade', {
+      const { data } = await invokeFunction('manage-validade', {
         body: { action: 'list_users' },
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -72,7 +72,7 @@ const ConsultaValidadeView = () => {
         const bodyPayload: Record<string, string> = { action: 'consulta_all_items' };
         if (dataInicio) bodyPayload.data_inicio = dataInicio;
         if (dataFim) bodyPayload.data_fim = dataFim;
-        const { data, error } = await supabase.functions.invoke('manage-arrastao', {
+        const { data, error } = await invokeFunction('manage-arrastao', {
           body: bodyPayload,
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -85,7 +85,7 @@ const ConsultaValidadeView = () => {
         if (dataFim) bodyPayload.data_fim = dataFim;
         if (hasUser) bodyPayload.created_by = selectedUser;
 
-        const { data, error } = await supabase.functions.invoke('manage-validade', {
+        const { data, error } = await invokeFunction('manage-validade', {
           body: bodyPayload,
           headers: { Authorization: `Bearer ${token}` },
         });

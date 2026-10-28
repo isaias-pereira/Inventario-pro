@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import { Users, Plus, Trash2, Loader2, Shield, User, UserCheck, Pencil, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +52,7 @@ const UserManagementView = () => {
 
   const invokeWithToken = (body: Record<string, unknown>) => {
     const token = getToken();
-    return supabase.functions.invoke('manage-users', {
+    return invokeFunction('manage-users', {
       body,
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

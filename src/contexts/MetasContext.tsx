@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 
 export interface MetaItem {
   dia: number;
@@ -56,7 +56,7 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const loadMonthData = useCallback(async (token: string, ano: number, mes: number) => {
     setIsLoading(true);
     try {
-      const res = await supabase.functions.invoke('manage-metas', {
+      const res = await invokeFunction('manage-metas', {
         body: { action: 'get', ano, mes },
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -79,7 +79,7 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const saveMetaToDB = useCallback(async (token: string, ano: number, mes: number, items: MetaItem[]) => {
     try {
-      const res = await supabase.functions.invoke('manage-metas', {
+      const res = await invokeFunction('manage-metas', {
         body: { action: 'save_meta', ano, mes, items },
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -92,7 +92,7 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const saveRealizadoToDB = useCallback(async (token: string, ano: number, mes: number, items: VendaItem[]) => {
     try {
-      const res = await supabase.functions.invoke('manage-metas', {
+      const res = await invokeFunction('manage-metas', {
         body: { action: 'save_realizado', ano, mes, realizadoItems: items },
         headers: { Authorization: `Bearer ${token}` },
       });

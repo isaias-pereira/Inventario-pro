@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
@@ -189,7 +189,7 @@ const InventarioView = () => {
 
   const queryProduct = async (codigo: string) => {
     const token = getToken();
-    const { data, error } = await supabase.functions.invoke('query-product', {
+    const { data, error } = await invokeFunction('query-product', {
       body: { codigo },
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

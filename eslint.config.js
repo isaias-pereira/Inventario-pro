@@ -23,4 +23,13 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  // Backend: serverless functions da Vercel rodam em Node.
+  {
+    files: ["api/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+    // O payload do banco é JSON dinâmico (mesma flexibilidade do tsconfig).
+    rules: { "@typescript-eslint/no-explicit-any": "off" },
+  },
 );

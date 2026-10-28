@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { identifier, productInput, canManageProducts } from '../../supabase/functions/query-product/validation';
+import { identifier, productInput, canManageProducts } from '../../api/_lib/product-validation';
 
 const input = { codigo: '631612', ean: '210', eans: ['210', '123123123'], descricao: 'banana nanica kg 300044334', tipo: 'kg' };
 

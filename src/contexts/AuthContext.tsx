@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction, parseJwtPayload } from '@/lib/api';
 
 interface User {
   username: string;
@@ -21,17 +21,6 @@ const AuthContext = createContext<AuthContextType | null>(null);
 const TOKEN_KEY = 'estoque_pro_token';
 const SESSION_KEY = 'estoque_pro_session';
 const SESSION_DURATION_MS = 6 * 60 * 60 * 1000;
-
-function parseJwtPayload(token: string): { sub: string; role: string; exp: number } | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1]));
-    return payload;
-  } catch {
-    return null;
-  }
-}
 
 function loadSession(): { user: User; token: string } | null {
   try {
@@ -81,7 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = useCallback(async (username: string, password: string, remember = false): Promise<boolean> => {
     try {
-      const { data, error } = await supabase.functions.invoke('auth-login', {
+      const { data, error } = await invokeFunction('auth-login', {
         body: { username, password },
       });
 

@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 
 const CACHE_KEY = 'validade_tipo_cache';
 const CACHE_LIMIT = 1000;
@@ -32,7 +32,7 @@ function writeTipoCache(cache: Record<string, string>): void {
 
 async function fetchTipo(codigo: string, token: string | null): Promise<string | null> {
   try {
-    const { data, error } = await supabase.functions.invoke('query-product', {
+    const { data, error } = await invokeFunction('query-product', {
       body: { codigo },
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

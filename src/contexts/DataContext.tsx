@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction, parseJwtPayload } from '@/lib/api';
 
 export interface Product {
   codigo: string;
@@ -55,6 +55,9 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null);
 
+/** Intervalo de sincronização do inventário compartilhado (sem realtime). */
+const INVENTORY_POLL_MS = 15_000;
+
 function getToken(): string | null {
   try {
     return localStorage.getItem('estoque_pro_token');
@@ -80,8 +83,8 @@ async function invokeWithToken(functionName: string, body: Record<string, unknow
 
   // Check token expiry client-side before calling
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload.exp * 1000 < Date.now()) {
+    const payload = parseJwtPayload(token);
+    if (!payload || payload.exp * 1000 < Date.now()) {
       clearSession();
       return { data: null, error: new Error('Token expired') };
     }
@@ -90,7 +93,7 @@ async function invokeWithToken(functionName: string, body: Record<string, unknow
     return { data: null, error: new Error('Invalid token') };
   }
 
-  const result = await supabase.functions.invoke(functionName, {
+  const result = await invokeFunction(functionName, {
     body,
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -116,7 +119,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [viewingLote, setViewingLote] = useState<LoteInfo | null>(null);
   const viewingRef = useRef<LoteInfo | null>(null);
   viewingRef.current = viewingLote;
-  const channelRef = useRef<any>(null);
 
   // Load consulta products from DB on init
   const fetchConsultaProducts = useCallback(async () => {
@@ -273,24 +275,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchConsultaProducts();
   }, [fetchConsultaProducts]);
 
+  // Sem canais em tempo real (o backend agora são funções serverless):
+  // o inventário compartilhado é sincronizado por polling e quando a aba
+  // volta a ficar visível.
   useEffect(() => {
     fetchInventory();
 
-    channelRef.current = supabase
-      .channel('shared-inventory-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shared_inventory' },
-        () => {
-          fetchInventory();
-        }
-      )
-      .subscribe();
+    const interval = window.setInterval(fetchInventory, INVENTORY_POLL_MS);
+    const onVisible = () => {
+      if (!document.hidden) fetchInventory();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [fetchInventory]);
 

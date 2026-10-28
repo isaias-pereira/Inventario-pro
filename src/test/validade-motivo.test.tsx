@@ -5,7 +5,7 @@ import ValidadeView from '../components/ValidadeView';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
-vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke } } }));
+vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { role: 'admin' }, getToken: () => 'token', isAdmin: true }),
 }));
