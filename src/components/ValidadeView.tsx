@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -56,6 +56,21 @@ async function invokeWithToken(functionName: string, body: Record<string, unknow
 
 type FilterType = 'hoje' | '7dias' | '30dias' | 'todos';
 
+const FILTER_LABELS: Record<FilterType, string> = {
+  todos: 'Todos',
+  hoje: 'Hoje',
+  '7dias': '7 dias',
+  '30dias': '30 dias',
+};
+
+function daysUntil(validade: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const valDate = new Date(validade);
+  valDate.setHours(0, 0, 0, 0);
+  return Math.ceil((valDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin } = useAuth();
   const [code, setCode] = useState('');
@@ -76,6 +91,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [detailItem, setDetailItem] = useState<ValidadeItem | null>(null);
   const [showConsulta, setShowConsulta] = useState(false);
   const [showArrastao, setShowArrastao] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const [alertDays, setAlertDays] = useState(() => {
     try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : 2; } catch { return 2; }
@@ -235,11 +251,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   const getValidadeStatus = (validade: string) => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const valDate = new Date(validade);
-    valDate.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = daysUntil(validade);
 
     if (diffDays < 0) return { label: 'Vencido', variant: 'destructive' as const, icon: AlertTriangle };
     if (diffDays === 0) return { label: 'Vence Hoje', variant: 'destructive' as const, icon: AlertTriangle };
@@ -248,11 +260,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   const filteredItems = items.filter((item) => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const valDate = new Date(item.validade);
-    valDate.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = daysUntil(item.validade);
 
     switch (filter) {
       case 'hoje': return diffDays <= 0;
@@ -268,6 +276,126 @@ const [filter, setFilter] = useState<FilterType>('todos');
     { key: '7dias', label: '7 dias' },
     { key: '30dias', label: '30 dias' },
   ];
+
+  const downloadPdf = async () => {
+    if (downloadingPdf) return;
+    if (filteredItems.length === 0) {
+      toast.error('Nenhum produto na lista para exportar');
+      return;
+    }
+    setDownloadingPdf(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const marginX = 14;
+      const now = new Date();
+
+      const sorted = [...filteredItems].sort(
+        (a, b) => new Date(a.validade).getTime() - new Date(b.validade).getTime(),
+      );
+      const expired = sorted.filter((i) => daysUntil(i.validade) < 0).length;
+      const expiringToday = sorted.filter((i) => daysUntil(i.validade) === 0).length;
+
+      // ===== Cabeçalho / Título =====
+      doc.setFillColor(33, 37, 41);
+      doc.rect(0, 0, pageW, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('Controle de Validade', marginX, 14);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text('Estoque Pro', pageW - marginX, 14, { align: 'right' });
+
+      // ===== Metadados =====
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.text(`Gerado em: ${format(now, 'dd/MM/yyyy HH:mm')}`, marginX, 30);
+      const summary = [
+        `Filtro: ${FILTER_LABELS[filter]}`,
+        `Total: ${sorted.length}`,
+        `Vencidos: ${expired}`,
+        `Vencem hoje: ${expiringToday}`,
+      ].join('   |   ');
+      const summaryLines = doc.splitTextToSize(summary, pageW - marginX * 2);
+      doc.text(summaryLines, marginX, 35);
+
+      // ===== Tabela =====
+      const tableTop = 35 + summaryLines.length * 4 + 3;
+      const columns = [
+        { label: 'Código', x: marginX, w: 20 },
+        { label: 'EAN', x: marginX + 20, w: 26 },
+        { label: 'Descrição', x: marginX + 46, w: 72 },
+        { label: 'Qtd', x: marginX + 118, w: 12 },
+        { label: 'Validade', x: marginX + 130, w: 22 },
+        { label: 'Status', x: marginX + 152, w: 30 },
+      ];
+      const rowH = 7;
+
+      const drawHeader = (y: number) => {
+        doc.setFillColor(33, 37, 41);
+        doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        columns.forEach((c) => doc.text(c.label, c.x + 2, y + rowH - 2));
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'normal');
+      };
+
+      let y = tableTop;
+      drawHeader(y);
+      y += rowH;
+
+      sorted.forEach((item, idx) => {
+        if (y + rowH > pageH - 12) {
+          doc.addPage();
+          y = 16;
+          drawHeader(y);
+          y += rowH;
+        }
+        if (idx % 2 === 0) {
+          doc.setFillColor(245, 245, 245);
+          doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
+        }
+
+        const diffDays = daysUntil(item.validade);
+        const status = getValidadeStatus(item.validade).label;
+        if (diffDays <= 0) doc.setTextColor(200, 0, 0);
+        else if (diffDays <= alertDays) doc.setTextColor(204, 102, 0);
+        else doc.setTextColor(0, 0, 0);
+
+        const desc = String(item.descricao);
+        const descTrunc = desc.length > 38 ? desc.slice(0, 37) + '…' : desc;
+
+        doc.setFontSize(8);
+        doc.text(String(item.codigo), columns[0].x + 2, y + rowH - 2);
+        doc.text(String(item.ean), columns[1].x + 2, y + rowH - 2);
+        doc.text(descTrunc, columns[2].x + 2, y + rowH - 2);
+        doc.text(String(item.quantidade), columns[3].x + 2, y + rowH - 2);
+        doc.text(new Date(item.validade).toLocaleDateString('pt-BR'), columns[4].x + 2, y + rowH - 2);
+        doc.text(status, columns[5].x + 2, y + rowH - 2);
+        y += rowH;
+      });
+
+      // ===== Rodapé com paginação =====
+      doc.setTextColor(120, 120, 120);
+      doc.setFontSize(8);
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.text(`Página ${i} de ${pageCount}`, pageW - marginX, pageH - 6, { align: 'right' });
+      }
+
+      doc.save(`validade-${format(now, 'yyyy-MM-dd')}.pdf`);
+      toast.success('PDF gerado com sucesso');
+    } catch {
+      toast.error('Erro ao gerar PDF');
+    }
+    setDownloadingPdf(false);
+  };
 
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
@@ -301,6 +429,22 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <AlertTriangle className="h-3.5 w-3.5" />
               <span className="text-[10px] font-bold leading-none">{alertDays}d</span>
             </button>
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="ml-1 h-8 w-8"
+              onClick={downloadPdf}
+              disabled={downloadingPdf || loading}
+              title="Baixar lista de validade em PDF"
+              aria-label="Baixar lista de validade em PDF"
+            >
+              {downloadingPdf ? (
+                <Loader2 className="h-4 w-4 animate-spin text-foreground" />
+              ) : (
+                <Share2 className="h-4 w-4 text-foreground" />
+              )}
+            </Button>
           </h2>
         </div>
 
@@ -564,7 +708,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <Button variant="outline" onClick={() => setShowAlertConfig(false)}>Cancelar</Button>
               <Button onClick={() => {
                 setAlertDays(tempAlertDays);
-                try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch {}
+                try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch { /* ignore storage errors */ }
                 setShowAlertConfig(false);
                 fetchItems();
                 toast.success(`Alerta configurado para ${tempAlertDays} dia(s)`);
