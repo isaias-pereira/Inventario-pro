@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -15,6 +15,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
@@ -23,7 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
-import { createValidadeWorkbook, saveValidadeSpreadsheet } from '@/lib/validade-spreadsheet';
+import { createValidadeWorkbook, isWeightProduct, saveValidadeSpreadsheet } from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
 
 
@@ -31,6 +34,7 @@ interface ProductResult {
   ean: string;
   codigo: string;
   descricao: string;
+  tipo?: string | null;
 }
 
 interface ValidadeItem {
@@ -42,7 +46,12 @@ interface ValidadeItem {
   status: boolean;
   created_by: string | null;
   quantidade: number;
+  motivo?: string | null;
 }
+
+/** Motivos de rebaixa para produtos de balança (KG). */
+const MOTIVOS_KG = ['Excesso', 'Qualidade'] as const;
+type MotivoKg = (typeof MOTIVOS_KG)[number];
 
 function getToken(): string | null {
   try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
@@ -70,6 +79,7 @@ const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin } = useAuth();
   const [code, setCode] = useState('');
   const [validade, setValidade] = useState('');
+  const [motivo, setMotivo] = useState<MotivoKg | ''>('');
   const [product, setProduct] = useState<ProductResult | null>(null);
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading' | 'not_found' | 'error' | 'found'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -105,7 +115,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
       const alertLimit = new Date(now);
       alertLimit.setDate(alertLimit.getDate() + alertDays);
       alertLimit.setHours(23, 59, 59, 999);
-      const notif = data.items.filter((i: ValidadeItem) => new Date(i.validade) <= alertLimit);
+      // Produtos com motivo (balança/KG) não vencem: entram só na lista de rebaixa.
+      const notif = data.items.filter((i: ValidadeItem) => !i.motivo && new Date(i.validade) <= alertLimit);
       setNotifications(notif);
     }
     setLoading(false);
@@ -153,6 +164,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
     if (!code.trim()) return;
     setSearchStatus('loading');
     setProduct(null);
+    setValidade('');
+    setMotivo('');
     setErrorMsg('');
     try {
       const { data, error } = await queryProduct(code.trim());
@@ -169,6 +182,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
   const searchProduct = async (scannedCode: string) => {
     setSearchStatus('loading');
+    setValidade('');
+    setMotivo('');
     try {
       const { data, error } = await queryProduct(scannedCode);
       if (error || data.error) { setSearchStatus('error'); setErrorMsg(data?.error || 'Erro ao conectar.'); return; }
@@ -182,7 +197,10 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   const handleAdd = async () => {
-    if (!product || !validade || submitting) return;
+    if (!product || submitting) return;
+    // Produto de balança (KG) não tem vencimento: registra-se o motivo do rebaixa.
+    const peso = isWeightProduct(product.tipo);
+    if (peso ? !motivo : !validade) return;
     setSubmitting(true);
     try {
       const { error } = await invokeWithToken('manage-validade', {
@@ -191,13 +209,16 @@ const [filter, setFilter] = useState<FilterType>('todos');
           ean: Number(product.ean),
           codigo: Number(product.codigo),
           descricao: product.descricao,
-          validade: new Date(validade + 'T23:59:59').toISOString(),
+          validade: peso
+            ? new Date(new Date().setHours(23, 59, 59, 0)).toISOString()
+            : new Date(validade + 'T23:59:59').toISOString(),
           quantidade: parseInt(quantidade) || 0,
+          motivo: peso ? motivo : null,
         },
       });
       if (!error) {
         toast.success('Validade registrada com sucesso');
-        setCode(''); setValidade(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
+        setCode(''); setValidade(''); setMotivo(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
         await fetchItems();
       } else {
         toast.error('Erro ao registrar validade');
@@ -359,8 +380,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
         }
 
         const diffDays = daysUntil(item.validade);
-        const status = getValidadeStatus(item.validade).label;
-        if (diffDays <= 0) doc.setTextColor(200, 0, 0);
+        const status = item.motivo ? item.motivo : getValidadeStatus(item.validade).label;
+        if (item.motivo) doc.setTextColor(0, 0, 0);
+        else if (diffDays <= 0) doc.setTextColor(200, 0, 0);
         else if (diffDays <= alertDays) doc.setTextColor(204, 102, 0);
         else doc.setTextColor(0, 0, 0);
 
@@ -372,7 +394,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
         doc.text(String(item.ean), columns[1].x + 2, y + rowH - 2);
         doc.text(descTrunc, columns[2].x + 2, y + rowH - 2);
         doc.text(String(item.quantidade), columns[3].x + 2, y + rowH - 2);
-        doc.text(new Date(item.validade).toLocaleDateString('pt-BR'), columns[4].x + 2, y + rowH - 2);
+        doc.text(item.motivo ? '—' : new Date(item.validade).toLocaleDateString('pt-BR'), columns[4].x + 2, y + rowH - 2);
         doc.text(status, columns[5].x + 2, y + rowH - 2);
         y += rowH;
       });
@@ -517,39 +539,61 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 <ShoppingBasket className="h-5 w-5 text-primary" />
                 <span className="font-semibold text-foreground">Produto Encontrado</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border">
                 {[
                   { label: 'EAN', value: product.ean },
                   { label: 'Código', value: product.codigo },
                   { label: 'Descrição', value: product.descricao },
+                  { label: 'Tipo', value: (product.tipo || '').trim().toUpperCase() || '—' },
                 ].map((item) => (
                   <div key={item.label} className="bg-card px-4 sm:px-6 py-3 sm:py-4">
                     <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{item.label}</p>
-                    <p className="mt-1 text-base sm:text-lg font-semibold text-foreground">{item.value}</p>
+                    <p className="mt-1 text-base sm:text-lg font-semibold text-foreground break-words">{item.value}</p>
                   </div>
                 ))}
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-border px-4 sm:px-6 py-3 sm:py-4">
-                <Input
-                  type="date"
-                  value={validade}
-                  onChange={(e) => setValidade(e.target.value)}
-                  className="max-w-[180px]"
-                />
+                {isWeightProduct(product.tipo) ? (
+                  <div className="w-full sm:w-[220px]">
+                    <Select value={motivo} onValueChange={(value) => setMotivo(value as MotivoKg)}>
+                      <SelectTrigger aria-label="Motivo" className="h-10">
+                        <SelectValue placeholder="Selecione o motivo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MOTIVOS_KG.map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <Input
+                    type="date"
+                    aria-label="Data de validade"
+                    value={validade}
+                    onChange={(e) => setValidade(e.target.value)}
+                    className="max-w-[180px]"
+                  />
+                )}
                 <Input
                   type="number"
                   min="0"
+                  aria-label="Quantidade"
                   value={quantidade}
                   onChange={(e) => setQuantidade(e.target.value.replace(/\D/g, ''))}
                   placeholder="0"
                   className="max-w-[80px]"
                   inputMode="numeric"
                 />
-                <Button onClick={handleAdd} disabled={submitting || !validade} className="gap-2">
+                <Button
+                  onClick={handleAdd}
+                  disabled={submitting || (isWeightProduct(product.tipo) ? !motivo : !validade)}
+                  className="gap-2"
+                >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
                   Registrar
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); }}>
+                <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); setMotivo(''); }}>
                   Cancelar
                 </Button>
               </div>
@@ -627,7 +671,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
           ) : (
             <div className="space-y-2">
               {filteredItems.map((item) => {
-                const status = getValidadeStatus(item.validade);
+                const status = item.motivo
+                  ? { label: item.motivo, variant: 'secondary' as const, icon: Scale }
+                  : getValidadeStatus(item.validade);
                 const StatusIcon = status.icon;
                 const isExpiredOrToday = status.label === 'Vencido' || status.label === 'Vence Hoje';
                 const isExpiringSoon = status.icon === Clock; // 2 days or less
@@ -651,7 +697,11 @@ const [filter, setFilter] = useState<FilterType>('todos');
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] font-mono text-muted-foreground">{item.ean}</span>
                       <span className="text-[10px] text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantidade}</span></span>
-                      <span className="text-[10px] text-foreground font-semibold">{new Date(item.validade).toLocaleDateString('pt-BR')}</span>
+                      {item.motivo ? (
+                        <span className="text-[10px] font-semibold text-foreground">{item.motivo}</span>
+                      ) : (
+                        <span className="text-[10px] text-foreground font-semibold">{new Date(item.validade).toLocaleDateString('pt-BR')}</span>
+                      )}
                     </div>
                     {isAdmin && (
                       <div className="flex gap-0.5 justify-end mt-0.5" onClick={(e) => e.stopPropagation()}>
@@ -822,6 +872,12 @@ const [filter, setFilter] = useState<FilterType>('todos');
                     <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Validade</p>
                     <p className="text-sm font-semibold">{new Date(detailItem.validade).toLocaleDateString('pt-BR')}</p>
                   </div>
+                  {detailItem.motivo && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Motivo</p>
+                      <p className="text-sm font-semibold">{detailItem.motivo}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-between">
                   <div>

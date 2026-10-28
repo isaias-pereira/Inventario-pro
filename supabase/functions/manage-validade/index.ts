@@ -29,6 +29,16 @@ function sanitizeUrl(raw: string): string {
   return url;
 }
 
+const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
+
+/** Motivo do rebaixa para produtos de balança (KG). Vazio ou nulo = sem motivo. */
+function normalizeMotivo(value: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (value === undefined || value === null || value === '') return { ok: true, value: null };
+  if (typeof value !== 'string') return { ok: false };
+  const found = MOTIVOS_VALIDADE.find((m) => m.toLowerCase() === value.trim().toLowerCase());
+  return found ? { ok: true, value: found } : { ok: false };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -54,6 +64,21 @@ serve(async (req) => {
       } catch { /* ignore */ }
       (globalThis as any).__validadeIdx = true;
     }
+
+    // Coluna do motivo (Excesso/Qualidade) usada nos produtos de balança (KG).
+    const ensureMotivoColumn = async (): Promise<boolean> => {
+      if (typeof (globalThis as any).__validadeMotivo === 'boolean') return (globalThis as any).__validadeMotivo;
+      try {
+        await sql`ALTER TABLE validade_products ADD COLUMN IF NOT EXISTS motivo VARCHAR(20)`;
+        (globalThis as any).__validadeMotivo = true;
+      } catch {
+        try {
+          const rows = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'validade_products' AND column_name = 'motivo'`;
+          (globalThis as any).__validadeMotivo = rows.length > 0;
+        } catch { (globalThis as any).__validadeMotivo = false; }
+      }
+      return (globalThis as any).__validadeMotivo;
+    };
 
     // Auto-expire only on read actions (avoid unnecessary write on every request)
     const readActions = new Set(['list', 'list_all', 'notifications', 'consulta_periodo']);
@@ -121,12 +146,21 @@ serve(async (req) => {
       const cleanValidade = !isNaN(validadeMs) ? new Date(validadeMs).toISOString() : null;
       const qtyNum = Number(item.quantidade);
       const cleanQuantidade = Number.isInteger(qtyNum) && qtyNum > 0 && qtyNum <= 100000 ? qtyNum : 1;
+      const motivo = normalizeMotivo(item.motivo);
       if (!cleanEan || !cleanCodigo || !cleanDescricao || !cleanValidade) {
         return new Response(JSON.stringify({ error: 'Dados inválidos (EAN/código devem ser dígitos até 14, descrição até 500 chars, validade data válida)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
+      if (!motivo.ok) {
+        return new Response(JSON.stringify({ error: 'Motivo inválido (use Excesso ou Qualidade)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
 
-      await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by) 
-        VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username})`;
+      if (await ensureMotivoColumn()) {
+        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, motivo)
+          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${motivo.value})`;
+      } else {
+        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by)
+          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username})`;
+      }
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
@@ -136,7 +170,15 @@ serve(async (req) => {
       const { id, validade: newValidade, quantidade: newQuantidade } = body;
       if (!id || !newValidade) return new Response(JSON.stringify({ error: 'Dados incompletos' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-      if (newQuantidade !== undefined) {
+      const hasMotivo = 'motivo' in body;
+      const motivo = hasMotivo ? normalizeMotivo(body.motivo) : { ok: true as const, value: null };
+      if (!motivo.ok) {
+        return new Response(JSON.stringify({ error: 'Motivo inválido (use Excesso ou Qualidade)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (hasMotivo && await ensureMotivoColumn()) {
+        await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = COALESCE(${newQuantidade ?? null}, quantidade), motivo = ${motivo.value} WHERE id = ${id}`;
+      } else if (newQuantidade !== undefined) {
         await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = ${newQuantidade} WHERE id = ${id}`;
       } else {
         await sql`UPDATE validade_products SET validade = ${newValidade} WHERE id = ${id}`;
