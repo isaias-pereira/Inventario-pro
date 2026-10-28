@@ -4,6 +4,7 @@ import {
   DEFAULT_STORE,
   buildSpreadsheetRows,
   createValidadeWorkbook,
+  descriptionColumnWidth,
   formatDateBR,
   isWeightProduct,
   spreadSheetFileName,
@@ -190,6 +191,24 @@ describe('planilha de solicitação de rebaixa', () => {
     const eanData = styleOf('B4') as unknown as { border?: { left?: { style?: string } } };
     expect(eanData.border?.left?.style).toBe('medium');
     expect((styleOf('C4') as unknown as { border?: { left?: { style?: string } } }).border?.left?.style).toBe('thin');
+  });
+
+  it('ajusta a largura da descrição pelo texto mais longo da coluna', () => {
+    const curto = [{ ...items[0], descricao: 'LEITE' }];
+    expect(descriptionColumnWidth(curto)).toBe(22); // largura mínima
+
+    const longo = [{ ...items[0], descricao: 'CP HORTELA 50G 100000043709' }];
+    const wb = createValidadeWorkbook(longo, tipos, { date: new Date(2026, 9, 28) });
+    const sheet = wb.Sheets['Rebaixa'];
+    const width = (sheet['!cols']?.[3] as { wch?: number } | undefined)?.wch;
+
+    expect(width).toBe(descriptionColumnWidth(longo));
+    expect(width).toBeGreaterThan(22);
+    // Com a coluna dimensionada pelo maior texto, a linha fica em uma só linha.
+    expect(sheet['!rows']?.[3]).toEqual({ hpt: 14.1 });
+
+    const gigante = [{ ...items[0], descricao: 'X'.repeat(300) }];
+    expect(descriptionColumnWidth(gigante)).toBe(60); // limite máximo
   });
 
   it('nomeia o arquivo com a data do download', () => {

@@ -116,6 +116,19 @@ const COLUMN_STYLES: ColumnStyle[] = [
   { wch: 36.3, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // FINAL
 ];
 
+const DESCRICAO_COLUMN = 3;
+const DESCRICAO_MIN_WCH = 22;
+const DESCRICAO_MAX_WCH = 60;
+
+/**
+ * Largura da coluna DESCRIÇÃO calculada pelo texto mais longo da lista: assim
+ * todas as linhas ficam uniformes e a descrição cabe em uma única linha.
+ */
+export function descriptionColumnWidth(items: ValidadeSpreadsheetItem[]): number {
+  const longest = items.reduce((max, item) => Math.max(max, String(item.descricao ?? '').length), 0);
+  return Math.min(DESCRICAO_MAX_WCH, Math.max(DESCRICAO_MIN_WCH, Math.ceil(longest * 0.95) + 2));
+}
+
 export function formatDateBR(iso: string, withYear = true): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -199,6 +212,7 @@ export function createValidadeWorkbook(
 
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   const lastRow = aoa.length;
+  const descricaoWidth = descriptionColumnWidth(items);
 
   sheet['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },   // DATA: (A1:B1)
@@ -208,16 +222,21 @@ export function createValidadeWorkbook(
     { s: { r: 1, c: 9 }, e: { r: 1, c: 12 } },  // COMERCIAL (J2:M2)
   ];
 
-  sheet['!cols'] = COLUMN_STYLES.map((column) => ({ wch: column.wch }));
+  sheet['!cols'] = COLUMN_STYLES.map((column, index) => ({
+    wch: index === DESCRICAO_COLUMN ? descricaoWidth : column.wch,
+  }));
+
+  const descricaoCharsPerLine = Math.max(10, Math.floor(descricaoWidth * 1.05));
 
   sheet['!rows'] = [
     { hpt: 48.5 }, // 1,711 cm no modelo
     { hpt: 19.4 }, // 0,684 cm
     { hpt: 35.0 }, // 1,236 cm
     ...rows.map((row) => {
-      // Reproduz o auto-ajuste do modelo: a descrição ocupa ~14 caracteres por linha.
-      const lines = Math.max(1, Math.ceil(String(row.descricao ?? '').length / 14));
-      return { hpt: Math.max(14.1, lines * 13.5 + 1) };
+      // A largura acompanha a descrição mais longa; ainda assim quebramos em
+      // linhas para o caso de textos que passem do limite máximo da coluna.
+      const lines = Math.max(1, Math.ceil(String(row.descricao ?? '').length / descricaoCharsPerLine));
+      return { hpt: Math.max(14.1, lines * 13.5) };
     }),
   ];
 
