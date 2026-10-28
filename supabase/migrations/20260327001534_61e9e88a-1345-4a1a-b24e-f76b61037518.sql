@@ -1,0 +1,1 @@
+ALTER TABLE public.validade_products ADD COLUMN quantidade integer NOT NULL DEFAULT 1;

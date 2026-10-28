@@ -1,0 +1,674 @@
+import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush,
+} from 'lucide-react';
+
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import BarcodeScanner from '@/components/BarcodeScanner';
+import { Badge } from '@/components/ui/badge';
+import ConsultaValidadeView from '@/components/ConsultaValidadeView';
+import ArrastaoView from '@/components/ArrastaoView';
+
+
+interface ProductResult {
+  ean: string;
+  codigo: string;
+  descricao: string;
+}
+
+interface ValidadeItem {
+  id: string;
+  ean: number;
+  codigo: number;
+  descricao: string;
+  validade: string;
+  status: boolean;
+  created_by: string | null;
+  quantidade: number;
+}
+
+function getToken(): string | null {
+  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
+}
+
+async function invokeWithToken(functionName: string, body: Record<string, unknown>) {
+  const token = getToken();
+  if (!token) return { data: null, error: new Error('No token') };
+  return supabase.functions.invoke(functionName, {
+    body,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+type FilterType = 'hoje' | '7dias' | '30dias' | 'todos';
+
+const ValidadeView = () => {
+  const { user, getToken: authGetToken, isAdmin } = useAuth();
+  const [code, setCode] = useState('');
+  const [validade, setValidade] = useState('');
+  const [product, setProduct] = useState<ProductResult | null>(null);
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'loading' | 'not_found' | 'error' | 'found'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [items, setItems] = useState<ValidadeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<ValidadeItem[]>([]);
+const [filter, setFilter] = useState<FilterType>('todos');
+  const [quantidade, setQuantidade] = useState('');
+  const [editingItem, setEditingItem] = useState<ValidadeItem | null>(null);
+  const [editValidade, setEditValidade] = useState<Date | undefined>(undefined);
+  const [editQuantidade, setEditQuantidade] = useState('0');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [detailItem, setDetailItem] = useState<ValidadeItem | null>(null);
+  const [showConsulta, setShowConsulta] = useState(false);
+  const [showArrastao, setShowArrastao] = useState(false);
+
+  const [alertDays, setAlertDays] = useState(() => {
+    try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : 2; } catch { return 2; }
+  });
+  const [showAlertConfig, setShowAlertConfig] = useState(false);
+  const [tempAlertDays, setTempAlertDays] = useState(alertDays);
+
+  const fetchItems = useCallback(async () => {
+    const { data, error } = await invokeWithToken('manage-validade', { action: 'list_all' });
+    if (!error && data?.items) {
+      setItems(data.items);
+      // Filter notifications: within configured alert days
+      const now = new Date();
+      const alertLimit = new Date(now);
+      alertLimit.setDate(alertLimit.getDate() + alertDays);
+      alertLimit.setHours(23, 59, 59, 999);
+      const notif = data.items.filter((i: ValidadeItem) => new Date(i.validade) <= alertLimit);
+      setNotifications(notif);
+    }
+    setLoading(false);
+  }, [alertDays]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
+
+  // Show notification toast on mount if there are items expiring
+  useEffect(() => {
+    if (notifications.length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expiringToday = notifications.filter(i => {
+        const d = new Date(i.validade);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === today.getTime();
+      });
+      const expiringSoon = notifications.filter(i => {
+        const d = new Date(i.validade);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() > today.getTime();
+      });
+
+      if (expiringToday.length > 0) {
+        toast.error(`⚠️ ${expiringToday.length} produto(s) vencem HOJE!`, { duration: 8000 });
+      }
+      if (expiringSoon.length > 0) {
+        toast.warning(`🔔 ${expiringSoon.length} produto(s) vencem em até ${alertDays} dia(s)`, { duration: 6000 });
+      }
+    }
+  }, [notifications]);
+
+  const queryProduct = async (codigo: string) => {
+    const token = authGetToken();
+    const { data, error } = await supabase.functions.invoke('query-product', {
+      body: { codigo },
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    });
+    return { data, error };
+  };
+
+  const handleSearch = async () => {
+    if (!code.trim()) return;
+    setSearchStatus('loading');
+    setProduct(null);
+    setErrorMsg('');
+    try {
+      const { data, error } = await queryProduct(code.trim());
+      if (error) { setSearchStatus('error'); setErrorMsg('Erro ao conectar.'); return; }
+      if (data.error) { setSearchStatus('error'); setErrorMsg(data.error); return; }
+      if (!data.found) { setSearchStatus('not_found'); return; }
+      setProduct(data.product);
+      setSearchStatus('found');
+    } catch {
+      setSearchStatus('error');
+      setErrorMsg('Erro ao conectar ao banco de dados.');
+    }
+  };
+
+  const searchProduct = async (scannedCode: string) => {
+    setSearchStatus('loading');
+    try {
+      const { data, error } = await queryProduct(scannedCode);
+      if (error || data.error) { setSearchStatus('error'); setErrorMsg(data?.error || 'Erro ao conectar.'); return; }
+      if (!data.found) { setSearchStatus('not_found'); return; }
+      setProduct(data.product);
+      setSearchStatus('found');
+    } catch {
+      setSearchStatus('error');
+      setErrorMsg('Erro ao conectar ao banco de dados.');
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!product || !validade || submitting) return;
+    setSubmitting(true);
+    try {
+      const { error } = await invokeWithToken('manage-validade', {
+        action: 'add',
+        item: {
+          ean: Number(product.ean),
+          codigo: Number(product.codigo),
+          descricao: product.descricao,
+          validade: new Date(validade + 'T23:59:59').toISOString(),
+          quantidade: parseInt(quantidade) || 0,
+        },
+      });
+      if (!error) {
+        toast.success('Validade registrada com sucesso');
+        setCode(''); setValidade(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
+        await fetchItems();
+      } else {
+        toast.error('Erro ao registrar validade');
+      }
+    } catch {
+      toast.error('Erro ao registrar validade');
+    }
+    setSubmitting(false);
+  };
+
+  const handleRemove = async (id: string) => {
+    const { error } = await invokeWithToken('manage-validade', { action: 'remove', id });
+    if (!error) {
+      toast.success('Item removido');
+      await fetchItems();
+    } else {
+      toast.error('Erro ao remover');
+    }
+  };
+
+  const openEdit = (item: ValidadeItem) => {
+    setEditingItem(item);
+    setEditValidade(new Date(item.validade));
+    setEditQuantidade(String(item.quantidade));
+  };
+
+  const handleEdit = async () => {
+    if (!editingItem || !editValidade || editSubmitting) return;
+    setEditSubmitting(true);
+    try {
+      const { error } = await invokeWithToken('manage-validade', {
+        action: 'update',
+        id: editingItem.id,
+        validade: new Date(editValidade.setHours(23, 59, 59)).toISOString(),
+        quantidade: parseInt(editQuantidade) || 0,
+      });
+      if (!error) {
+        toast.success('Validade atualizada');
+        setEditingItem(null);
+        await fetchItems();
+      } else {
+        toast.error('Erro ao atualizar');
+      }
+    } catch {
+      toast.error('Erro ao atualizar');
+    }
+    setEditSubmitting(false);
+  };
+
+  const getValidadeStatus = (validade: string) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const valDate = new Date(validade);
+    valDate.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return { label: 'Vencido', variant: 'destructive' as const, icon: AlertTriangle };
+    if (diffDays === 0) return { label: 'Vence Hoje', variant: 'destructive' as const, icon: AlertTriangle };
+    if (diffDays <= 2) return { label: `${diffDays}d restante(s)`, variant: 'secondary' as const, icon: Clock };
+    return { label: `${diffDays}d`, variant: 'outline' as const, icon: CalendarClock };
+  };
+
+  const filteredItems = items.filter((item) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const valDate = new Date(item.validade);
+    valDate.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    switch (filter) {
+      case 'hoje': return diffDays <= 0;
+      case '7dias': return diffDays <= 7;
+      case '30dias': return diffDays <= 30;
+      default: return true;
+    }
+  });
+
+  const filterOptions: { key: FilterType; label: string }[] = [
+    { key: 'todos', label: 'Todos' },
+    { key: 'hoje', label: 'Hoje' },
+    { key: '7dias', label: '7 dias' },
+    { key: '30dias', label: '30 dias' },
+  ];
+
+  return (
+    <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+            Validade
+            {notifications.length > 0 && (
+              <Badge variant="destructive" className="ml-1 text-xs">
+                <Bell className="h-3 w-3 mr-1" />
+                {notifications.length}
+              </Badge>
+            )}
+            {(user?.role === 'admin' || user?.role === 'encarregado') && (
+              <Button variant="outline" size="icon" className="ml-2 h-8 w-8" onClick={() => setShowConsulta(true)} title="Consultar registros de validade" aria-label="Consultar registros de validade">
+                <Filter className="h-4 w-4 text-foreground" />
+              </Button>
+            )}
+            <Button variant="outline" size="icon" className="ml-1 h-8 w-8" onClick={() => setShowArrastao(true)} title="Arrastão" aria-label="Abrir Arrastão">
+              <Brush className="h-4 w-4 text-foreground" />
+            </Button>
+
+            <button
+              type="button"
+              className="ml-2 h-8 w-8 inline-flex flex-col items-center justify-center gap-0.5 rounded-md bg-white border border-border text-black cursor-pointer hover:bg-white/90 transition-colors shadow-sm"
+              onClick={() => { setTempAlertDays(alertDays); setShowAlertConfig(true); }}
+              title={`Alerta de validade: ${alertDays} dia(s)`}
+              aria-label={`Configurar alerta de validade: ${alertDays} dia(s)`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-bold leading-none">{alertDays}d</span>
+            </button>
+          </h2>
+        </div>
+
+        {/* Search */}
+        <div className="flex gap-2">
+          {searchStatus !== 'found' && (
+            <BarcodeScanner onDetected={(scannedCode) => { setCode(scannedCode); setSearchStatus('idle'); setProduct(null); setTimeout(() => searchProduct(scannedCode), 100); }} />
+          )}
+          <Input
+            value={code}
+            onChange={(e) => { if (searchStatus === 'found') return; setCode(e.target.value.replace(/\D/g, '')); if (searchStatus !== 'idle') { setSearchStatus('idle'); setProduct(null); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+            placeholder="Código do produto"
+            className="text-base sm:text-lg"
+            inputMode="numeric"
+            autoFocus
+            disabled={searchStatus === 'found' || searchStatus === 'loading'}
+          />
+          <Button onClick={handleSearch} disabled={!code.trim() || searchStatus === 'loading' || searchStatus === 'found'} className="gap-1.5 sm:gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-sm sm:text-base px-3 sm:px-4">
+            {searchStatus === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanBarcode className="h-4 w-4" />}
+            <span className="hidden sm:inline">{searchStatus === 'loading' ? 'Buscando...' : 'Consultar'}</span>
+          </Button>
+        </div>
+
+        {/* Loading */}
+        {searchStatus === 'loading' && (
+          <div className="mt-4 flex items-center justify-center gap-3 rounded-xl border border-border bg-card p-6">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">Buscando produto...</span>
+          </div>
+        )}
+
+        {/* Search results */}
+        <div className="mt-4 sm:mt-6">
+          {searchStatus === 'not_found' && (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/50 p-6 sm:p-8 text-center">
+              <PackageX className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+              <p className="text-muted-foreground">Produto não encontrado no banco de dados.</p>
+            </div>
+          )}
+          {searchStatus === 'error' && (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-6 sm:p-8 text-center">
+              <AlertCircle className="h-8 w-8 sm:h-10 sm:w-10 text-destructive" />
+              <p className="text-destructive text-sm sm:text-base">{errorMsg}</p>
+            </div>
+          )}
+          {searchStatus === 'found' && product && (
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+              <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-4 sm:px-6 py-3 sm:py-4">
+                <ShoppingBasket className="h-5 w-5 text-primary" />
+                <span className="font-semibold text-foreground">Produto Encontrado</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
+                {[
+                  { label: 'EAN', value: product.ean },
+                  { label: 'Código', value: product.codigo },
+                  { label: 'Descrição', value: product.descricao },
+                ].map((item) => (
+                  <div key={item.label} className="bg-card px-4 sm:px-6 py-3 sm:py-4">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{item.label}</p>
+                    <p className="mt-1 text-base sm:text-lg font-semibold text-foreground">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 border-t border-border px-4 sm:px-6 py-3 sm:py-4">
+                <Input
+                  type="date"
+                  value={validade}
+                  onChange={(e) => setValidade(e.target.value)}
+                  className="max-w-[180px]"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  value={quantidade}
+                  onChange={(e) => setQuantidade(e.target.value.replace(/\D/g, ''))}
+                  placeholder="0"
+                  className="max-w-[80px]"
+                  inputMode="numeric"
+                />
+                <Button onClick={handleAdd} disabled={submitting || !validade} className="gap-2">
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+                  Registrar
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); }}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Notifications banner */}
+        {notifications.length > 0 && (() => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const expiringToday = notifications.filter(i => {
+            const d = new Date(i.validade);
+            d.setHours(0, 0, 0, 0);
+            return d.getTime() === today.getTime();
+          });
+          const expiringSoon = notifications.filter(i => {
+            const d = new Date(i.validade);
+            d.setHours(0, 0, 0, 0);
+            return d.getTime() > today.getTime();
+          });
+          return (
+            <div className="mt-4 rounded-xl border-2 border-red-400/60 bg-white p-3 sm:p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Bell className="h-4 w-4 text-destructive" />
+                <span className="font-semibold text-destructive text-sm">Alertas de Validade</span>
+              </div>
+              {expiringToday.length > 0 && (
+                <div className="mb-2">
+                  <p className="text-xs font-semibold text-destructive mb-1">🔴 Vencem HOJE ({expiringToday.length}):</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 pl-4 list-disc">
+                    {expiringToday.slice(0, 5).map(i => (
+                      <li key={i.id}>{i.descricao} — Qtd: {i.quantidade}</li>
+                    ))}
+                    {expiringToday.length > 5 && <li>e mais {expiringToday.length - 5}...</li>}
+                  </ul>
+                </div>
+              )}
+              {expiringSoon.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  🟡 {expiringSoon.length} produto(s) vencem em até 2 dias.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Filter buttons */}
+        <div className="mt-6 flex flex-wrap gap-2">
+          {filterOptions.map((opt) => (
+            <Button
+              key={opt.key}
+              variant={filter === opt.key ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilter(opt.key)}
+              className="text-xs"
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Items list */}
+        <div className="mt-4">
+          {loading ? (
+            <div className="flex items-center justify-center gap-3 p-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span className="text-muted-foreground">Carregando...</span>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/50 p-6 sm:p-8 text-center">
+              <CalendarClock className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+              <p className="text-muted-foreground">Nenhum produto encontrado para este filtro.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredItems.map((item) => {
+                const status = getValidadeStatus(item.validade);
+                const StatusIcon = status.icon;
+                const isExpiredOrToday = status.label === 'Vencido' || status.label === 'Vence Hoje';
+                const isExpiringSoon = status.icon === Clock; // 2 days or less
+                const isUrgent = isExpiredOrToday || isExpiringSoon;
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "rounded-md border bg-card px-2.5 py-1.5 cursor-pointer transition-colors hover:bg-muted/30",
+                      isUrgent && "bg-white border-2 border-red-400/60"
+                    )}
+                    onClick={() => setDetailItem(item)}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold text-foreground truncate flex-1 min-w-0">{item.descricao}</p>
+                      <Badge variant={status.variant} className="gap-0.5 text-[9px] px-1 py-0 leading-4 shrink-0">
+                        <StatusIcon className="h-2.5 w-2.5" />
+                        {status.label}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] font-mono text-muted-foreground">{item.ean}</span>
+                      <span className="text-[10px] text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantidade}</span></span>
+                      <span className="text-[10px] text-foreground font-semibold">{new Date(item.validade).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-0.5 justify-end mt-0.5" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:text-primary" onClick={() => openEdit(item)} aria-label={`Editar ${item.descricao}`}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" aria-label={`Remover ${item.descricao}`}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remover item?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Deseja remover "{item.descricao}" do controle de validade?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleRemove(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                Remover
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Consulta por Período - admin/encarregado only */}
+        <Dialog open={showConsulta} onOpenChange={setShowConsulta}>
+          <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Consulta por Período</DialogTitle>
+            </DialogHeader>
+            <ConsultaValidadeView />
+          </DialogContent>
+        </Dialog>
+
+        <ArrastaoView open={showArrastao} onOpenChange={setShowArrastao} onFinalizeRefresh={fetchItems} />
+
+
+
+        {/* Alert Days Config Dialog */}
+        <Dialog open={showAlertConfig} onOpenChange={setShowAlertConfig}>
+          <DialogContent className="sm:max-w-xs">
+            <DialogHeader>
+              <DialogTitle>Configurar Alerta de Validade</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                Informe com quantos dias de antecedência o sistema deve alertar sobre produtos próximos do vencimento.
+              </p>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={tempAlertDays}
+                  onChange={(e) => setTempAlertDays(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-20 text-center"
+                />
+                <span className="text-sm text-muted-foreground">dia(s)</span>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAlertConfig(false)}>Cancelar</Button>
+              <Button onClick={() => {
+                setAlertDays(tempAlertDays);
+                try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch {}
+                setShowAlertConfig(false);
+                fetchItems();
+                toast.success(`Alerta configurado para ${tempAlertDays} dia(s)`);
+              }}>Salvar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+
+
+      {/* Detail Dialog */}
+      <Dialog open={!!detailItem} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Detalhes do Produto</DialogTitle>
+          </DialogHeader>
+          {detailItem && (() => {
+            const status = getValidadeStatus(detailItem.validade);
+            const StatusIcon = status.icon;
+            return (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição</p>
+                  <p className="text-sm font-semibold">{detailItem.descricao}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">EAN</p>
+                    <p className="text-sm font-mono">{detailItem.ean}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Código</p>
+                    <p className="text-sm font-mono">{detailItem.codigo}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Quantidade</p>
+                    <p className="text-sm font-semibold">{detailItem.quantidade}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Validade</p>
+                    <p className="text-sm font-semibold">{new Date(detailItem.validade).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registrado por</p>
+                    <p className="text-sm">{detailItem.created_by || '—'}</p>
+                  </div>
+                  <Badge variant={status.variant} className="gap-1 text-xs">
+                    <StatusIcon className="h-3 w-3" />
+                    {status.label}
+                  </Badge>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editingItem} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Validade</DialogTitle>
+          </DialogHeader>
+          {editingItem && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Produto</p>
+                <p className="text-sm font-semibold">{editingItem.descricao}</p>
+                <p className="text-xs text-muted-foreground">EAN: {editingItem.ean}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Nova Validade</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal mt-1", !editValidade && "text-muted-foreground")}>
+                      <CalendarClock className="mr-2 h-4 w-4" />
+                      {editValidade ? format(editValidade, "dd/MM/yyyy") : "Selecione a data"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={editValidade} onSelect={setEditValidade} initialFocus className={cn("p-3 pointer-events-auto")} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Quantidade</label>
+                <Input type="number" min="0" value={editQuantidade} onChange={(e) => setEditQuantidade(e.target.value.replace(/[^0-9]/g, ''))} placeholder="0" className="mt-1" inputMode="numeric" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingItem(null)}>Cancelar</Button>
+            <Button onClick={handleEdit} disabled={editSubmitting || !editValidade}>
+              {editSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default ValidadeView;

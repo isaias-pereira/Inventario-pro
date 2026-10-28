@@ -1,0 +1,1 @@
+ALTER TABLE public.shared_inventory ALTER COLUMN quantidade TYPE numeric USING quantidade::numeric;

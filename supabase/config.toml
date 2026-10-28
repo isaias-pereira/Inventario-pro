@@ -1,0 +1,26 @@
+project_id = "zunpwqqlxodomthfjzna"
+
+[functions.query-product]
+verify_jwt = false
+
+[functions.auth-login]
+verify_jwt = false
+
+[functions.manage-users]
+verify_jwt = false
+
+[functions.manage-inventory]
+verify_jwt = false
+
+[functions.manage-consulta]
+verify_jwt = false
+
+[functions.manage-metas]
+verify_jwt = false
+
+[functions.manage-validade]
+verify_jwt = false
+
+[functions.manage-arrastao]
+verify_jwt = false
+
