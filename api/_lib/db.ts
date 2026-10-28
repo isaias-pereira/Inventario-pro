@@ -46,6 +46,36 @@ export function sanitizeUrl(raw: string): string {
   return url;
 }
 
+/** Como a chamada de `sql` deve ser interpretada. */
+export type SqlCall =
+  | { kind: 'template'; statement: Statement }
+  | { kind: 'raw'; statement: Statement }
+  | { kind: 'batch'; queries: Statement[]; write: boolean };
+
+/**
+ * Um tagged template (`sql\`...\``) chega como array de strings marcado por
+ * `.raw`; o lote chega como array de objetos `{ query, params }`. Sem essa
+ * distinção a forma de template caía no ramo de transação e o banco recebia
+ * um corpo inválido.
+ */
+function isTaggedTemplate(value: unknown): value is TemplateStringsArray {
+  return Array.isArray(value) && 'raw' in value;
+}
+
+/** Classifica os argumentos de `sql` em template, consulta crua ou lote. */
+export function resolveSqlCall(args: unknown[]): SqlCall {
+  if (typeof args[0] === 'string') {
+    return { kind: 'raw', statement: { query: args[0], params: (args[1] as Param[]) ?? [] } };
+  }
+  if (Array.isArray(args[0]) && !isTaggedTemplate(args[0])) {
+    return { kind: 'batch', queries: args[0] as Statement[], write: Boolean(args[2]) };
+  }
+  return {
+    kind: 'template',
+    statement: buildStatement(args[0] as TemplateStringsArray, args.slice(1)),
+  };
+}
+
 function buildStatement(strings: TemplateStringsArray, values: unknown[]): Statement {
   let query = '';
   const params: unknown[] = [];
@@ -151,23 +181,21 @@ export function createSql(): Sql {
     (Array.isArray(result) ? result : []) as Record<string, unknown>[];
 
   const run = async (...args: unknown[]): Promise<unknown> => {
-    // Forma crua: sql('SELECT ... WHERE id = $1', [id])
-    if (typeof args[0] === 'string') {
-      const statement: Statement = { query: args[0], params: (args[1] as unknown[]) ?? [] };
+    const call = resolveSqlCall(args);
+
+    if (call.kind === 'raw') {
       if (driver) {
-        return driverRows(await driver.query(statement.query, statement.params ?? []));
+        return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
       }
-      const batch = await gatewayQuery([statement], false);
+      const batch = await gatewayQuery([call.statement], false);
       return batch.results[0]?.rows ?? [];
     }
 
-    if (Array.isArray(args[0])) {
-      const queries = args[0] as Statement[];
-      const write = Boolean(args[2]);
+    if (call.kind === 'batch') {
       if (driver) {
         // Uma transação: se qualquer comando falhar, tudo é revertido.
         const results = await driver.transaction((txn) =>
-          queries.map((statement) => txn.query(statement.query, statement.params ?? [])),
+          call.queries.map((statement) => txn.query(statement.query, statement.params ?? [])),
         );
         return {
           results: results.map((result) => ({
@@ -176,14 +204,13 @@ export function createSql(): Sql {
           })),
         };
       }
-      return gatewayQuery(queries, write);
+      return gatewayQuery(call.queries, call.write);
     }
 
-    const statement = buildStatement(args[0] as TemplateStringsArray, args.slice(1));
     if (driver) {
-      return driverRows(await driver.query(statement.query, statement.params ?? []));
+      return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
     }
-    const batch = await gatewayQuery([statement], false);
+    const batch = await gatewayQuery([call.statement], false);
     return batch.results[0]?.rows ?? [];
   };
 
