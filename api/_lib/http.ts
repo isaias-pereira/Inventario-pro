@@ -39,7 +39,13 @@ export function sendOptions(res: ApiResponse): void {
 
 /** Lê o corpo JSON da requisição (a Vercel já o parseia quando content-type é JSON). */
 export async function readJsonBody<T = Record<string, unknown>>(req: ApiRequest): Promise<T> {
-  const body = req.body;
+  let body: unknown;
+  try {
+    // O getter `req.body` do runtime da Vercel lança se o corpo não for JSON válido.
+    body = req.body;
+  } catch {
+    return {} as T;
+  }
   if (body == null || body === '') return {} as T;
   if (typeof body === 'string') {
     try { return JSON.parse(body) as T; } catch { return {} as T; }
