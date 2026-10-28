@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/~oauth/],
+        importScripts: ['notification-sw.js'],
       },
       manifest: {
         name: "Estoque Pro",

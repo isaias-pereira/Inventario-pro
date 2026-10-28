@@ -1,8 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import {
+  buildNotificationBody,
+  buildValidadeAlerts,
+  getSentSlots,
+  markSlotSent,
+  nextSlotDate,
+  notificationTag,
+  readAlertDays,
+  slotsDueToday,
+  NOTIFICATION_HOURS,
+  type ValidadeAlert,
+} from '@/lib/validade-notifications';
 
-// ── Browser Push Notifications ──
+// ── Permissão de notificações ──
 
 export async function requestPushPermission(): Promise<boolean> {
   if (!('Notification' in window)) {
@@ -16,7 +28,7 @@ export async function requestPushPermission(): Promise<boolean> {
   }
   const result = await Notification.requestPermission();
   if (result === 'granted') {
-    toast.success('Notificações push ativadas!');
+    toast.success('Notificações ativadas! Avisos às 07h e 13h.');
     return true;
   }
   toast.error('Permissão de notificação negada.');
@@ -28,73 +40,30 @@ export function getPushPermissionStatus(): NotificationPermission | 'unsupported
   return Notification.permission;
 }
 
-function sendBrowserNotification(alerts: ValidadeAlert[]) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  if (alerts.length === 0) return;
+async function showValidadeNotification(alerts: ValidadeAlert[], hour: number, alertDays: number) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return false;
 
-  const vencidos = alerts.filter(i => i.status === 'vencido').length;
-  const hoje = alerts.filter(i => i.status === 'hoje').length;
-  const proximo = alerts.filter(i => i.status === 'proximo').length;
-
-  const parts: string[] = [];
-  if (vencidos > 0) parts.push(`${vencidos} vencido(s)`);
-  if (hoje > 0) parts.push(`${hoje} vence(m) hoje`);
-  if (proximo > 0) parts.push(`${proximo} vence(m) em breve`);
-
-  const body = parts.join(', ');
+  const title = `⚠️ ${alerts.length} produto(s) vencendo - Estoque Pro`;
+  const options: NotificationOptions = {
+    body: buildNotificationBody(alerts, alertDays),
+    icon: '/pwa-192x192.png',
+    badge: '/pwa-192x192.png',
+    tag: notificationTag(hour),
+    data: { url: '/' },
+  };
 
   try {
-    new Notification('⚠️ Alerta de Validade - Estoque Pro', {
-      body,
-      icon: '/placeholder.svg',
-      tag: 'validade-alert',
-      requireInteraction: true,
-    });
+    const registration = await navigator.serviceWorker?.getRegistration();
+    if (registration) await registration.showNotification(title, options);
+    else new Notification(title, options);
+    return true;
   } catch (e) {
-    console.error('Error sending browser notification:', e);
+    console.error('Error sending validade notification:', e);
+    return false;
   }
 }
 
-function sendDailyMobileNotification(alerts: ValidadeAlert[]) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  if (alerts.length === 0) return;
-
-  const hoje = alerts.filter(i => i.status === 'hoje').length;
-  const vencidos = alerts.filter(i => i.status === 'vencido').length;
-  const proximo = alerts.filter(i => i.status === 'proximo').length;
-  const total = alerts.length;
-
-  let body = `Existem ${total} produto(s) em alerta de validade.`;
-  const details: string[] = [];
-  if (vencidos > 0) details.push(`${vencidos} vencido(s)`);
-  if (hoje > 0) details.push(`${hoje} vencendo hoje`);
-  if (proximo > 0) details.push(`${proximo} vencendo em breve`);
-  if (details.length > 0) body = details.join(', ') + '.';
-
-  try {
-    new Notification('📦 Alerta Diário - Estoque Pro (7h)', {
-      body,
-      icon: '/placeholder.svg',
-      tag: 'validade-daily-7am',
-      requireInteraction: true,
-    });
-  } catch (e) {
-    console.error('Error sending daily notification:', e);
-  }
-}
-
-interface ValidadeAlert {
-  id: string;
-  descricao: string;
-  validade: string;
-  quantidade: number;
-  daysUntil: number;
-  status: 'vencido' | 'hoje' | 'proximo';
-}
-
-function getToken(): string | null {
-  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
-}
+// ── Webhook (WhatsApp via Zapier) ──
 
 function getWebhookUrl(): string | null {
   try { return localStorage.getItem('zapier_webhook_url'); } catch { return null; }
@@ -106,28 +75,6 @@ export function setWebhookUrl(url: string) {
 
 export function removeWebhookUrl() {
   try { localStorage.removeItem('zapier_webhook_url'); } catch { /* noop */ }
-}
-
-function getDailyNotifKey(): string {
-  const now = new Date();
-  return `daily_notif_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function wasDailyNotifSentToday(): boolean {
-  try { return localStorage.getItem(getDailyNotifKey()) === 'sent'; } catch { return false; }
-}
-
-function markDailyNotifSent() {
-  try {
-    // Clean old keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('daily_notif_') && key !== getDailyNotifKey()) {
-        localStorage.removeItem(key);
-      }
-    }
-    localStorage.setItem(getDailyNotifKey(), 'sent');
-  } catch { /* noop */ }
 }
 
 async function sendZapierWebhook(alerts: ValidadeAlert[]) {
@@ -181,31 +128,10 @@ async function sendZapierWebhook(alerts: ValidadeAlert[]) {
   }
 }
 
-function checkAndScheduleDaily(fetchAndNotify: () => void) {
-  const now = new Date();
-  const target = new Date();
-  target.setHours(7, 0, 0, 0);
+// ── Token ──
 
-  // If it's past 7:00 today and not sent yet, fire immediately
-  if (now >= target && !wasDailyNotifSentToday()) {
-    fetchAndNotify();
-  }
-
-  // Schedule next 7:00 AM check
-  let next7am = new Date();
-  next7am.setHours(7, 0, 0, 0);
-  if (now >= next7am) {
-    next7am.setDate(next7am.getDate() + 1);
-  }
-  const msUntil7am = next7am.getTime() - now.getTime();
-
-  const timeoutId = setTimeout(() => {
-    fetchAndNotify();
-    // Then set interval for every 24h
-    setInterval(fetchAndNotify, 24 * 60 * 60 * 1000);
-  }, msUntil7am);
-
-  return timeoutId;
+function getToken(): string | null {
+  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
 }
 
 export function useValidadeNotifications() {
@@ -213,51 +139,24 @@ export function useValidadeNotifications() {
   const [loading, setLoading] = useState(true);
   const toastShown = useRef(false);
   const webhookSent = useRef(false);
-  const pushSent = useRef(false);
+  const notifying = useRef(false);
 
-  const getAlertDays = () => {
-    try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : 2; } catch { return 2; }
-  };
-
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = useCallback(async (): Promise<ValidadeAlert[] | null> => {
     const token = getToken();
-    if (!token) { setLoading(false); return; }
+    if (!token) { setLoading(false); return null; }
 
     try {
       const { data, error } = await supabase.functions.invoke('manage-validade', {
-        body: { action: 'list' },
+        body: { action: 'list_all' },
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (error || !data?.items) { setLoading(false); return; }
+      if (error || !Array.isArray(data?.items)) return null;
 
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-
-      const urgentItems: ValidadeAlert[] = [];
-
-      for (const item of data.items) {
-        if (!item.status) continue;
-        const valDate = new Date(item.validade);
-        valDate.setHours(0, 0, 0, 0);
-        const diffDays = Math.floor((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-        if (diffDays <= getAlertDays()) {
-          urgentItems.push({
-            id: item.id,
-            descricao: item.descricao,
-            validade: item.validade,
-            quantidade: item.quantidade,
-            daysUntil: diffDays,
-            status: diffDays < 0 ? 'vencido' : diffDays === 0 ? 'hoje' : 'proximo',
-          });
-        }
-      }
-
-      urgentItems.sort((a, b) => a.daysUntil - b.daysUntil);
+      const alertDays = readAlertDays();
+      const urgentItems = buildValidadeAlerts(data.items, alertDays);
       setAlerts(urgentItems);
 
-      // Show toast on first load
       if (!toastShown.current && urgentItems.length > 0) {
         toastShown.current = true;
         const vencidos = urgentItems.filter(i => i.status === 'vencido').length;
@@ -267,80 +166,96 @@ export function useValidadeNotifications() {
         const parts: string[] = [];
         if (vencidos > 0) parts.push(`${vencidos} vencido(s)`);
         if (hoje > 0) parts.push(`${hoje} vence(m) hoje`);
-        if (proximo > 0) parts.push(`${proximo} vence(m) em breve`);
+        if (proximo > 0) parts.push(`${proximo} vence(m) em até ${alertDays} dia(s)`);
 
-        toast.warning(`⚠️ Alerta de Validade: ${parts.join(', ')}`, {
-          duration: 8000,
-        });
+        toast.warning(`⚠️ Alerta de Validade: ${parts.join(', ')}`, { duration: 8000 });
       }
 
-      // Send Zapier webhook on first load
       if (!webhookSent.current && urgentItems.length > 0) {
         webhookSent.current = true;
-        sendZapierWebhook(urgentItems);
+        void sendZapierWebhook(urgentItems);
       }
 
-      // Send browser push notification on first load
-      if (!pushSent.current && urgentItems.length > 0) {
-        pushSent.current = true;
-        sendBrowserNotification(urgentItems);
-      }
+      return urgentItems;
     } catch (e) {
       console.error('Error fetching validade alerts:', e);
+      return null;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  // Daily 7:00 AM notification
-  const fetchAndSendDaily = useCallback(async () => {
-    if (wasDailyNotifSentToday()) return;
-    const token = getToken();
-    if (!token) return;
+  // Dispara a notificação de um horário (07h/13h) e marca como enviada no dia.
+  const notifySlot = useCallback(async (hour: number) => {
+    if (notifying.current) return;
+    if (getSentSlots().includes(hour)) return;
 
+    notifying.current = true;
     try {
-      const { data, error } = await supabase.functions.invoke('manage-validade', {
-        body: { action: 'list' },
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (error || !data?.items) return;
-
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const urgentItems: ValidadeAlert[] = [];
-
-      for (const item of data.items) {
-        if (!item.status) continue;
-        const valDate = new Date(item.validade);
-        valDate.setHours(0, 0, 0, 0);
-        const diffDays = Math.floor((valDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays <= getAlertDays()) {
-          urgentItems.push({
-            id: item.id,
-            descricao: item.descricao,
-            validade: item.validade,
-            quantidade: item.quantidade,
-            daysUntil: diffDays,
-            status: diffDays < 0 ? 'vencido' : diffDays === 0 ? 'hoje' : 'proximo',
-          });
-        }
-      }
+      const urgentItems = await fetchAlerts();
+      // Falha de rede/token: não marca como enviado para tentar novamente depois.
+      if (urgentItems === null) return;
 
       if (urgentItems.length > 0) {
-        markDailyNotifSent();
-        sendDailyMobileNotification(urgentItems);
-        sendZapierWebhook(urgentItems);
+        await showValidadeNotification(urgentItems, hour, readAlertDays());
       }
-    } catch (e) {
-      console.error('Error in daily 7am notification:', e);
+      markSlotSent(hour);
+    } finally {
+      notifying.current = false;
     }
-  }, []);
+  }, [fetchAlerts]);
+
+  // Agenda o próximo horário (07h ou 13h) e reagenda após disparar.
+  useEffect(() => {
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      const now = new Date();
+      const next = NOTIFICATION_HOURS
+        .map((hour) => nextSlotDate(hour, now))
+        .sort((a, b) => a.getTime() - b.getTime())[0];
+
+      const delay = Math.max(1000, next.getTime() - now.getTime());
+      timeoutId = window.setTimeout(() => {
+        void notifySlot(next.getHours()).finally(scheduleNext);
+      }, delay);
+    };
+
+    scheduleNext();
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [notifySlot]);
+
+  // Recupera horários perdidos (aba em background, dispositivo dormindo, app reaberto).
+  useEffect(() => {
+    const checkMissedSlots = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+      const sent = getSentSlots();
+      const pending = slotsDueToday().filter((hour) => !sent.includes(hour));
+      if (pending.length === 0) return;
+
+      const latest = Math.max(...pending);
+      pending.filter((hour) => hour !== latest).forEach((hour) => markSlotSent(hour));
+      void notifySlot(latest);
+    };
+
+    checkMissedSlots();
+    document.addEventListener('visibilitychange', checkMissedSlots);
+    window.addEventListener('focus', checkMissedSlots);
+    return () => {
+      document.removeEventListener('visibilitychange', checkMissedSlots);
+      window.removeEventListener('focus', checkMissedSlots);
+    };
+  }, [notifySlot]);
 
   useEffect(() => {
-    fetchAlerts();
-    const timeoutId = checkAndScheduleDaily(fetchAndSendDaily);
-    return () => clearTimeout(timeoutId);
-  }, [fetchAlerts, fetchAndSendDaily]);
+    void fetchAlerts();
+  }, [fetchAlerts]);
 
   return { alerts, loading, alertCount: alerts.length, refetch: fetchAlerts };
 }

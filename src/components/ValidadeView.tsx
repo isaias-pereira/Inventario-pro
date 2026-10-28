@@ -22,6 +22,7 @@ import BarcodeScanner from '@/components/BarcodeScanner';
 import { Badge } from '@/components/ui/badge';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
+import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
 
 
 interface ProductResult {
@@ -63,14 +64,6 @@ const FILTER_LABELS: Record<FilterType, string> = {
   '30dias': '30 dias',
 };
 
-function daysUntil(validade: string) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const valDate = new Date(validade);
-  valDate.setHours(0, 0, 0, 0);
-  return Math.ceil((valDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-}
-
 const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin } = useAuth();
   const [code, setCode] = useState('');
@@ -94,7 +87,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const [alertDays, setAlertDays] = useState(() => {
-    try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : 2; } catch { return 2; }
+    try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : DEFAULT_ALERT_DAYS; } catch { return DEFAULT_ALERT_DAYS; }
   });
   const [showAlertConfig, setShowAlertConfig] = useState(false);
   const [tempAlertDays, setTempAlertDays] = useState(alertDays);
@@ -570,7 +563,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               )}
               {expiringSoon.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  🟡 {expiringSoon.length} produto(s) vencem em até 2 dias.
+                  🟡 {expiringSoon.length} produto(s) vencem em até {alertDays} dia(s).
                 </p>
               )}
             </div>

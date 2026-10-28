@@ -1,5 +1,6 @@
 import { Bell, AlertTriangle, Clock, CalendarClock, Settings, MessageCircle, Check, X, BellRing } from 'lucide-react';
 import { useValidadeNotifications, setWebhookUrl, removeWebhookUrl, requestPushPermission, getPushPermissionStatus } from '@/hooks/useValidadeNotifications';
+import { readAlertDays, NOTIFICATION_HOURS } from '@/lib/validade-notifications';
 import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
@@ -107,6 +108,13 @@ const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
               <MessageCircle className={`h-3.5 w-3.5 ${hasWebhook ? 'text-green-500' : 'text-muted-foreground'}`} />
             </Button>
           </div>
+        </div>
+
+        <div className="border-b px-4 py-2 bg-muted/20">
+          <p className="text-[11px] text-muted-foreground">
+            Avisos automáticos às {NOTIFICATION_HOURS.map((hour) => `${String(hour).padStart(2, '0')}h`).join(' e ')} · produtos vencendo em até {readAlertDays()} dias
+            {pushStatus !== 'granted' && ' · ative o push no ícone do sino'}
+          </p>
         </div>
 
         {showSettings && (
