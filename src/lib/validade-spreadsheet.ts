@@ -48,14 +48,73 @@ export interface ValidadeSpreadsheetRow {
 
 export type TipoMap = Record<string, string>;
 
-const BORDER = {
-  top: { style: 'thin', color: { rgb: '808080' } },
-  bottom: { style: 'thin', color: { rgb: '808080' } },
-  left: { style: 'thin', color: { rgb: '808080' } },
-  right: { style: 'thin', color: { rgb: '808080' } },
+// Cores e fontes extraídas do modelo original "Modelo de rabaixa.ods".
+const COLORS = {
+  titleFill: '3465A4',
+  storeSectionFill: 'DEDCE6',
+  commercialSectionFill: 'E6E6FF',
+  dateFill: 'E6E6FF',
+  headerStoreFill: 'CCCCCC',
+  headerCommercialFill: 'E6E6E6',
+  red: 'FF0000',
+  blue: '0000FF',
+  black: '000000',
+  white: 'FFFFFF',
 };
 
-const BASE_FONT = { name: 'Calibri', sz: 10 };
+const FONTS = {
+  title: 'Trebuchet MS',
+  section: 'Trebuchet MS',
+  header: 'Trebuchet MS',
+  data: 'Trebuchet MS',
+  default: 'Arial',
+};
+
+const BORDER = {
+  top: { style: 'thin', color: { rgb: COLORS.black } },
+  bottom: { style: 'thin', color: { rgb: COLORS.black } },
+  left: { style: 'thin', color: { rgb: COLORS.black } },
+  right: { style: 'thin', color: { rgb: COLORS.black } },
+};
+
+// No modelo a coluna do código de barras tem moldura reforçada (0,74pt).
+const EAN_BORDER = {
+  top: { style: 'medium', color: { rgb: COLORS.black } },
+  bottom: { style: 'medium', color: { rgb: COLORS.black } },
+  left: { style: 'medium', color: { rgb: COLORS.black } },
+  right: { style: 'medium', color: { rgb: COLORS.black } },
+};
+
+interface ColumnStyle {
+  wch: number;
+  align: 'left' | 'center';
+  headerColor: string;
+  headerFill: string;
+  dataFont: string;
+  dataSize: number;
+  dataBold?: boolean;
+  dataItalic?: boolean;
+  dataColor?: string;
+  dataFill?: string;
+  dataBorder?: typeof BORDER;
+  wrap?: boolean;
+}
+
+const COLUMN_STYLES: ColumnStyle[] = [
+  { wch: 11.5, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5 }, // LOJA
+  { wch: 18.3, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataBorder: EAN_BORDER }, // EAN
+  { wch: 11.5, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5 }, // CÓDIGO C5
+  { wch: 11.5, align: 'left', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, wrap: true }, // DESCRIÇÃO
+  { wch: 11.5, align: 'left', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // PMZ
+  { wch: 21.8, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // PREÇO SUGERIDO
+  { wch: 15.8, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, dataFill: COLORS.white }, // MARGEM %
+  { wch: 18.6, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // VENCIMENTO
+  { wch: 22.7, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // QUANTIDADE
+  { wch: 16.6, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // DESCRIÇÃO DA OFERTA
+  { wch: 11.5, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5, dataBold: true, dataItalic: true, dataColor: COLORS.blue }, // PREÇO FINAL REBAIXA
+  { wch: 11.5, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // INÍCIO
+  { wch: 36.3, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // FINAL
+];
 
 export function formatDateBR(iso: string, withYear = true): string {
   const date = new Date(iso);
@@ -119,7 +178,7 @@ export function createValidadeWorkbook(
 
   const aoa: (string | number)[][] = [
     ['DATA:', '', SHEET_TITLE, '', '', '', '', '', '', '', '', '', ''],
-    ['', formatShortDate(date), STORE_SECTION, '', '', '', '', '', '', COMMERCIAL_SECTION, '', '', ''],
+    [formatShortDate(date), '', STORE_SECTION, '', '', '', '', '', '', COMMERCIAL_SECTION, '', '', ''],
     [...COLUMNS],
     ...rows.map((row) => [
       row.loja,
@@ -142,69 +201,65 @@ export function createValidadeWorkbook(
   const lastRow = aoa.length;
 
   sheet['!merges'] = [
-    { s: { r: 0, c: 2 }, e: { r: 0, c: 12 } },
-    { s: { r: 1, c: 2 }, e: { r: 1, c: 8 } },
-    { s: { r: 1, c: 9 }, e: { r: 1, c: 12 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },   // DATA: (A1:B1)
+    { s: { r: 0, c: 2 }, e: { r: 0, c: 12 } },  // título (C1:M1)
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },   // data (A2:B2)
+    { s: { r: 1, c: 2 }, e: { r: 1, c: 8 } },   // PREENCHIMENTO LOJA (C2:I2)
+    { s: { r: 1, c: 9 }, e: { r: 1, c: 12 } },  // COMERCIAL (J2:M2)
   ];
 
-  sheet['!cols'] = [
-    { wch: 8 },   // LOJA
-    { wch: 18 },  // EAN OU BALANÇA
-    { wch: 12 },  // CÓDIGO C5
-    { wch: 42 },  // DESCRIÇÃO
-    { wch: 8 },   // PMZ
-    { wch: 15 },  // PREÇO SUGERIDO
-    { wch: 10 },  // MARGEM %
-    { wch: 17 },  // VENCIMENTO
-    { wch: 17 },  // QUANTIDADE
-    { wch: 26 },  // DESCRIÇÃO DA OFERTA
-    { wch: 16 },  // PREÇO FINAL REBAIXA
-    { wch: 10 },  // INÍCIO
-    { wch: 10 },  // FINAL
-  ];
+  sheet['!cols'] = COLUMN_STYLES.map((column) => ({ wch: column.wch }));
 
   sheet['!rows'] = [
-    { hpt: 30 },
-    { hpt: 20 },
-    { hpt: 38 },
-    ...rows.map(() => ({ hpt: 18 })),
+    { hpt: 48.5 }, // 1,711 cm no modelo
+    { hpt: 19.4 }, // 0,684 cm
+    { hpt: 35.0 }, // 1,236 cm
+    ...rows.map((row) => {
+      // Reproduz o auto-ajuste do modelo: a descrição ocupa ~14 caracteres por linha.
+      const lines = Math.max(1, Math.ceil(String(row.descricao ?? '').length / 14));
+      return { hpt: Math.max(14.1, lines * 13.5 + 1) };
+    }),
   ];
 
-  // ── Linha 1: rótulo DATA + faixa azul do título ──
+  // ── Linha 1: rótulo DATA (sem borda, como no modelo) + faixa azul do título ──
   styleCell(sheet, 'A1', {
-    font: { ...BASE_FONT, bold: true, sz: 11 },
+    font: { name: FONTS.default, sz: 10, bold: true, italic: true, underline: true },
     alignment: { horizontal: 'center', vertical: 'center' },
-    border: BORDER,
-  });
-  styleCell(sheet, 'B1', {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    border: BORDER,
   });
   for (let col = 2; col <= 12; col++) {
     const address = XLSX.utils.encode_cell({ r: 0, c: col });
     styleCell(sheet, address, {
-      fill: { fgColor: { rgb: '1F4E79' } },
-      font: { ...BASE_FONT, bold: true, italic: true, sz: 13, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: COLORS.titleFill } },
+      font: { name: FONTS.title, sz: 15, bold: true, italic: true, underline: true, color: { rgb: COLORS.white } },
       alignment: { horizontal: 'center', vertical: 'center' },
       border: BORDER,
     });
   }
 
   // ── Linha 2: data do download + seções ──
-  styleCell(sheet, 'A2', {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    border: BORDER,
-  });
-  styleCell(sheet, 'B2', {
-    font: { ...BASE_FONT, bold: true, sz: 10 },
-    alignment: { horizontal: 'right', vertical: 'center' },
-    border: BORDER,
-  });
-  for (let col = 2; col <= 12; col++) {
+  for (let col = 0; col <= 1; col++) {
     const address = XLSX.utils.encode_cell({ r: 1, c: col });
     styleCell(sheet, address, {
-      fill: { fgColor: { rgb: 'D9D9D9' } },
-      font: { ...BASE_FONT, bold: true, italic: true },
+      fill: { fgColor: { rgb: COLORS.dateFill } },
+      font: { name: FONTS.section, sz: 11, bold: true, italic: true, underline: true, color: { rgb: COLORS.black } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: BORDER,
+    });
+  }
+  for (let col = 2; col <= 8; col++) {
+    const address = XLSX.utils.encode_cell({ r: 1, c: col });
+    styleCell(sheet, address, {
+      fill: { fgColor: { rgb: COLORS.storeSectionFill } },
+      font: { name: FONTS.section, sz: 11, bold: true, italic: true, underline: true, color: { rgb: COLORS.black } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: BORDER,
+    });
+  }
+  for (let col = 9; col <= 12; col++) {
+    const address = XLSX.utils.encode_cell({ r: 1, c: col });
+    styleCell(sheet, address, {
+      fill: { fgColor: { rgb: COLORS.commercialSectionFill } },
+      font: { name: FONTS.section, sz: 11, bold: true, italic: true, underline: true, color: { rgb: COLORS.black } },
       alignment: { horizontal: 'center', vertical: 'center' },
       border: BORDER,
     });
@@ -213,15 +268,10 @@ export function createValidadeWorkbook(
   // ── Linha 3: cabeçalho das colunas ──
   for (let col = 0; col <= 12; col++) {
     const address = XLSX.utils.encode_cell({ r: 2, c: col });
-    const isRed = col === 7 || col === 8;
-    const isBlue = col >= 9;
+    const column = COLUMN_STYLES[col];
     styleCell(sheet, address, {
-      fill: { fgColor: { rgb: col >= 7 ? 'D9D9D9' : 'FFFFFF' } },
-      font: {
-        ...BASE_FONT,
-        bold: true,
-        color: { rgb: isRed ? 'C00000' : isBlue ? '1F4E79' : '000000' },
-      },
+      fill: { fgColor: { rgb: column.headerFill } },
+      font: { name: FONTS.header, sz: 10, bold: true, color: { rgb: column.headerColor } },
       alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
       border: BORDER,
     });
@@ -231,14 +281,22 @@ export function createValidadeWorkbook(
   for (let row = 3; row < lastRow; row++) {
     for (let col = 0; col <= 12; col++) {
       const address = XLSX.utils.encode_cell({ r: row, c: col });
+      const column = COLUMN_STYLES[col];
       styleCell(sheet, address, {
-        font: BASE_FONT,
-        alignment: {
-          horizontal: col === 0 || col === 8 ? 'center' : col === 7 ? 'center' : 'left',
-          vertical: 'center',
-          wrapText: col === 3,
+        ...(column.dataFill ? { fill: { fgColor: { rgb: column.dataFill } } } : {}),
+        font: {
+          name: column.dataFont,
+          sz: column.dataSize,
+          bold: column.dataBold ?? false,
+          italic: column.dataItalic ?? false,
+          ...(column.dataColor ? { color: { rgb: column.dataColor } } : {}),
         },
-        border: BORDER,
+        alignment: {
+          horizontal: column.align,
+          vertical: 'center',
+          wrapText: column.wrap ?? false,
+        },
+        border: column.dataBorder ?? BORDER,
       });
     }
   }
