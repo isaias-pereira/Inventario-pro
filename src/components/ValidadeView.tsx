@@ -3,14 +3,14 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,8 @@ import { Badge } from '@/components/ui/badge';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
+import { createValidadeWorkbook, saveValidadeSpreadsheet } from '@/lib/validade-spreadsheet';
+import { fetchProductTipos } from '@/lib/validade-tipos';
 
 
 interface ProductResult {
@@ -85,6 +87,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [showConsulta, setShowConsulta] = useState(false);
   const [showArrastao, setShowArrastao] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
 
   const [alertDays, setAlertDays] = useState(() => {
     try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : DEFAULT_ALERT_DAYS; } catch { return DEFAULT_ALERT_DAYS; }
@@ -390,6 +394,29 @@ const [filter, setFilter] = useState<FilterType>('todos');
     setDownloadingPdf(false);
   };
 
+  const downloadSpreadsheet = async () => {
+    if (downloadingXlsx) return;
+    if (filteredItems.length === 0) {
+      toast.error('Nenhum produto na lista para exportar');
+      return;
+    }
+    setDownloadingXlsx(true);
+    try {
+      const token = authGetToken() ?? getToken();
+      const tipos = await fetchProductTipos(
+        filteredItems.map((item) => String(item.codigo)),
+        token,
+      );
+      const workbook = createValidadeWorkbook(filteredItems, tipos);
+      saveValidadeSpreadsheet(workbook);
+      toast.success('Planilha gerada com sucesso');
+      setShowDownloadDialog(false);
+    } catch {
+      toast.error('Erro ao gerar planilha');
+    }
+    setDownloadingXlsx(false);
+  };
+
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-3xl">
@@ -427,12 +454,12 @@ const [filter, setFilter] = useState<FilterType>('todos');
               variant="outline"
               size="icon"
               className="ml-1 h-8 w-8"
-              onClick={downloadPdf}
-              disabled={downloadingPdf || loading}
-              title="Baixar lista de validade em PDF"
-              aria-label="Baixar lista de validade em PDF"
+              onClick={() => setShowDownloadDialog(true)}
+              disabled={downloadingPdf || downloadingXlsx || loading}
+              title="Exportar lista de validade"
+              aria-label="Exportar lista de validade"
             >
-              {downloadingPdf ? (
+              {downloadingPdf || downloadingXlsx ? (
                 <Loader2 className="h-4 w-4 animate-spin text-foreground" />
               ) : (
                 <Share2 className="h-4 w-4 text-foreground" />
@@ -674,6 +701,56 @@ const [filter, setFilter] = useState<FilterType>('todos');
         <ArrastaoView open={showArrastao} onOpenChange={setShowArrastao} onFinalizeRefresh={fetchItems} />
 
 
+
+        {/* Export Format Dialog */}
+        <Dialog
+          open={showDownloadDialog}
+          onOpenChange={(open) => { if (!downloadingXlsx) setShowDownloadDialog(open); }}
+        >
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Baixar lista de validade</DialogTitle>
+            </DialogHeader>
+            <DialogDescription>
+              Escolha o formato do arquivo. Serão exportados{' '}
+              <span className="font-semibold text-foreground">{filteredItems.length}</span>{' '}
+              produto(s) do filtro "{FILTER_LABELS[filter]}".
+            </DialogDescription>
+            <div className="grid gap-2 py-1">
+              <button
+                type="button"
+                onClick={downloadSpreadsheet}
+                disabled={downloadingXlsx}
+                className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-60"
+              >
+                <FileSpreadsheet className="h-6 w-6 shrink-0 text-emerald-600" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold">Planilha (XLSX)</span>
+                  <span className="text-xs text-muted-foreground">Solicitação de rebaixa / perecíveis</span>
+                </span>
+                {downloadingXlsx && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDownloadDialog(false); void downloadPdf(); }}
+                disabled={downloadingPdf}
+                className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-60"
+              >
+                <FileText className="h-6 w-6 shrink-0 text-red-600" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold">PDF</span>
+                  <span className="text-xs text-muted-foreground">Relatório com filtro, totais e status</span>
+                </span>
+                {downloadingPdf && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
+              </button>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDownloadDialog(false)} disabled={downloadingXlsx}>
+                Cancelar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Alert Days Config Dialog */}
         <Dialog open={showAlertConfig} onOpenChange={setShowAlertConfig}>

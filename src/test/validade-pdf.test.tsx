@@ -3,13 +3,24 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save } = vi.hoisted(() => ({ invoke: vi.fn(), save: vi.fn() }));
+const { invoke, save, createWorkbook, saveSpreadsheet, fetchTipos } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  save: vi.fn(),
+  createWorkbook: vi.fn(() => ({ SheetNames: [], Sheets: {} })),
+  saveSpreadsheet: vi.fn(),
+  fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
+}));
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke } } }));
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { role: 'admin' }, getToken: () => 'token', isAdmin: true }),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: fetchTipos }));
+vi.mock('@/lib/validade-spreadsheet', () => ({
+  createValidadeWorkbook: createWorkbook,
+  saveValidadeSpreadsheet: saveSpreadsheet,
+}));
 vi.mock('jspdf', () => ({
   jsPDF: vi.fn(function jsPDF() {
     return {
@@ -33,6 +44,9 @@ beforeEach(() => {
   cleanup();
   invoke.mockReset();
   save.mockReset();
+  createWorkbook.mockClear();
+  saveSpreadsheet.mockReset();
+  fetchTipos.mockClear();
   window.localStorage.setItem('estoque_pro_token', 'token');
   invoke.mockResolvedValue({
     data: {
@@ -57,8 +71,29 @@ it('downloads the expiry list as a PDF', async () => {
   render(<ValidadeView />);
 
   await screen.findByText('BANANA PRATA');
-  await user.click(screen.getByRole('button', { name: 'Baixar lista de validade em PDF' }));
+  await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
+
+  // O botão de exportar abre a escolha entre planilha e PDF.
+  await user.click(await screen.findByRole('button', { name: /PDF/ }));
 
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   expect(save.mock.calls[0][0]).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/);
+});
+
+it('exports the expiry list as an XLSX spreadsheet', async () => {
+  const user = userEvent.setup();
+  render(<ValidadeView />);
+
+  await screen.findByText('BANANA PRATA');
+  await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
+
+  // A opção de planilha usa o tipo do produto para decidir o vencimento.
+  await user.click(await screen.findByRole('button', { name: /Planilha/ }));
+
+  await waitFor(() => expect(saveSpreadsheet).toHaveBeenCalledTimes(1));
+  expect(fetchTipos).toHaveBeenCalledWith(['100'], 'token');
+  expect(createWorkbook).toHaveBeenCalledWith(
+    [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
+    { '100': 'UN' },
+  );
 });
