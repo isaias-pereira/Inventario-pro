@@ -97,13 +97,37 @@ npx vercel env add JWT_SECRET preview
 
 ### Como validar antes de mergear
 
-Com a branch `feat/vercel-api-sem-supabase` deployada em preview:
+Rodando as funções localmente com o banco real (`vercel dev` lê `.env.local`):
 
 ```sh
-# deve responder 401 {"error":"Token obrigatório"} (rota viva, sem token)
-curl -X POST https://<preview>.vercel.app/api/manage-validade \
-  -H 'Content-Type: application/json' -d '{"action":"list_all"}'
+npx vercel dev --listen 3001 --yes
+
+# login (bcrypt no Neon + JWT HS256)
+curl -X POST localhost:3001/api/auth-login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<senha>"}'
+
+# demais rotas exigem o token
+curl -X POST localhost:3001/api/manage-validade \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer <token>" \
+  -d '{"action":"list_all"}'
 ```
+
+Já validado contra o banco de produção: login (200 + token), `list_all`,
+`list_users`, `list`, `list_lotes`, consulta, metas, arrastão, `query-product`
+(todos 200), ação inválida (400) e o fluxo **KG com motivo** — grava
+`motivo`, `quantidade` e `validade` do dia, e remove com `status=false`.
+
+### Observações de implementação
+
+- `sql\`...\`` (tagged template) e `sql([{query, params}])` (lote transacional)
+  são distinguídos em `resolveSqlCall` (`api/_lib/db.ts`): um template também é
+  um array, e sem a verificação ele caía no ramo de transação. Coberto por
+  `src/test/db-sql-call.test.ts`.
+- Imports relativos em `api/` usam extensão `.js` explícita — o build da Vercel
+  compila com `moduleResolution: nodenext`.
+- Corpo de requisição inválido não derruba o endpoint: `readJsonBody` devolve
+  `{}` e a função responde 400/401 normalmente.
 
 
 ## Riscos e rollback
