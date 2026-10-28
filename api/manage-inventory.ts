@@ -1,36 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { neon } from "npm:@neondatabase/serverless@0.10.4";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
-
-interface JwtPayload { sub: string; role: string; exp: number }
-
-async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
-  try {
-    const [header, body, signature] = token.split('.');
-    if (!header || !body || !signature) return null;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    const sig = Uint8Array.from(atob(signature.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify('HMAC', key, sig, encoder.encode(`${header}.${body}`));
-    if (!valid) return null;
-    const payload = JSON.parse(atob(body)) as JwtPayload;
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return payload;
-  } catch { return null; }
-}
-
-function sanitizeUrl(raw: string): string {
-  let url = raw.replace(/^psql\s+/, '').replace(/^["']|["']$/g, '').trim();
-  try { const u = new URL(url); u.searchParams.delete('channel_binding'); url = u.toString(); } catch { /* keep */ }
-  return url;
-}
+import { createSql, type Sql } from './_lib/db';
+import { authenticate } from './_lib/auth';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
 
 let schemaEnsured = false;
-async function ensureSchema(sql: any) {
+
+async function ensureSchema(sql: Sql) {
   if (schemaEnsured) return;
   await sql`CREATE TABLE IF NOT EXISTS inventory_lotes (
     id SERIAL PRIMARY KEY,
@@ -74,12 +48,12 @@ async function ensureSchema(sql: any) {
   schemaEnsured = true;
 }
 
-async function getOpenLote(sql: any): Promise<number | null> {
+async function getOpenLote(sql: Sql): Promise<number | null> {
   const open = await sql`SELECT numero FROM inventory_lotes WHERE status = 'aberto' ORDER BY numero DESC LIMIT 1`;
   return open.length > 0 ? Number(open[0].numero) : null;
 }
 
-async function getOrCreateOpenLote(sql: any, username: string): Promise<number> {
+async function getOrCreateOpenLote(sql: Sql, username: string): Promise<number> {
   const existing = await getOpenLote(sql);
   if (existing != null) return existing;
   // Race-safe: compute next number and insert with ON CONFLICT to avoid duplicates
@@ -91,63 +65,75 @@ async function getOrCreateOpenLote(sql: any, username: string): Promise<number> 
   return after ?? next;
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+const handler: ApiHandler = async (req, res) => {
+  if (!requirePost(req, res)) return;
 
   try {
-    const body = await req.json();
-    const { action, item, codigo, quantidade, lote_numero } = body;
+    const payload = authenticate(req, res);
+    if (!payload) return;
 
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || '';
-    const payload = await verifyJwt(token, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    if (!payload) {
-      return new Response(JSON.stringify({ error: 'Autenticação obrigatória' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
+    const body = await readJsonBody<Record<string, any>>(req);
+    const { action, item, codigo, quantidade, lote_numero } = body;
 
     const username = payload.sub;
     const isAdmin = payload.role === 'admin';
-    const sql = neon(sanitizeUrl(Deno.env.get('NEON_DATABASE_URL') || ''));
+    const sql = createSql();
     await ensureSchema(sql);
 
     // LIST current open lote items (does NOT create a lote — only created on first add)
     if (action === 'list') {
       const lote = await getOpenLote(sql);
       if (lote == null) {
-        return new Response(JSON.stringify({ items: [], lote_numero: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { items: [], lote_numero: null });
+        return;
       }
       const data = await sql`SELECT * FROM shared_inventory WHERE lote_numero = ${lote} ORDER BY updated_at ASC`;
       const info = await sql`SELECT nome FROM inventory_lotes WHERE numero = ${lote} LIMIT 1`;
-      return new Response(JSON.stringify({ items: data, lote_numero: lote, lote_nome: info[0]?.nome ?? null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { items: data, lote_numero: lote, lote_nome: info[0]?.nome ?? null });
+      return;
     }
 
     // LIST finalized + suspended lotes (history)
     if (action === 'list_lotes') {
       const data = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE status IN ('finalizado','suspenso') ORDER BY numero DESC`;
-      return new Response(JSON.stringify({ lotes: data }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { lotes: data });
+      return;
     }
 
     // SUSPEND current open lote (keeps items in DB, no open lote afterwards)
     if (action === 'suspend') {
       const open = await sql`SELECT numero FROM inventory_lotes WHERE status = 'aberto' ORDER BY numero DESC LIMIT 1`;
       if (open.length === 0) {
-        return new Response(JSON.stringify({ success: true, suspended: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { success: true, suspended: null });
+        return;
       }
       const num = Number(open[0].numero);
       const items = await sql`SELECT id FROM shared_inventory WHERE lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
-        return new Response(JSON.stringify({ error: 'Lote vazio. Conte ao menos um item antes de suspender.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de suspender.' }, 400);
+        return;
       }
       await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE numero = ${num}`;
       await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details) VALUES (${num}, 'suspend', ${username}, ${payload.role}, ${JSON.stringify({ trigger: 'manual' })})`;
-      return new Response(JSON.stringify({ success: true, suspended: num }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, suspended: num });
+      return;
     }
 
     // RESUME a suspended lote: auto-suspends any currently open lote (if has items), then reopens target
     if (action === 'resume') {
-      if (!lote_numero) return new Response(JSON.stringify({ error: 'lote_numero obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!lote_numero) {
+        sendJson(res, { error: 'lote_numero obrigatório' }, 400);
+        return;
+      }
       const target = await sql`SELECT numero, status FROM inventory_lotes WHERE numero = ${lote_numero} LIMIT 1`;
-      if (target.length === 0) return new Response(JSON.stringify({ error: 'Lote não encontrado' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      if (target[0].status === 'finalizado') return new Response(JSON.stringify({ error: 'Lote finalizado não pode ser reaberto' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (target.length === 0) {
+        sendJson(res, { error: 'Lote não encontrado' }, 404);
+        return;
+      }
+      if (target[0].status === 'finalizado') {
+        sendJson(res, { error: 'Lote finalizado não pode ser reaberto' }, 400);
+        return;
+      }
 
       // suspend any currently open lote (different from target) that has items; drop empty open lotes
       const open = await sql`SELECT numero FROM inventory_lotes WHERE status = 'aberto' AND numero <> ${lote_numero}`;
@@ -163,7 +149,8 @@ serve(async (req) => {
       }
       await sql`UPDATE inventory_lotes SET status = 'aberto' WHERE numero = ${lote_numero}`;
       await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details) VALUES (${lote_numero}, 'resume', ${username}, ${payload.role}, ${JSON.stringify({ previous_status: target[0].status })})`;
-      return new Response(JSON.stringify({ success: true, resumed: Number(lote_numero) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, resumed: Number(lote_numero) });
+      return;
     }
 
     // LIST audit log entries (optional filter by lote)
@@ -171,37 +158,53 @@ serve(async (req) => {
       const data = lote_numero
         ? await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit WHERE lote_numero = ${lote_numero} ORDER BY created_at DESC LIMIT 500`
         : await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit ORDER BY created_at DESC LIMIT 500`;
-      return new Response(JSON.stringify({ audit: data }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { audit: data });
+      return;
     }
 
     // GET specific lote items (read-only)
     if (action === 'get_lote') {
-      if (!lote_numero) return new Response(JSON.stringify({ error: 'lote_numero obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!lote_numero) {
+        sendJson(res, { error: 'lote_numero obrigatório' }, 400);
+        return;
+      }
       const data = await sql`SELECT * FROM shared_inventory WHERE lote_numero = ${lote_numero} ORDER BY updated_at ASC`;
       const loteInfo = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE numero = ${lote_numero} LIMIT 1`;
-      return new Response(JSON.stringify({ items: data, lote: loteInfo[0] || null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { items: data, lote: loteInfo[0] || null });
+      return;
     }
 
     // RENAME - define/update the name of a lote (defaults to current open lote)
     if (action === 'rename') {
       const raw = typeof body.nome === 'string' ? body.nome.trim() : '';
       if (raw.length < 1 || raw.length > 60) {
-        return new Response(JSON.stringify({ error: 'Nome deve ter entre 1 e 60 caracteres' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Nome deve ter entre 1 e 60 caracteres' }, 400);
+        return;
       }
-      const nome = raw.replace(/[\u0000-\u001F\u007F]/g, '');
+      // Remove caracteres de controle do nome do lote (sem regex de faixas de
+      // controle, para manter o lint enxuto).
+      const nome = Array.from(raw)
+        .filter((ch) => {
+          const code = ch.charCodeAt(0);
+          return code >= 32 && code !== 127;
+        })
+        .join('');
       const target = lote_numero ?? await getOpenLote(sql);
       if (target == null) {
-        return new Response(JSON.stringify({ error: 'Nenhum lote aberto' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Nenhum lote aberto' }, 400);
+        return;
       }
       await sql`UPDATE inventory_lotes SET nome = ${nome} WHERE numero = ${target}`;
       await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details) VALUES (${target}, 'rename', ${username}, ${payload.role}, ${JSON.stringify({ nome })})`;
-      return new Response(JSON.stringify({ success: true, lote_numero: target, nome }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, lote_numero: target, nome });
+      return;
     }
 
     // ADD - always into current open lote
     if (action === 'add') {
       if (!item || quantidade === undefined || quantidade === null) {
-        return new Response(JSON.stringify({ error: 'Dados do item são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Dados do item são obrigatórios' }, 400);
+        return;
       }
       const lote = await getOrCreateOpenLote(sql, username);
       const existing = await sql`SELECT id, quantidade FROM shared_inventory WHERE codigo = ${item.codigo} AND lote_numero = ${lote} LIMIT 1`;
@@ -213,7 +216,8 @@ serve(async (req) => {
         await sql`INSERT INTO shared_inventory (ean, codigo, descricao, quantidade, created_by, updated_at, lote_numero) VALUES (${item.ean}, ${item.codigo}, ${item.descricao}, ${quantidade}, ${username}, NOW(), ${lote})`;
       }
 
-      return new Response(JSON.stringify({ success: true, lote_numero: lote }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, lote_numero: lote });
+      return;
     }
 
     // FINALIZE current open lote
@@ -221,47 +225,60 @@ serve(async (req) => {
       const open = await sql`SELECT numero FROM inventory_lotes WHERE status = 'aberto' ORDER BY numero DESC LIMIT 1`;
       if (open.length === 0) {
         // Nothing to finalize — treat as no-op success so UI doesn't break
-        return new Response(JSON.stringify({ success: true, finalized: null, message: 'Nenhum lote aberto' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { success: true, finalized: null, message: 'Nenhum lote aberto' });
+        return;
       }
       const num = Number(open[0].numero);
       const items = await sql`SELECT id FROM shared_inventory WHERE lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
-        return new Response(JSON.stringify({ error: 'Lote vazio. Conte ao menos um item antes de finalizar.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de finalizar.' }, 400);
+        return;
       }
       await sql`UPDATE inventory_lotes SET status = 'finalizado', finalized_at = NOW() WHERE numero = ${num}`;
-      return new Response(JSON.stringify({ success: true, finalized: num }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, finalized: num });
+      return;
     }
 
     // ADMIN-ONLY actions
     if (!isAdmin) {
-      return new Response(JSON.stringify({ error: 'Acesso negado. Somente administradores.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { error: 'Acesso negado. Somente administradores.' }, 403);
+      return;
     }
 
     if (action === 'update') {
       if (!codigo || quantidade === undefined) {
-        return new Response(JSON.stringify({ error: 'Código e quantidade são obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Código e quantidade são obrigatórios' }, 400);
+        return;
       }
       const lote = await getOrCreateOpenLote(sql, username);
       await sql`UPDATE shared_inventory SET quantidade = ${quantidade}, updated_at = NOW() WHERE codigo = ${codigo} AND lote_numero = ${lote}`;
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true });
+      return;
     }
 
     if (action === 'remove') {
-      if (!codigo) return new Response(JSON.stringify({ error: 'Código é obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!codigo) {
+        sendJson(res, { error: 'Código é obrigatório' }, 400);
+        return;
+      }
       const lote = await getOrCreateOpenLote(sql, username);
       await sql`DELETE FROM shared_inventory WHERE codigo = ${codigo} AND lote_numero = ${lote}`;
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true });
+      return;
     }
 
     if (action === 'clear') {
       const lote = await getOrCreateOpenLote(sql, username);
       await sql`DELETE FROM shared_inventory WHERE lote_numero = ${lote}`;
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true });
+      return;
     }
 
-    return new Response(JSON.stringify({ error: 'Ação inválida' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    sendJson(res, { error: 'Ação inválida' }, 400);
   } catch (error) {
     console.error('Manage inventory error:', error);
-    return new Response(JSON.stringify({ error: 'Erro interno do servidor' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    sendJson(res, { error: 'Erro interno do servidor' }, 500);
   }
-});
+};
+
+export default handler;

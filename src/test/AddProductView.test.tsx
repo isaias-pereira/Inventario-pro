@@ -1,18 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import AddProductView from "@/components/AddProductView";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeFunction } from "@/lib/api";
 import { toast } from "sonner";
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { functions: { invoke: vi.fn() } },
-}));
+vi.mock("@/lib/api", () => ({ invokeFunction: vi.fn() }));
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-const invokeMock = vi.mocked(supabase.functions.invoke);
+const invokeMock = vi.mocked(invokeFunction);
 
 describe("AddProductView - campo tipo", () => {
   beforeEach(() => {

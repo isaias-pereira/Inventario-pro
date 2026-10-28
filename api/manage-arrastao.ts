@@ -1,36 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { neon } from "npm:@neondatabase/serverless@0.10.4";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
-
-interface JwtPayload { sub: string; role: string; exp: number }
-
-async function verifyJwt(token: string, secret: string): Promise<JwtPayload | null> {
-  try {
-    const [header, body, signature] = token.split('.');
-    if (!header || !body || !signature) return null;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    const sig = Uint8Array.from(atob(signature.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify('HMAC', key, sig, encoder.encode(`${header}.${body}`));
-    if (!valid) return null;
-    const payload = JSON.parse(atob(body)) as JwtPayload;
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return payload;
-  } catch { return null; }
-}
-
-function sanitizeUrl(raw: string): string {
-  let url = raw.replace(/^psql\s+/, '').replace(/^["']|["']$/g, '').trim();
-  try { const u = new URL(url); u.searchParams.delete('channel_binding'); url = u.toString(); } catch { /* keep */ }
-  return url;
-}
+import { createSql, type Sql } from './_lib/db';
+import { authenticate } from './_lib/auth';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
 
 let schemaReady = false;
-async function ensureSchema(sql: ReturnType<typeof neon>) {
+
+async function ensureSchema(sql: Sql) {
   if (schemaReady) return;
   await sql`CREATE TABLE IF NOT EXISTS arrastao_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -59,40 +33,36 @@ async function ensureSchema(sql: ReturnType<typeof neon>) {
   schemaReady = true;
 }
 
-async function autoExpire(sql: ReturnType<typeof neon>) {
+async function autoExpire(sql: Sql) {
   // Find sessions exceeding 6h still active -> finalize automatically
-  const expired = await sql`SELECT id FROM arrastao_sessions WHERE status = 'active' AND started_at < (NOW() - INTERVAL '6 hours')` as Array<{ id: string }>;
-  for (const s of expired) {
+  const expired = await sql`SELECT id FROM arrastao_sessions WHERE status = 'active' AND started_at < (NOW() - INTERVAL '6 hours')`;
+  for (const s of expired as Array<{ id: string }>) {
     await finalizeSession(sql, s.id, 'auto_expired');
   }
 }
 
-async function finalizeSession(sql: ReturnType<typeof neon>, sessionId: string, reason: string) {
+async function finalizeSession(sql: Sql, sessionId: string, reason: string) {
   // Bulk-transfer items to validade_products in a single INSERT...SELECT (was N round-trips)
   const inserted = await sql`
     INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by)
     SELECT ean, codigo, descricao, validade, quantidade, true, scanned_by
     FROM arrastao_items WHERE session_id = ${sessionId}
-    RETURNING id` as Array<{ id: string }>;
+    RETURNING id`;
   await sql`UPDATE arrastao_sessions SET status = ${reason === 'auto_expired' ? 'expired' : 'finalized'}, ended_at = NOW() WHERE id = ${sessionId}`;
   return inserted.length;
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+const handler: ApiHandler = async (req, res) => {
+  if (!requirePost(req, res)) return;
 
   try {
-    const auth = req.headers.get('authorization');
-    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
-    if (!token) return new Response(JSON.stringify({ error: 'Token obrigatório' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
-    const payload = await verifyJwt(token, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    if (!payload) return new Response(JSON.stringify({ error: 'Token inválido' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const payload = authenticate(req, res);
+    if (!payload) return;
 
     const username = payload.sub;
-    const body = await req.json();
+    const body = await readJsonBody<Record<string, any>>(req);
     const { action } = body;
-    const sql = neon(sanitizeUrl(Deno.env.get('NEON_DATABASE_URL') || ''));
+    const sql = createSql();
 
     await ensureSchema(sql);
     // Auto-expire only on session-state-relevant actions (skip per-item writes)
@@ -103,15 +73,18 @@ serve(async (req) => {
     if (action === 'start') {
       const { corredor } = body;
       if (!corredor || typeof corredor !== 'string' || corredor.length > 100) {
-        return new Response(JSON.stringify({ error: 'Corredor obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Corredor obrigatório' }, 400);
+        return;
       }
-      const rows = await sql`INSERT INTO arrastao_sessions (corredor, started_by, participants) VALUES (${corredor}, ${username}, ARRAY[${username}]::TEXT[]) RETURNING *` as Array<Record<string, unknown>>;
-      return new Response(JSON.stringify({ session: rows[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      const rows = await sql`INSERT INTO arrastao_sessions (corredor, started_by, participants) VALUES (${corredor}, ${username}, ARRAY[${username}]::TEXT[]) RETURNING *`;
+      sendJson(res, { session: rows[0] });
+      return;
     }
 
     if (action === 'list_active') {
       const sessions = await sql`SELECT s.*, COALESCE((SELECT COUNT(*) FROM arrastao_items i WHERE i.session_id = s.id), 0)::int AS total_items FROM arrastao_sessions s WHERE s.status = 'active' ORDER BY s.started_at DESC`;
-      return new Response(JSON.stringify({ sessions }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { sessions });
+      return;
     }
 
     if (action === 'list_log') {
@@ -124,23 +97,29 @@ serve(async (req) => {
         WHERE s.status IN ('finalized','expired')
         ORDER BY s.ended_at DESC NULLS LAST
         LIMIT 100`;
-      return new Response(JSON.stringify({ sessions }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { sessions });
+      return;
     }
 
     if (action === 'join') {
       const { session_id } = body;
-      if (!session_id) return new Response(JSON.stringify({ error: 'session_id obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!session_id) {
+        sendJson(res, { error: 'session_id obrigatório' }, 400);
+        return;
+      }
       await sql`UPDATE arrastao_sessions SET participants = (
         SELECT ARRAY(SELECT DISTINCT unnest(participants || ARRAY[${username}]::TEXT[]))
       ) WHERE id = ${session_id} AND status = 'active'`;
-      const rows = await sql`SELECT * FROM arrastao_sessions WHERE id = ${session_id}` as Array<Record<string, unknown>>;
-      return new Response(JSON.stringify({ session: rows[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      const rows = await sql`SELECT * FROM arrastao_sessions WHERE id = ${session_id}`;
+      sendJson(res, { session: rows[0] });
+      return;
     }
 
     if (action === 'add_item') {
       const { session_id, item } = body;
       if (!session_id || !item?.ean || !item?.codigo || !item?.descricao || !item?.validade) {
-        return new Response(JSON.stringify({ error: 'Dados incompletos' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Dados incompletos' }, 400);
+        return;
       }
       const isDigits14 = (v: unknown): string | null => {
         if (typeof v !== 'string' && typeof v !== 'number') return null;
@@ -156,21 +135,33 @@ serve(async (req) => {
       const qtyNum = Number(item.quantidade);
       const cleanQuantidade = Number.isInteger(qtyNum) && qtyNum > 0 && qtyNum <= 100000 ? qtyNum : 1;
       if (!cleanEan || !cleanCodigo || !cleanDescricao || !cleanValidade) {
-        return new Response(JSON.stringify({ error: 'Dados inválidos (EAN/código devem ser dígitos até 14, descrição até 500 chars, validade data válida)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Dados inválidos (EAN/código devem ser dígitos até 14, descrição até 500 chars, validade data válida)' }, 400);
+        return;
       }
-      const s = await sql`SELECT status, participants FROM arrastao_sessions WHERE id = ${session_id}` as Array<{ status: string; participants: string[] }>;
-      if (!s.length || s[0].status !== 'active') return new Response(JSON.stringify({ error: 'Arrastão não está ativo' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      if (!s[0].participants.includes(username)) return new Response(JSON.stringify({ error: 'Você não é participante' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      const s = await sql`SELECT status, participants FROM arrastao_sessions WHERE id = ${session_id}`;
+      if (!s.length || s[0].status !== 'active') {
+        sendJson(res, { error: 'Arrastão não está ativo' }, 400);
+        return;
+      }
+      if (!(s[0].participants as string[]).includes(username)) {
+        sendJson(res, { error: 'Você não é participante' }, 403);
+        return;
+      }
       await sql`INSERT INTO arrastao_items (session_id, ean, codigo, descricao, validade, quantidade, scanned_by)
         VALUES (${session_id}, ${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, ${username})`;
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true });
+      return;
     }
 
     if (action === 'list_items') {
       const { session_id } = body;
-      if (!session_id) return new Response(JSON.stringify({ error: 'session_id obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!session_id) {
+        sendJson(res, { error: 'session_id obrigatório' }, 400);
+        return;
+      }
       const items = await sql`SELECT * FROM arrastao_items WHERE session_id = ${session_id} ORDER BY created_at DESC`;
-      return new Response(JSON.stringify({ items }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { items });
+      return;
     }
 
     if (action === 'consulta_all_items') {
@@ -188,36 +179,55 @@ serve(async (req) => {
       } else {
         data = await sql`SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade, i.scanned_by AS created_by, i.created_at, (i.validade >= NOW()) AS status, s.corredor FROM arrastao_items i JOIN arrastao_sessions s ON s.id = i.session_id WHERE i.validade >= NOW() AND i.validade <= (NOW() + INTERVAL '7 days') ORDER BY i.validade ASC LIMIT 500`;
       }
-      return new Response(JSON.stringify({ items: data }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { items: data });
+      return;
     }
 
     if (action === 'remove_item') {
       const { item_id, session_id } = body;
-      if (!item_id || !session_id) return new Response(JSON.stringify({ error: 'IDs obrigatórios' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      const s = await sql`SELECT participants, status FROM arrastao_sessions WHERE id = ${session_id}` as Array<{ participants: string[]; status: string }>;
-      if (!s.length || s[0].status !== 'active' || !s[0].participants.includes(username)) {
-        return new Response(JSON.stringify({ error: 'Sem permissão' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!item_id || !session_id) {
+        sendJson(res, { error: 'IDs obrigatórios' }, 400);
+        return;
+      }
+      const s = await sql`SELECT participants, status FROM arrastao_sessions WHERE id = ${session_id}`;
+      if (!s.length || s[0].status !== 'active' || !(s[0].participants as string[]).includes(username)) {
+        sendJson(res, { error: 'Sem permissão' }, 403);
+        return;
       }
       await sql`DELETE FROM arrastao_items WHERE id = ${item_id} AND session_id = ${session_id}`;
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true });
+      return;
     }
 
     if (action === 'finalize') {
       const { session_id } = body;
-      if (!session_id) return new Response(JSON.stringify({ error: 'session_id obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      const s = await sql`SELECT started_by, status FROM arrastao_sessions WHERE id = ${session_id}` as Array<{ started_by: string; status: string }>;
-      if (!s.length) return new Response(JSON.stringify({ error: 'Não encontrado' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      if (s[0].status !== 'active') return new Response(JSON.stringify({ success: true, already: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (!session_id) {
+        sendJson(res, { error: 'session_id obrigatório' }, 400);
+        return;
+      }
+      const s = await sql`SELECT started_by, status FROM arrastao_sessions WHERE id = ${session_id}`;
+      if (!s.length) {
+        sendJson(res, { error: 'Não encontrado' }, 404);
+        return;
+      }
+      if (s[0].status !== 'active') {
+        sendJson(res, { success: true, already: true });
+        return;
+      }
       if (s[0].started_by !== username && payload.role !== 'admin') {
-        return new Response(JSON.stringify({ error: 'Apenas o criador do arrastão pode finalizá-lo' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        sendJson(res, { error: 'Apenas o criador do arrastão pode finalizá-lo' }, 403);
+        return;
       }
       const count = await finalizeSession(sql, session_id, 'manual');
-      return new Response(JSON.stringify({ success: true, transferred: count }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      sendJson(res, { success: true, transferred: count });
+      return;
     }
 
-    return new Response(JSON.stringify({ error: 'Ação inválida' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    sendJson(res, { error: 'Ação inválida' }, 400);
   } catch (error) {
     console.error('Manage arrastao error:', error);
-    return new Response(JSON.stringify({ error: 'Erro interno' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    sendJson(res, { error: 'Erro interno' }, 500);
   }
-});
+};
+
+export default handler;

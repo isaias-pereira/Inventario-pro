@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import AddProductView from '../components/AddProductView';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke } } }));
+vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 beforeEach(() => { cleanup(); invoke.mockReset(); });
 

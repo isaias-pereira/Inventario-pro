@@ -12,6 +12,14 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // As funções da API não rodam no dev do Vite: em desenvolvimento o proxy
+    // aponta para a API local (`vercel dev`), configurável via VITE_API_PROXY_TARGET.
+    proxy: {
+      "/api": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [
     react(),
@@ -21,7 +29,7 @@ export default defineConfig(({ mode }) => ({
       devOptions: { enabled: false },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        navigateFallbackDenylist: [/^\/~oauth/],
+        navigateFallbackDenylist: [/^\/~oauth/, /^\/api\//],
         importScripts: ['notification-sw.js'],
       },
       manifest: {

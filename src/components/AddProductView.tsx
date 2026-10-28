@@ -4,8 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { supabase } from '@/integrations/supabase/client';
-import { FunctionsHttpError } from '@supabase/supabase-js';
+import { invokeFunction } from '@/lib/api';
 import { toast } from 'sonner';
 import { PackagePlus, Pencil, Search, Plus, Trash2, Save } from 'lucide-react';
 
@@ -21,16 +20,10 @@ const digits = (value: string) => value.replace(/\D/g, '').slice(0, 14);
 
 async function productRequest(body: Record<string, unknown>) {
   const token = localStorage.getItem('estoque_pro_token');
-  const { data, error } = await supabase.functions.invoke('query-product', {
+  const { data, error } = await invokeFunction('query-product', {
     body, headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (error) {
-    if (error instanceof FunctionsHttpError) {
-      const details = await error.context.json().catch(() => null);
-      throw new Error(details?.error || 'Não foi possível salvar o produto');
-    }
-    throw error;
-  }
+  if (error) throw new Error(error.message);
   if (data?.error) throw new Error(data.error);
   return data;
 }

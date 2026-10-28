@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/api';
 import {
   ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale,
 } from 'lucide-react';
@@ -60,7 +60,7 @@ function getToken(): string | null {
 async function invokeWithToken(functionName: string, body: Record<string, unknown>) {
   const token = getToken();
   if (!token) return { data: null, error: new Error('No token') };
-  return supabase.functions.invoke(functionName, {
+  return invokeFunction(functionName, {
     body,
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -153,7 +153,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
   const queryProduct = async (codigo: string) => {
     const token = authGetToken();
-    const { data, error } = await supabase.functions.invoke('query-product', {
+    const { data, error } = await invokeFunction('query-product', {
       body: { codigo },
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

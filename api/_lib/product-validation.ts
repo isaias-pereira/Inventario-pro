@@ -22,7 +22,7 @@ export function productInput(body: Record<string, unknown>, editing = false): Pr
   const rawEans = editing ? body.eans : [ean];
   if (!Array.isArray(rawEans) || rawEans.length < 1 || rawEans.length > 200) return null;
   const eans = rawEans.map(identifier);
-  if (eans.some(value => value === null)) return null;
+  if (eans.some((value) => value === null)) return null;
   const validEans = eans.filter((value): value is string => value !== null);
   if (!validEans.includes(ean) || new Set(validEans).size !== validEans.length) return null;
   return { codigo, ean, eans: validEans, descricao, tipo };
