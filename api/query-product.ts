@@ -1,7 +1,7 @@
-import { createSql, type BatchResult } from './_lib/db';
-import { authenticate } from './_lib/auth';
-import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
-import { identifier, productInput, canManageProducts } from './_lib/product-validation';
+import { createSql, type BatchResult } from './_lib/db.js';
+import { authenticate } from './_lib/auth.js';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { identifier, productInput, canManageProducts } from './_lib/product-validation.js';
 
 const productSelect = `SELECT p.ean::text, p.codigo::text, p.descricao, p.tipo,
   ARRAY(SELECT DISTINCT c::text FROM (SELECT p.codigo c UNION ALL SELECT codigo FROM public.produto_codigos WHERE produto_codigo=p.codigo) codes ORDER BY c::text) codigos,

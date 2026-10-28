@@ -1,5 +1,5 @@
-import { bearerToken, sendJson, type ApiRequest, type ApiResponse } from './http';
-import { verifyJwt, type JwtPayload } from './jwt';
+import { bearerToken, sendJson, type ApiRequest, type ApiResponse } from './http.js';
+import { verifyJwt, type JwtPayload } from './jwt.js';
 
 /** Segredo usado para assinar/validar os tokens de sessão (HS256). */
 export function jwtSecret(): string {

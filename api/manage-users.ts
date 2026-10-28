@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
-import { createSql } from './_lib/db';
-import { authenticate } from './_lib/auth';
-import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
+import { createSql } from './_lib/db.js';
+import { authenticate } from './_lib/auth.js';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;

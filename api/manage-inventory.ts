@@ -1,6 +1,6 @@
-import { createSql, type Sql } from './_lib/db';
-import { authenticate } from './_lib/auth';
-import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
+import { createSql, type Sql } from './_lib/db.js';
+import { authenticate } from './_lib/auth.js';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 
 let schemaEnsured = false;
 
@@ -176,7 +176,7 @@ const handler: ApiHandler = async (req, res) => {
 
     // RENAME - define/update the name of a lote (defaults to current open lote)
     if (action === 'rename') {
-      const raw = typeof body.nome === 'string' ? body.nome.trim() : '';
+      const raw: string = typeof body.nome === 'string' ? body.nome.trim() : '';
       if (raw.length < 1 || raw.length > 60) {
         sendJson(res, { error: 'Nome deve ter entre 1 e 60 caracteres' }, 400);
         return;

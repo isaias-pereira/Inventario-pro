@@ -1,6 +1,6 @@
-import { createSql, type Sql } from './_lib/db';
-import { authenticate } from './_lib/auth';
-import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http';
+import { createSql, type Sql } from './_lib/db.js';
+import { authenticate } from './_lib/auth.js';
+import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 
 let schemaReady = false;
 

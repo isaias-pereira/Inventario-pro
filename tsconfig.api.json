@@ -3,7 +3,9 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
-    "types": ["node"]
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "nodenext"
   },
   "include": ["api", "vite.config.ts", "scripts"]
 }
