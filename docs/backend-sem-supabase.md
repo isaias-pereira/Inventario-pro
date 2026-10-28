@@ -69,9 +69,42 @@ Todas exigem `Authorization: Bearer <token>` (exceto `auth-login`).
 
 1. Definir as variáveis de ambiente acima na Vercel (produção e preview).
 2. Aplicar `db/migrations/*.sql` no Neon, na ordem dos prefixos de data.
+   Os comandos exclusivos do Supabase (`supabase_realtime`, papel `service_role`)
+   já estão protegidos por blocos condicionais, então rodam sem erro no Neon puro.
+   A coluna `motivo` de `validade_products` também é criada de forma idempotente
+   pela função `api/manage-validade.ts` — mas vale aplicá-la pela migration.
 3. `npx vercel --prod` (ou push na branch, que já dispara o deploy).
 4. Testar: login → inventário (adicionar/finalizar lote) → validade (KG com motivo,
    UN com data) → consulta → arrastão → metas → usuários.
+
+### Comandos para configurar as variáveis (CLI)
+
+```sh
+# 1. Segredo do token (gere um valor aleatório, ex.: openssl rand -hex 32)
+npx vercel env add JWT_SECRET production
+
+# 2. Banco — escolha UMA das duas opções:
+#    (a) connection string do Neon (driver serverless)
+npx vercel env add NEON_DATABASE_URL production
+#    (b) connector gateway (lote transacional no cadastro de produtos)
+npx vercel env add LOVABLE_API_KEY production
+npx vercel env add NEON_API_KEY production
+
+# 3. Repita para preview:
+npx vercel env add JWT_SECRET preview
+...
+```
+
+### Como validar antes de mergear
+
+Com a branch `feat/vercel-api-sem-supabase` deployada em preview:
+
+```sh
+# deve responder 401 {"error":"Token obrigatório"} (rota viva, sem token)
+curl -X POST https://<preview>.vercel.app/api/manage-validade \
+  -H 'Content-Type: application/json' -d '{"action":"list_all"}'
+```
+
 
 ## Riscos e rollback
 
