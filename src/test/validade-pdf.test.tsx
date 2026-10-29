@@ -3,10 +3,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save, createWorkbook, saveSpreadsheet, fetchTipos, fetchCustos } = vi.hoisted(() => ({
+const { invoke, save, createOds, saveSpreadsheet, fetchTipos, fetchCustos } = vi.hoisted(() => ({
   invoke: vi.fn(),
   save: vi.fn(),
-  createWorkbook: vi.fn(() => ({ SheetNames: [], Sheets: {} })),
+  createOds: vi.fn(() => new Uint8Array([1, 2, 3])),
   saveSpreadsheet: vi.fn(),
   fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
   fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
@@ -20,8 +20,8 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: fetchTipos }));
 vi.mock('@/lib/validade-custos', () => ({ fetchProductCustos: fetchCustos }));
 vi.mock('@/lib/validade-spreadsheet', () => ({
-  createValidadeWorkbook: createWorkbook,
-  saveValidadeSpreadsheet: saveSpreadsheet,
+  createValidadeOds: createOds,
+  saveValidadeOds: saveSpreadsheet,
 }));
 vi.mock('jspdf', () => ({
   jsPDF: vi.fn(function jsPDF() {
@@ -46,7 +46,7 @@ beforeEach(() => {
   cleanup();
   invoke.mockReset();
   save.mockReset();
-  createWorkbook.mockClear();
+  createOds.mockClear();
   saveSpreadsheet.mockReset();
   fetchTipos.mockClear();
   window.localStorage.setItem('estoque_pro_token', 'token');
@@ -82,7 +82,7 @@ it('downloads the expiry list as a PDF', async () => {
   expect(save.mock.calls[0][0]).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/);
 });
 
-it('exports the expiry list as an XLSX spreadsheet', async () => {
+it('exports the expiry list as an ODS spreadsheet', async () => {
   const user = userEvent.setup();
   render(<ValidadeView />);
 
@@ -96,7 +96,7 @@ it('exports the expiry list as an XLSX spreadsheet', async () => {
   expect(fetchTipos).toHaveBeenCalledWith(['100'], 'token');
   // O custo (PMZ) é buscado junto com o tipo para preencher a planilha.
   expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token');
-  expect(createWorkbook).toHaveBeenCalledWith(
+  expect(createOds).toHaveBeenCalledWith(
     [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
     { '100': 'UN' },
     { custos: { '100': 4.5 } },

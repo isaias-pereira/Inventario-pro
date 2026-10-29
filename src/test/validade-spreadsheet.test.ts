@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import * as XLSX from 'xlsx-js-style';
 import {
   COLUMNS,
   DEFAULT_STORE,
   buildSpreadsheetRows,
-  createValidadeWorkbook,
+  buildValidadeOdsContent,
+  createValidadeOds,
   descriptionColumnWidth,
   formatDateBR,
   isWeightProduct,
@@ -35,7 +37,43 @@ const items: ValidadeSpreadsheetItem[] = [
 
 const tipos = { '123': 'UN', '456': 'KG' };
 
-const cell = (sheet: Record<string, { v?: unknown }>, address: string) => sheet[address]?.v ?? '';
+/** Lê o content.xml gerado como XML de verdade (jsdom). */
+function parseContent(xml: string): Document {
+  return new DOMParser().parseFromString(xml, 'application/xml');
+}
+
+function rowsOf(doc: Document): Element[] {
+  return Array.from(doc.getElementsByTagName('table:table-row'));
+}
+
+function cellsOf(row: Element): Element[] {
+  return Array.from(row.getElementsByTagName('table:table-cell'));
+}
+
+function cellText(cell: Element): string {
+  const paragraph = cell.getElementsByTagName('text:p')[0];
+  return paragraph?.textContent ?? '';
+}
+
+/** Valor lógico da célula: número em office:value, texto no parágrafo. */
+function cellValue(cell: Element): string {
+  if (cell.getAttribute('office:value-type') === 'float') {
+    return cell.getAttribute('office:value') ?? '';
+  }
+  return cellText(cell);
+}
+
+function styleByName(doc: Document, name: string): Element | undefined {
+  return Array.from(doc.getElementsByTagName('style:style')).find(
+    (style) => style.getAttribute('style:name') === name,
+  );
+}
+
+function styleProp(doc: Document, styleName: string, tag: string, attribute: string): string | null {
+  const style = styleByName(doc, styleName);
+  const element = style?.getElementsByTagName(tag)[0];
+  return element?.getAttribute(attribute) ?? null;
+}
 
 describe('planilha de solicitação de rebaixa', () => {
   it('usa a loja 103 como padrão', () => {
@@ -76,123 +114,98 @@ describe('planilha de solicitação de rebaixa', () => {
     expect(formatDateBR('data-invalida')).toBe('');
   });
 
-  it('monta o cabeçalho, os merges e as linhas de dados', () => {
-    const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28) });
-    const sheet = wb.Sheets['Rebaixa'];
-    const sheetCells = sheet as unknown as Record<string, { v?: unknown }>;
+  it('monta o título, as seções e o cabeçalho com os merges do modelo', () => {
+    const doc = parseContent(buildValidadeOdsContent(items, tipos, { date: new Date(2026, 9, 28) }));
+    const rows = rowsOf(doc);
 
-    // Faixa de título e seções
-    expect(cell(sheetCells, 'A1')).toBe('DATA:');
-    expect(cell(sheetCells, 'A2')).toBe('28/10/26');
-    expect(cell(sheetCells, 'C1')).toBe('SOLICITAÇÃO DE REBAIXA / PERECÍVEIS');
-    expect(cell(sheetCells, 'C2')).toBe('PREENCHIMENTO LOJA');
-    expect(cell(sheetCells, 'J2')).toBe('COMERCIAL');
+    // Linha 1: DATA: ocupa A:B e o título ocupa C:M.
+    const titulo = cellsOf(rows[0]);
+    expect(titulo).toHaveLength(2);
+    expect(cellText(titulo[0])).toBe('DATA:');
+    expect(titulo[0].getAttribute('table:number-columns-spanned')).toBe('2');
+    expect(cellText(titulo[1])).toBe('SOLICITAÇÃO DE REBAIXA / PERECÍVEIS');
+    expect(titulo[1].getAttribute('table:number-columns-spanned')).toBe('11');
 
-    expect(sheet['!merges']).toEqual([
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-      { s: { r: 0, c: 2 }, e: { r: 0, c: 12 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
-      { s: { r: 1, c: 2 }, e: { r: 1, c: 8 } },
-      { s: { r: 1, c: 9 }, e: { r: 1, c: 12 } },
-    ]);
+    // Linha 2: data (A:B), PREENCHIMENTO LOJA (C:I) e COMERCIAL (J:M).
+    const secoes = cellsOf(rows[1]);
+    expect(secoes).toHaveLength(3);
+    expect(cellText(secoes[0])).toBe('28/10/26');
+    expect(secoes[0].getAttribute('table:number-columns-spanned')).toBe('2');
+    expect(cellText(secoes[1])).toBe('PREENCHIMENTO LOJA');
+    expect(secoes[1].getAttribute('table:number-columns-spanned')).toBe('7');
+    expect(cellText(secoes[2])).toBe('COMERCIAL');
+    expect(secoes[2].getAttribute('table:number-columns-spanned')).toBe('4');
 
-    // Cabeçalho das colunas A–M
-    COLUMNS.forEach((label, index) => {
-      const address = `${String.fromCharCode(65 + index)}3`;
-      expect(cell(sheetCells, address)).toBe(label);
-    });
+    // Linha 3: as 13 colunas A–M.
+    const cabecalho = cellsOf(rows[2]);
+    expect(cabecalho).toHaveLength(13);
+    COLUMNS.forEach((label, index) => expect(cellText(cabecalho[index])).toBe(label));
+  });
 
-    // Primeira linha de dados (UN)
-    expect(cell(sheetCells, 'A4')).toBe(103);
-    expect(cell(sheetCells, 'B4')).toBe('7891000315507');
-    expect(cell(sheetCells, 'C4')).toBe('123');
-    expect(cell(sheetCells, 'D4')).toBe('LEITE INTEGRAL 1L');
-    expect(cell(sheetCells, 'E4')).toBe('');
-    expect(cell(sheetCells, 'F4')).toBe('');
-    expect(cell(sheetCells, 'G4')).toBe('');
-    expect(cell(sheetCells, 'H4')).toBe('30/10/2026');
-    expect(cell(sheetCells, 'I4')).toBe(4);
-    expect(cell(sheetCells, 'J4')).toBe('');
-    expect(cell(sheetCells, 'K4')).toBe('');
-    expect(cell(sheetCells, 'L4')).toBe('');
-    expect(cell(sheetCells, 'M4')).toBe('');
+  it('grava as linhas de dados com tipo, vencimento e quantidade', () => {
+    const doc = parseContent(buildValidadeOdsContent(items, tipos, { date: new Date(2026, 9, 28) }));
+    const rows = rowsOf(doc);
 
-    // Segunda linha (KG): vencimento zerado
-    expect(cell(sheetCells, 'A5')).toBe(103);
-    expect(cell(sheetCells, 'B5')).toBe('2000000000012');
-    expect(cell(sheetCells, 'C5')).toBe('456');
-    expect(cell(sheetCells, 'H5')).toBe('');
-    expect(cell(sheetCells, 'I5')).toBe(2);
+    const primeira = cellsOf(rows[3]);
+    expect(primeira).toHaveLength(13);
+    expect(cellValue(primeira[0])).toBe('103');
+    expect(primeira[0].getAttribute('office:value-type')).toBe('float');
+    expect(cellValue(primeira[1])).toBe('7891000315507');
+    expect(cellValue(primeira[2])).toBe('123');
+    expect(cellValue(primeira[3])).toBe('LEITE INTEGRAL 1L');
+    expect(cellText(primeira[4])).toBe('');
+    expect(cellText(primeira[5])).toBe('');
+    expect(cellText(primeira[6])).toBe('');
+    expect(cellValue(primeira[7])).toBe('30/10/2026');
+    expect(cellValue(primeira[8])).toBe('4');
+
+    // Segunda linha (KG): vencimento vazio.
+    const segunda = cellsOf(rows[4]);
+    expect(cellValue(segunda[1])).toBe('2000000000012');
+    expect(cellValue(segunda[2])).toBe('456');
+    expect(cellText(segunda[7])).toBe('');
+    expect(cellValue(segunda[8])).toBe('2');
   });
 
   it('mantém fonte, cores e tamanhos do modelo original', () => {
-    const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28) });
-    const sheet = wb.Sheets['Rebaixa'];
-    interface Style {
-      fill?: { fgColor?: { rgb?: string } };
-      font?: {
-        name?: string;
-        sz?: number;
-        bold?: boolean;
-        italic?: boolean;
-        underline?: boolean;
-        color?: { rgb?: string };
-      };
-    }
-    const styleOf = (address: string): Style =>
-      ((sheet[address] as unknown as { s?: Style }).s ?? {});
+    const doc = parseContent(buildValidadeOdsContent(items, tipos, { date: new Date(2026, 9, 28) }));
 
-    const title = styleOf('C1');
-    expect(title.fill?.fgColor?.rgb).toBe('3465A4');
-    expect(title.font).toMatchObject({
-      name: 'Trebuchet MS',
-      sz: 15,
-      bold: true,
-      italic: true,
-      underline: true,
-      color: { rgb: 'FFFFFF' },
-    });
+    expect(styleProp(doc, 'ceTitle', 'style:table-cell-properties', 'fo:background-color')).toBe('#3465a4');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'style:font-name')).toBe('Trebuchet MS');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'fo:font-size')).toBe('15pt');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'fo:font-weight')).toBe('bold');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'fo:font-style')).toBe('italic');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'style:text-underline-style')).toBe('solid');
+    expect(styleProp(doc, 'ceTitle', 'style:text-properties', 'fo:color')).toBe('#ffffff');
 
-    const date = styleOf('A2');
-    expect(date.fill?.fgColor?.rgb).toBe('E6E6FF');
-    expect(date.font).toMatchObject({
-      name: 'Trebuchet MS',
-      sz: 11,
-      bold: true,
-      italic: true,
-      underline: true,
-    });
-
-    expect(styleOf('C2').fill?.fgColor?.rgb).toBe('DEDCE6');
-    expect(styleOf('J2').fill?.fgColor?.rgb).toBe('E6E6FF');
+    expect(styleProp(doc, 'ceDateValue', 'style:table-cell-properties', 'fo:background-color')).toBe('#e6e6ff');
+    expect(styleProp(doc, 'ceDateValue', 'style:text-properties', 'fo:font-size')).toBe('11pt');
+    expect(styleProp(doc, 'ceStoreSection', 'style:table-cell-properties', 'fo:background-color')).toBe('#dedce6');
+    expect(styleProp(doc, 'ceCommercialSection', 'style:table-cell-properties', 'fo:background-color')).toBe('#e6e6ff');
 
     // Cabeçalho: LOJA/EAN/PMZ/PREÇO/VENC./QTD em vermelho; CÓDIGO/DESCRIÇÃO/MARGEM em preto; COMERCIAL em azul.
-    const header = styleOf;
-    expect(header('A3').fill?.fgColor?.rgb).toBe('CCCCCC');
-    expect(header('A3').font).toMatchObject({ name: 'Trebuchet MS', sz: 10, bold: true, color: { rgb: 'FF0000' } });
-    expect(header('B3').font?.color?.rgb).toBe('FF0000');
-    expect(header('C3').font?.color?.rgb).toBe('000000');
-    expect(header('D3').font?.color?.rgb).toBe('000000');
-    expect(header('E3').font?.color?.rgb).toBe('FF0000');
-    expect(header('F3').font?.color?.rgb).toBe('FF0000');
-    expect(header('G3').font?.color?.rgb).toBe('000000');
-    expect(header('H3').font?.color?.rgb).toBe('FF0000');
-    expect(header('I3').font?.color?.rgb).toBe('FF0000');
-    expect(header('J3').fill?.fgColor?.rgb).toBe('E6E6E6');
-    expect(header('J3').font?.color?.rgb).toBe('0000FF');
-    expect(header('K3').font?.color?.rgb).toBe('0000FF');
-    expect(header('L3').font?.color?.rgb).toBe('0000FF');
-    expect(header('M3').font?.color?.rgb).toBe('0000FF');
+    expect(styleProp(doc, 'ceH0', 'style:table-cell-properties', 'fo:background-color')).toBe('#cccccc');
+    expect(styleProp(doc, 'ceH0', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH1', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH2', 'style:text-properties', 'fo:color')).toBe('#000000');
+    expect(styleProp(doc, 'ceH3', 'style:text-properties', 'fo:color')).toBe('#000000');
+    expect(styleProp(doc, 'ceH4', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH5', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH6', 'style:text-properties', 'fo:color')).toBe('#000000');
+    expect(styleProp(doc, 'ceH7', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH8', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceH9', 'style:table-cell-properties', 'fo:background-color')).toBe('#e6e6e6');
+    expect(styleProp(doc, 'ceH9', 'style:text-properties', 'fo:color')).toBe('#0000ff');
+    expect(styleProp(doc, 'ceH12', 'style:text-properties', 'fo:color')).toBe('#0000ff');
 
-    // Larguras e alturas extraídas do ODS (cm convertidos para caracteres/pontos).
-    expect(sheet['!cols']?.[0]).toEqual({ wch: 11.5 });
-    expect(sheet['!cols']?.[12]).toEqual({ wch: 36.3 });
-    expect(sheet['!rows']?.[0]).toEqual({ hpt: 48.5 });
+    // Larguras e alturas extraídas do modelo original (cm).
+    expect(styleProp(doc, 'co0', 'style:table-column-properties', 'style:column-width')).toBe('2.19cm');
+    expect(styleProp(doc, 'co12', 'style:table-column-properties', 'style:column-width')).toBe('6.9cm');
+    expect(styleProp(doc, 'ro0', 'style:table-row-properties', 'style:row-height')).toBe('1.71cm');
 
     // A coluna do código de barras tem moldura reforçada no modelo (0,74pt).
-    const eanData = styleOf('B4') as unknown as { border?: { left?: { style?: string } } };
-    expect(eanData.border?.left?.style).toBe('medium');
-    expect((styleOf('C4') as unknown as { border?: { left?: { style?: string } } }).border?.left?.style).toBe('thin');
+    expect(styleProp(doc, 'ceD1', 'style:table-cell-properties', 'fo:border')).toBe('1.5pt solid #000000');
+    expect(styleProp(doc, 'ceD2', 'style:table-cell-properties', 'fo:border')).toBe('0.5pt solid #000000');
   });
 
   it('ajusta a largura da descrição pelo texto mais longo da coluna', () => {
@@ -200,21 +213,19 @@ describe('planilha de solicitação de rebaixa', () => {
     expect(descriptionColumnWidth(curto)).toBe(22); // largura mínima
 
     const longo = [{ ...items[0], descricao: 'CP HORTELA 50G 100000043709' }];
-    const wb = createValidadeWorkbook(longo, tipos, { date: new Date(2026, 9, 28) });
-    const sheet = wb.Sheets['Rebaixa'];
-    const width = (sheet['!cols']?.[3] as { wch?: number } | undefined)?.wch;
+    const doc = parseContent(buildValidadeOdsContent(longo, tipos, { date: new Date(2026, 9, 28) }));
+    const width = styleProp(doc, 'co3', 'style:table-column-properties', 'style:column-width');
 
-    expect(width).toBe(descriptionColumnWidth(longo));
-    expect(width).toBeGreaterThan(22);
+    expect(width).toBe(`${Math.round(descriptionColumnWidth(longo) * 0.19 * 100) / 100}cm`);
     // Com a coluna dimensionada pelo maior texto, a linha fica em uma só linha.
-    expect(sheet['!rows']?.[3]).toEqual({ hpt: 14.1 });
+    expect(styleProp(doc, 'ro3', 'style:table-row-properties', 'style:row-height')).toBe('0.5cm');
 
     const gigante = [{ ...items[0], descricao: 'X'.repeat(300) }];
     expect(descriptionColumnWidth(gigante)).toBe(60); // limite máximo
   });
 
-  it('nomeia o arquivo com a data do download', () => {
-    expect(spreadSheetFileName(new Date(2026, 9, 5))).toBe('solicitacao-rebaixa-2026-10-05.xlsx');
+  it('nomeia o arquivo com a data do download em .ods', () => {
+    expect(spreadSheetFileName(new Date(2026, 9, 5))).toBe('solicitacao-rebaixa-2026-10-05.ods');
   });
 });
 
@@ -249,14 +260,14 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(negativo.pmz).toBe('');
   });
 
-  it('escreve a fórmula ((custo - sugestão) / custo) * 100 na coluna MARGEM', () => {
-    expect(marginFormula(4, 5, 4)).toBe('=IF(E4=0,"",((E4-F4)/E4)*100)');
+  it('escreve a fórmula ODF ((custo - sugestão) / custo) * 100 na coluna MARGEM', () => {
+    expect(marginFormula(4)).toBe('of:=IF([.E4]=0;"";(([.E4]-[.F4])/[.E4])*100)');
 
     const [row] = buildSpreadsheetRows([{ ...items[0], codigo: '123' }], { '123': 'UN' }, 103, { '123': 5 });
-    expect(row.margem).toBe('=IF(E4=0,"",((E4-F4)/E4)*100)');
+    expect(row.margem).toBe('of:=IF([.E4]=0;"";(([.E4]-[.F4])/[.E4])*100)');
 
     const [, segunda] = buildSpreadsheetRows(items, tipos, 103, { '123': 5, '456': 7.5 });
-    expect(segunda.margem).toBe('=IF(E5=0,"",((E5-F5)/E5)*100)');
+    expect(segunda.margem).toBe('of:=IF([.E5]=0;"";(([.E5]-[.F5])/[.E5])*100)');
   });
 
   it('sugestão é metade do custo, nunca abaixo de R$ 0,99', () => {
@@ -266,50 +277,82 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(suggestedPrice(179.6884)).toBeCloseTo(89.8442, 4);
   });
 
-  it('grava custo, sugestão e a fórmula de margem no arquivo', () => {
-    const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28), custos: { '123': 5, '456': 7.5 } });
-    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; z?: string; s?: { z?: string; font?: { color?: { rgb?: string } } } }>;
+  it('grava custo, sugestão e a fórmula de margem no XML da planilha', () => {
+    const doc = parseContent(
+      buildValidadeOdsContent(items, tipos, { date: new Date(2026, 9, 28), custos: { '123': 5, '456': 7.5 } }),
+    );
+    const rows = rowsOf(doc);
 
-    expect(cell(sheet, 'E4')).toBe(5);
-    expect(cell(sheet, 'F4')).toBe(2.5);
-    expect(sheet['G4']?.f).toBe('IF(E4=0,"",((E4-F4)/E4)*100)');
+    const primeira = cellsOf(rows[3]);
+    expect(cellValue(primeira[4])).toBe('5');
+    expect(cellValue(primeira[5])).toBe('2.5');
+    expect(primeira[6].getAttribute('table:formula')).toBe('of:=IF([.E4]=0;"";(([.E4]-[.F4])/[.E4])*100)');
+    expect(cellValue(primeira[6])).toBe('50');
 
-    expect(cell(sheet, 'E5')).toBe(7.5);
-    expect(cell(sheet, 'F5')).toBe(3.75);
-    expect(sheet['G5']?.f).toBe('IF(E5=0,"",((E5-F5)/E5)*100)');
-
-    // Reais com até duas casas na tela, sem alterar a precisão do custo.
-    expect(sheet['E4']?.z).toBe('"R$ "#,##0.00');
-    expect(sheet['F4']?.z).toBe('"R$ "#,##0.00');
-    // Margem em percentual, com o valor já multiplicado por 100.
-    expect(sheet['G4']?.z).toBe('0"%"');
-    expect(sheet['G4']?.s?.font?.color?.rgb).toBe('FF0000');
-    expect(sheet['G5']?.s?.font?.color?.rgb).toBe('FF0000');
+    const segunda = cellsOf(rows[4]);
+    expect(cellValue(segunda[4])).toBe('7.5');
+    expect(cellValue(segunda[5])).toBe('3.75');
+    expect(segunda[6].getAttribute('table:formula')).toBe('of:=IF([.E5]=0;"";(([.E5]-[.F5])/[.E5])*100)');
   });
 
-  it('mantém os formatos numéricos no arquivo gravado, não só na memória', async () => {
-    const XLSX = await import('xlsx-js-style');
-    const wb = createValidadeWorkbook(items, tipos, { custos: { '123': 5, '456': 7.5 } });
-    const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-    const lido = XLSX.read(bytes, { type: 'buffer', cellNF: true, cellFormula: true, cellStyles: true });
-    const sheet = lido.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; z?: string; f?: string }>;
+  it('usa os estilos de moeda e de porcentagem no arquivo', () => {
+    const doc = parseContent(buildValidadeOdsContent(items, tipos, { custos: { '123': 5, '456': 7.5 } }));
 
-    // Regressão: o xlsx-js-style ignora s.z; sem cell.z o arquivo sai sem numFmts
-    // e o Excel mostra 0,53 / 50 em vez de R$ 0,53 / 50%.
-    expect(sheet['E4']?.z).toBe('"R$ "#,##0.00');
-    expect(sheet['F4']?.z).toBe('"R$ "#,##0.00');
-    expect(sheet['G4']?.f).toBe('IF(E4=0,"",((E4-F4)/E4)*100)');
+    // PMZ e PREÇO SUGERIDO com formato de reais.
+    expect(styleByName(doc, 'ceD4')?.getAttribute('style:data-style-name')).toBe('Nbrl');
+    expect(styleByName(doc, 'ceD5')?.getAttribute('style:data-style-name')).toBe('Nbrl');
+    // MARGEM em porcentagem e vermelho.
+    expect(styleByName(doc, 'ceD6')?.getAttribute('style:data-style-name')).toBe('Npct');
+    expect(styleProp(doc, 'ceD6', 'style:text-properties', 'fo:color')).toBe('#ff0000');
+    expect(styleProp(doc, 'ceD6', 'style:text-properties', 'fo:font-weight')).toBe('bold');
+
+    const moeda = Array.from(doc.getElementsByTagName('number:currency-style'))[0];
+    expect(moeda?.getAttribute('style:name')).toBe('Nbrl');
+    expect(moeda?.getElementsByTagName('number:currency-symbol')[0]?.textContent).toBe('R$');
+    expect(
+      moeda?.getElementsByTagName('number:number')[0]?.getAttribute('number:decimal-places'),
+    ).toBe('2');
+
+    const porcentagem = Array.from(doc.getElementsByTagName('number:number-style')).find(
+      (style) => style.getAttribute('style:name') === 'Npct',
+    );
+    expect(
+      porcentagem?.getElementsByTagName('number:number')[0]?.getAttribute('number:decimal-places'),
+    ).toBe('0');
+    expect(porcentagem?.getElementsByTagName('number:text')[0]?.textContent).toBe('%');
+  });
+
+  it('gera um .ods válido, legível por um leitor de planilhas', () => {
+    const bytes = createValidadeOds(items, tipos, { custos: { '123': 5, '456': 7.5 } });
+
+    // ZIP: primeira entrada é o mimetype, como o ODF exige.
+    expect(bytes[0]).toBe(0x50);
+    expect(bytes[1]).toBe(0x4b);
+    expect(new TextDecoder().decode(bytes.slice(30, 38))).toBe('mimetype');
+
+    const wb = XLSX.read(bytes, { type: 'array' });
+    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown }>;
+
+    expect(sheet['A1']?.v).toBe('DATA:');
+    expect(sheet['C1']?.v).toBe('SOLICITAÇÃO DE REBAIXA / PERECÍVEIS');
+    expect(sheet['E4']?.v).toBe(5);
+    expect(sheet['F4']?.v).toBe(2.5);
+    expect(sheet['E5']?.v).toBe(7.5);
+    expect(sheet['F5']?.v).toBe(3.75);
   });
 
   it('aplica o piso de R$ 0,99 na planilha final', () => {
-    const wb = createValidadeWorkbook(
-      [{ ...items[1], codigo: '631612' }],
-      { '631612': 'KG' },
-      { custos: { '631612': 0.53 } },
+    const doc = parseContent(
+      buildValidadeOdsContent(
+        [{ ...items[1], codigo: '631612' }],
+        { '631612': 'KG' },
+        { custos: { '631612': 0.53 } },
+      ),
     );
-    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown }>;
+    const primeira = cellsOf(rowsOf(doc)[3]);
 
-    expect(cell(sheet, 'E4')).toBe(0.53);
-    expect(cell(sheet, 'F4')).toBe(0.99);
+    expect(cellValue(primeira[4])).toBe('0.53');
+    expect(cellValue(primeira[5])).toBe('0.99');
+    expect(cellValue(primeira[6])).toBe('-86.7924528302');
   });
 });

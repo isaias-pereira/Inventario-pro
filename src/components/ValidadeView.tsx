@@ -26,7 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
-import { createValidadeWorkbook, isWeightProduct, saveValidadeSpreadsheet } from '@/lib/validade-spreadsheet';
+import { createValidadeOds, isWeightProduct, saveValidadeOds } from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
 
@@ -98,7 +98,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [showConsulta, setShowConsulta] = useState(false);
   const [showArrastao, setShowArrastao] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  const [downloadingPlanilha, setDownloadingPlanilha] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
 
   const [alertDays, setAlertDays] = useState(() => {
@@ -418,12 +418,12 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   const downloadSpreadsheet = async () => {
-    if (downloadingXlsx) return;
+    if (downloadingPlanilha) return;
     if (filteredItems.length === 0) {
       toast.error('Nenhum produto na lista para exportar');
       return;
     }
-    setDownloadingXlsx(true);
+    setDownloadingPlanilha(true);
     try {
       const token = authGetToken() ?? getToken();
       const codigos = filteredItems.map((item) => String(item.codigo));
@@ -431,14 +431,14 @@ const [filter, setFilter] = useState<FilterType>('todos');
         fetchProductTipos(codigos, token),
         fetchProductCustos(codigos, token),
       ]);
-      const workbook = createValidadeWorkbook(filteredItems, tipos, { custos });
-      saveValidadeSpreadsheet(workbook);
+      const ods = createValidadeOds(filteredItems, tipos, { custos });
+      saveValidadeOds(ods);
       toast.success('Planilha gerada com sucesso');
       setShowDownloadDialog(false);
     } catch {
       toast.error('Erro ao gerar planilha');
     }
-    setDownloadingXlsx(false);
+    setDownloadingPlanilha(false);
   };
 
   return (
@@ -479,11 +479,11 @@ const [filter, setFilter] = useState<FilterType>('todos');
               size="icon"
               className="ml-1 h-8 w-8"
               onClick={() => setShowDownloadDialog(true)}
-              disabled={downloadingPdf || downloadingXlsx || loading}
+              disabled={downloadingPdf || downloadingPlanilha || loading}
               title="Exportar lista de validade"
               aria-label="Exportar lista de validade"
             >
-              {downloadingPdf || downloadingXlsx ? (
+              {downloadingPdf || downloadingPlanilha ? (
                 <Loader2 className="h-4 w-4 animate-spin text-foreground" />
               ) : (
                 <Share2 className="h-4 w-4 text-foreground" />
@@ -757,7 +757,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
         {/* Export Format Dialog */}
         <Dialog
           open={showDownloadDialog}
-          onOpenChange={(open) => { if (!downloadingXlsx) setShowDownloadDialog(open); }}
+          onOpenChange={(open) => { if (!downloadingPlanilha) setShowDownloadDialog(open); }}
         >
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
@@ -772,15 +772,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <button
                 type="button"
                 onClick={downloadSpreadsheet}
-                disabled={downloadingXlsx}
+                disabled={downloadingPlanilha}
                 className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-60"
               >
                 <FileSpreadsheet className="h-6 w-6 shrink-0 text-emerald-600" />
                 <span className="flex min-w-0 flex-col">
-                  <span className="text-sm font-semibold">Planilha (XLSX)</span>
+                  <span className="text-sm font-semibold">Planilha (ODS)</span>
                   <span className="text-xs text-muted-foreground">Solicitação de rebaixa / perecíveis</span>
                 </span>
-                {downloadingXlsx && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
+                {downloadingPlanilha && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
               </button>
               <button
                 type="button"
@@ -797,7 +797,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               </button>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDownloadDialog(false)} disabled={downloadingXlsx}>
+              <Button variant="outline" onClick={() => setShowDownloadDialog(false)} disabled={downloadingPlanilha}>
                 Cancelar
               </Button>
             </DialogFooter>
