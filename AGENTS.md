@@ -5,3 +5,4 @@
 - Product edits are admin-only, validate identifiers and catalog column lengths, and save the master record and aliases in one locked transaction to avoid partial changes.
 - Product edit validation lives in `api/_lib/product-validation.ts` and is covered by Vitest tests without importing the function entrypoint.
 - A tabela `validade_products` tem coluna `motivo` (Excesso/Qualidade) usada nos produtos de balança (KG); itens com motivo não geram alerta de vencimento.
+- Na planilha de rebaixa (`src/lib/validade-spreadsheet.ts`): PMZ recebe o custo do catálogo (`produto.Custo`, action `costs` do `query-product`), PREÇO SUGERIDO é sempre 50% do custo e MARGEM % é a fórmula `=IF(E{linha}=0,"",((E{linha}-F{linha})/E{linha})*100)`.

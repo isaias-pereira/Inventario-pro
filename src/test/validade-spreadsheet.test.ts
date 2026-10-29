@@ -7,7 +7,9 @@ import {
   descriptionColumnWidth,
   formatDateBR,
   isWeightProduct,
+  marginFormula,
   spreadSheetFileName,
+  suggestedPrice,
   type ValidadeSpreadsheetItem,
 } from '../lib/validade-spreadsheet';
 
@@ -213,5 +215,63 @@ describe('planilha de solicitação de rebaixa', () => {
 
   it('nomeia o arquivo com a data do download', () => {
     expect(spreadSheetFileName(new Date(2026, 9, 5))).toBe('solicitacao-rebaixa-2026-10-05.xlsx');
+  });
+});
+
+describe('custo, sugestão e margem na planilha de rebaixa', () => {
+  it('coloca o custo na coluna PMZ e a sugestão na metade do custo', () => {
+    const [banana] = buildSpreadsheetRows([{ ...items[1], codigo: '631612' }], { '631612': 'KG' }, 103, { '631612': 5 });
+
+    expect(banana.pmz).toBe(5);
+    expect(banana.precoSugerido).toBe(2.5);
+  });
+
+  it('mantém as colunas vazias quando o produto não tem custo', () => {
+    const [semCusto] = buildSpreadsheetRows([items[0]], { '123': 'UN' }, 103, {});
+
+    expect(semCusto.pmz).toBe('');
+    expect(semCusto.precoSugerido).toBe('');
+    expect(semCusto.margem).toBe('');
+  });
+
+  it('ignora custo zerado ou inválido', () => {
+    const [zero] = buildSpreadsheetRows([items[0]], { '123': 'UN' }, 103, { '123': 0 });
+    const [negativo] = buildSpreadsheetRows([items[0]], { '123': 'UN' }, 103, { '123': -3 });
+
+    expect(zero.pmz).toBe('');
+    expect(negativo.pmz).toBe('');
+  });
+
+  it('escreve a fórmula ((custo - sugestão) / custo) * 100 na coluna MARGEM', () => {
+    expect(marginFormula(4, 5, 4)).toBe('=IF(E4=0,"",((E4-F4)/E4)*100)');
+
+    const [row] = buildSpreadsheetRows([{ ...items[0], codigo: '123' }], { '123': 'UN' }, 103, { '123': 5 });
+    expect(row.margem).toBe('=IF(E4=0,"",((E4-F4)/E4)*100)');
+
+    const [, segunda] = buildSpreadsheetRows(items, tipos, 103, { '123': 5, '456': 7.5 });
+    expect(segunda.margem).toBe('=IF(E5=0,"",((E5-F5)/E5)*100)');
+  });
+
+  it('sugestão é sempre metade do custo, com quantas casas o custo tiver', () => {
+    expect(suggestedPrice(179.6884 / 2)).toBeCloseTo(44.9221, 4);
+    expect(suggestedPrice(0.01)).toBeCloseTo(0.005, 6);
+  });
+
+  it('grava custo, sugestão e a fórmula de margem no arquivo', () => {
+    const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28), custos: { '123': 5, '456': 7.5 } });
+    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; s?: { z?: string } }>;
+
+    expect(cell(sheet, 'E4')).toBe(5);
+    expect(cell(sheet, 'F4')).toBe(2.5);
+    expect(sheet['G4']?.f).toBe('IF(E4=0,"",((E4-F4)/E4)*100)');
+
+    expect(cell(sheet, 'E5')).toBe(7.5);
+    expect(cell(sheet, 'F5')).toBe(3.75);
+    expect(sheet['G5']?.f).toBe('IF(E5=0,"",((E5-F5)/E5)*100)');
+
+    // Valores em reais com duas casas na tela, sem alterar a precisão do custo.
+    expect(sheet['E4']?.s?.z).toBe('#,##0.00');
+    expect(sheet['F4']?.s?.z).toBe('#,##0.00');
+    expect(sheet['G4']?.s?.z).toBe('0.00');
   });
 });

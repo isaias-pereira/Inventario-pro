@@ -10,6 +10,23 @@ const productSelect = `SELECT p.ean::text, p.codigo::text, p.descricao, p.tipo,
 const codeCondition = `p.codigo=$1::bigint OR p.codigo IN (SELECT produto_codigo FROM public.produto_codigos WHERE codigo=$1::bigint)`;
 const allCondition = `(${codeCondition}) OR p.ean=$1::bigint OR p.codigo IN (SELECT produto_codigo FROM public.produto_eans WHERE ean=$1::bigint)`;
 
+// Custo (numeric 12,4) por código, incluindo códigos alternativos (produto_codigos).
+// O registro mestre vence o alternativo quando o mesmo código existe nos dois.
+const custoSelect = `
+  SELECT DISTINCT ON (codigo) codigo, custo FROM (
+    SELECT p.codigo::text AS codigo, p."Custo"::float8 AS custo, 1 AS prioridade
+      FROM public.produto p
+     WHERE p.codigo = ANY($1::bigint[])
+    UNION ALL
+    SELECT pc.codigo::text AS codigo, p."Custo"::float8 AS custo, 2 AS prioridade
+      FROM public.produto_codigos pc
+      JOIN public.produto p ON p.codigo = pc.produto_codigo
+     WHERE pc.codigo = ANY($1::bigint[])
+  ) origem
+  ORDER BY codigo, prioridade`;
+
+const MAX_CODIGOS = 1000;
+
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
 
@@ -19,12 +36,36 @@ const handler: ApiHandler = async (req, res) => {
 
     const body = await readJsonBody<Record<string, unknown>>(req);
     const action = body.action;
-    if (action !== undefined && !['check', 'insert', 'edit_lookup', 'update'].includes(String(action))) {
+    if (action !== undefined && !['check', 'insert', 'edit_lookup', 'update', 'costs'].includes(String(action))) {
       sendJson(res, { error: 'Ação inválida' }, 400);
       return;
     }
     if (['insert', 'update', 'edit_lookup'].includes(String(action)) && !canManageProducts(payload.role)) {
       sendJson(res, { error: 'Apenas administradores podem gerenciar produtos' }, 403);
+      return;
+    }
+
+    const sql = createSql();
+
+    // CUSTOS — custo (PMZ) de vários códigos em uma consulta (usado na planilha de rebaixa)
+    if (action === 'costs') {
+      const raw = Array.isArray(body.codigos) ? body.codigos : [];
+      if (raw.length === 0 || raw.length > MAX_CODIGOS) {
+        sendJson(res, { error: `Informe de 1 a ${MAX_CODIGOS} códigos` }, 400);
+        return;
+      }
+      const codigos = raw.map(identifier);
+      if (codigos.some((value) => value === null)) {
+        sendJson(res, { error: 'Código inválido (apenas dígitos, até 14)' }, 400);
+        return;
+      }
+      const rows = await sql(custoSelect, [codigos]);
+      const costs: Record<string, number> = {};
+      for (const row of rows) {
+        const value = Number(row.custo);
+        if (Number.isFinite(value)) costs[String(row.codigo)] = value;
+      }
+      sendJson(res, { costs });
       return;
     }
 
@@ -34,7 +75,6 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    const sql = createSql();
     const findProduct = async (value: string, byCode = false) => {
       const rows = await sql(
         `${productSelect} WHERE ${byCode ? codeCondition : allCondition} ORDER BY (p.ean=$1::bigint) DESC NULLS LAST LIMIT 1`,

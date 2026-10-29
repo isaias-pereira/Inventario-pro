@@ -3,12 +3,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save, createWorkbook, saveSpreadsheet, fetchTipos } = vi.hoisted(() => ({
+const { invoke, save, createWorkbook, saveSpreadsheet, fetchTipos, fetchCustos } = vi.hoisted(() => ({
   invoke: vi.fn(),
   save: vi.fn(),
   createWorkbook: vi.fn(() => ({ SheetNames: [], Sheets: {} })),
   saveSpreadsheet: vi.fn(),
   fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
+  fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
 }));
 
 vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
@@ -17,6 +18,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: fetchTipos }));
+vi.mock('@/lib/validade-custos', () => ({ fetchProductCustos: fetchCustos }));
 vi.mock('@/lib/validade-spreadsheet', () => ({
   createValidadeWorkbook: createWorkbook,
   saveValidadeSpreadsheet: saveSpreadsheet,
@@ -92,8 +94,11 @@ it('exports the expiry list as an XLSX spreadsheet', async () => {
 
   await waitFor(() => expect(saveSpreadsheet).toHaveBeenCalledTimes(1));
   expect(fetchTipos).toHaveBeenCalledWith(['100'], 'token');
+  // O custo (PMZ) é buscado junto com o tipo para preencher a planilha.
+  expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token');
   expect(createWorkbook).toHaveBeenCalledWith(
     [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
     { '100': 'UN' },
+    { custos: { '100': 4.5 } },
   );
 });

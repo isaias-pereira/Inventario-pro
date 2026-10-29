@@ -35,8 +35,11 @@ export interface ValidadeSpreadsheetRow {
   ean: string;
   codigo: string;
   descricao: string;
-  pmz: string;
-  precoSugerido: string;
+  /** Custo do catálogo (PMZ); vazio quando o produto não tem custo. */
+  pmz: string | number;
+  /** Metade do custo; vazio quando o produto não tem custo. */
+  precoSugerido: string | number;
+  /** Fórmula ((custo - sugestão) / custo) * 100; vazia quando não há custo. */
   margem: string;
   vencimento: string;
   quantidade: number;
@@ -47,6 +50,17 @@ export interface ValidadeSpreadsheetRow {
 }
 
 export type TipoMap = Record<string, string>;
+/** Custo (PMZ) de cada código do produto. */
+export type CustoMap = Record<string, number>;
+
+/** Índices (base 0) das colunas de preço dentro de COLUMNS. */
+const PMZ_COLUMN = 4;
+const SUGERIDO_COLUMN = 5;
+const MARGEM_COLUMN = 6;
+/** Primeira linha de dados no Excel (linha 4, contando o título, a data e o cabeçalho). */
+const FIRST_DATA_ROW = 4;
+/** Fração do custo usada como preço sugerido de rebaixa. */
+export const SUGESTAO_FRACTION = 0.5;
 
 // Cores e fontes extraídas do modelo original "Modelo de rabaixa.ods".
 const COLORS = {
@@ -98,6 +112,8 @@ interface ColumnStyle {
   dataFill?: string;
   dataBorder?: typeof BORDER;
   wrap?: boolean;
+  /** Formato numérico aplicado aos valores (ex.: '#,##0.00'). */
+  dataNumFmt?: string;
 }
 
 const COLUMN_STYLES: ColumnStyle[] = [
@@ -105,9 +121,9 @@ const COLUMN_STYLES: ColumnStyle[] = [
   { wch: 18.3, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataBorder: EAN_BORDER }, // EAN
   { wch: 11.5, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5 }, // CÓDIGO C5
   { wch: 11.5, align: 'left', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, wrap: true }, // DESCRIÇÃO
-  { wch: 11.5, align: 'left', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // PMZ
-  { wch: 21.8, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // PREÇO SUGERIDO
-  { wch: 15.8, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, dataFill: COLORS.white }, // MARGEM %
+  { wch: 11.5, align: 'left', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: '#,##0.00' }, // PMZ
+  { wch: 21.8, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: '#,##0.00' }, // PREÇO SUGERIDO
+  { wch: 15.8, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, dataFill: COLORS.white, dataNumFmt: '0.00' }, // MARGEM %
   { wch: 18.6, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // VENCIMENTO
   { wch: 22.7, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // QUANTIDADE
   { wch: 16.6, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // DESCRIÇÃO DA OFERTA
@@ -153,27 +169,59 @@ export function isUnitProduct(tipo?: string): boolean {
   return String(tipo ?? '').trim().toUpperCase() === 'UN';
 }
 
+/** Coluna (0-based) → letra usada na planilha (0 → 'A'). */
+function columnLetter(index: number): string {
+  return String.fromCharCode(65 + index);
+}
+
+/** Preço sugerido de rebaixa: metade do custo. */
+export function suggestedPrice(custo: number): number {
+  return custo * SUGESTAO_FRACTION;
+}
+
+/**
+ * Fórmula da coluna MARGEM %: ((custo - sugestão) / custo) * 100.
+ * Retorna vazio quando o custo (PMZ) estiver zerado, para não dividir por zero.
+ */
+export function marginFormula(custoColumn: number, sugestaoColumn: number, row: number): string {
+  const custo = `${columnLetter(custoColumn)}${row}`;
+  const sugestao = `${columnLetter(sugestaoColumn)}${row}`;
+  return `=IF(${custo}=0,"",((${custo}-${sugestao})/${custo})*100)`;
+}
+
 export function buildSpreadsheetRows(
   items: ValidadeSpreadsheetItem[],
   tipos: TipoMap,
   store = DEFAULT_STORE,
+  custos: CustoMap = {},
 ): ValidadeSpreadsheetRow[] {
-  return items.map((item) => ({
-    loja: store,
-    ean: String(item.ean),
-    codigo: String(item.codigo),
-    descricao: item.descricao,
-    pmz: '',
-    precoSugerido: '',
-    margem: '',
-    // KG fica vazio, UN recebe a validade da lista e tipo desconhecido não é chutado como UN.
-    vencimento: isUnitProduct(tipos[String(item.codigo)]) ? formatDateBR(item.validade) : '',
-    quantidade: Number(item.quantidade) || 0,
-    descricaoOferta: '',
-    precoFinalRebaxa: '',
-    inicio: '',
-    final: '',
-  }));
+  return items.map((item, index) => {
+    const codigo = String(item.codigo);
+    const custo = custos[codigo];
+    const temCusto = typeof custo === 'number' && Number.isFinite(custo) && custo > 0;
+
+    return {
+      loja: store,
+      ean: String(item.ean),
+      codigo,
+      descricao: item.descricao,
+      // PMZ recebe o custo do catálogo; sem custo a coluna fica vazia.
+      pmz: temCusto ? custo : '',
+      // Sugestão é sempre 50% do custo (banana 5,00 → 2,50).
+      precoSugerido: temCusto ? suggestedPrice(custo!) : '',
+      // Margem calculada pela própria planilha, assim o comercial pode ajustar a sugestão.
+      margem: temCusto
+        ? marginFormula(PMZ_COLUMN, SUGERIDO_COLUMN, FIRST_DATA_ROW + index)
+        : '',
+      // KG fica vazio, UN recebe a validade da lista e tipo desconhecido não é chutado como UN.
+      vencimento: isUnitProduct(tipos[codigo]) ? formatDateBR(item.validade) : '',
+      quantidade: Number(item.quantidade) || 0,
+      descricaoOferta: '',
+      precoFinalRebaxa: '',
+      inicio: '',
+      final: '',
+    };
+  });
 }
 
 function styleCell(sheet: XLSX.WorkSheet, address: string, style: Record<string, unknown>) {
@@ -184,9 +232,14 @@ function styleCell(sheet: XLSX.WorkSheet, address: string, style: Record<string,
 export function createValidadeWorkbook(
   items: ValidadeSpreadsheetItem[],
   tipos: TipoMap,
-  options: { store?: number; date?: Date } = {},
+  options: { store?: number; date?: Date; custos?: CustoMap } = {},
 ): XLSX.WorkBook {
-  const rows = buildSpreadsheetRows(items, tipos, options.store ?? DEFAULT_STORE);
+  const rows = buildSpreadsheetRows(
+    items,
+    tipos,
+    options.store ?? DEFAULT_STORE,
+    options.custos ?? {},
+  );
   const date = options.date ?? new Date();
 
   const aoa: (string | number)[][] = [
@@ -213,6 +266,19 @@ export function createValidadeWorkbook(
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   const lastRow = aoa.length;
   const descricaoWidth = descriptionColumnWidth(items);
+
+  // MARGEM % é uma fórmula de verdade: converte o texto em célula de fórmula
+  // para que o comercial possa alterar a sugestão e ver a margem recalcular.
+  // (aoa_to_sheet grava textos começados em "=" como string comum.)
+  rows.forEach((row, index) => {
+    if (!row.margem.startsWith('=')) return;
+    const address = XLSX.utils.encode_cell({ r: FIRST_DATA_ROW - 1 + index, c: MARGEM_COLUMN });
+    const cell = sheet[address] as unknown as { v?: unknown; t?: string; f?: string } | undefined;
+    if (!cell || typeof cell.v !== 'string' || !cell.v.startsWith('=')) return;
+    cell.f = cell.v.slice(1);
+    cell.t = 'f';
+    delete (cell as { v?: unknown }).v;
+  });
 
   sheet['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },   // DATA: (A1:B1)
@@ -303,6 +369,7 @@ export function createValidadeWorkbook(
       const column = COLUMN_STYLES[col];
       styleCell(sheet, address, {
         ...(column.dataFill ? { fill: { fgColor: { rgb: column.dataFill } } } : {}),
+        ...(column.dataNumFmt ? { z: column.dataNumFmt } : {}),
         font: {
           name: column.dataFont,
           sz: column.dataSize,

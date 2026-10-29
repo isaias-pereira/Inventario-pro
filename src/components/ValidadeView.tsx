@@ -28,6 +28,7 @@ import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
 import { createValidadeWorkbook, isWeightProduct, saveValidadeSpreadsheet } from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
+import { fetchProductCustos } from '@/lib/validade-custos';
 
 
 interface ProductResult {
@@ -425,11 +426,12 @@ const [filter, setFilter] = useState<FilterType>('todos');
     setDownloadingXlsx(true);
     try {
       const token = authGetToken() ?? getToken();
-      const tipos = await fetchProductTipos(
-        filteredItems.map((item) => String(item.codigo)),
-        token,
-      );
-      const workbook = createValidadeWorkbook(filteredItems, tipos);
+      const codigos = filteredItems.map((item) => String(item.codigo));
+      const [tipos, custos] = await Promise.all([
+        fetchProductTipos(codigos, token),
+        fetchProductCustos(codigos, token),
+      ]);
+      const workbook = createValidadeWorkbook(filteredItems, tipos, { custos });
       saveValidadeSpreadsheet(workbook);
       toast.success('Planilha gerada com sucesso');
       setShowDownloadDialog(false);
