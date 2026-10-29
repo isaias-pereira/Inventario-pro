@@ -67,7 +67,7 @@ export const SUGESTAO_FRACTION = 0.5;
  */
 export const SUGESTAO_MINIMA = 0.99;
 /** Formato de moeda em reais com até duas casas decimais. */
-export const CURRENCY_FORMAT = '"R$"#,##0.00';
+export const CURRENCY_FORMAT = '"R$ "#,##0.00';
 /** Formato de porcentagem (o valor já vem multiplicado por 100). */
 export const PERCENT_FORMAT = '0"%"';
 
@@ -237,9 +237,18 @@ export function buildSpreadsheetRows(
   });
 }
 
-function styleCell(sheet: XLSX.WorkSheet, address: string, style: Record<string, unknown>) {
+function styleCell(
+  sheet: XLSX.WorkSheet,
+  address: string,
+  style: Record<string, unknown>,
+  numFmt?: string,
+) {
   const cell = sheet[address];
-  if (cell) cell.s = style;
+  if (!cell) return;
+  cell.s = style;
+  // O xlsx-js-style só grava o formato numérico a partir de `cell.z`; deixá-lo
+  // apenas em `cell.s.z` gera um arquivo sem numFmts e o Excel mostra o valor cru.
+  if (numFmt) cell.z = numFmt;
 }
 
 export function createValidadeWorkbook(
@@ -382,7 +391,6 @@ export function createValidadeWorkbook(
       const column = COLUMN_STYLES[col];
       styleCell(sheet, address, {
         ...(column.dataFill ? { fill: { fgColor: { rgb: column.dataFill } } } : {}),
-        ...(column.dataNumFmt ? { z: column.dataNumFmt } : {}),
         font: {
           name: column.dataFont,
           sz: column.dataSize,
@@ -396,7 +404,7 @@ export function createValidadeWorkbook(
           wrapText: column.wrap ?? false,
         },
         border: column.dataBorder ?? BORDER,
-      });
+      }, column.dataNumFmt);
     }
   }
 

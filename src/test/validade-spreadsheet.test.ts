@@ -268,7 +268,7 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
 
   it('grava custo, sugestão e a fórmula de margem no arquivo', () => {
     const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28), custos: { '123': 5, '456': 7.5 } });
-    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; s?: { z?: string; font?: { color?: { rgb?: string } } } }>;
+    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; z?: string; s?: { z?: string; font?: { color?: { rgb?: string } } } }>;
 
     expect(cell(sheet, 'E4')).toBe(5);
     expect(cell(sheet, 'F4')).toBe(2.5);
@@ -279,12 +279,26 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(sheet['G5']?.f).toBe('IF(E5=0,"",((E5-F5)/E5)*100)');
 
     // Reais com até duas casas na tela, sem alterar a precisão do custo.
-    expect(sheet['E4']?.s?.z).toBe('"R$"#,##0.00');
-    expect(sheet['F4']?.s?.z).toBe('"R$"#,##0.00');
+    expect(sheet['E4']?.z).toBe('"R$ "#,##0.00');
+    expect(sheet['F4']?.z).toBe('"R$ "#,##0.00');
     // Margem em percentual, com o valor já multiplicado por 100.
-    expect(sheet['G4']?.s?.z).toBe('0"%"');
+    expect(sheet['G4']?.z).toBe('0"%"');
     expect(sheet['G4']?.s?.font?.color?.rgb).toBe('FF0000');
     expect(sheet['G5']?.s?.font?.color?.rgb).toBe('FF0000');
+  });
+
+  it('mantém os formatos numéricos no arquivo gravado, não só na memória', async () => {
+    const XLSX = await import('xlsx-js-style');
+    const wb = createValidadeWorkbook(items, tipos, { custos: { '123': 5, '456': 7.5 } });
+    const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    const lido = XLSX.read(bytes, { type: 'buffer', cellNF: true, cellFormula: true, cellStyles: true });
+    const sheet = lido.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; z?: string; f?: string }>;
+
+    // Regressão: o xlsx-js-style ignora s.z; sem cell.z o arquivo sai sem numFmts
+    // e o Excel mostra 0,53 / 50 em vez de R$ 0,53 / 50%.
+    expect(sheet['E4']?.z).toBe('"R$ "#,##0.00');
+    expect(sheet['F4']?.z).toBe('"R$ "#,##0.00');
+    expect(sheet['G4']?.f).toBe('IF(E4=0,"",((E4-F4)/E4)*100)');
   });
 
   it('aplica o piso de R$ 0,99 na planilha final', () => {
