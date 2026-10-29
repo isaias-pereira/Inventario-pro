@@ -226,6 +226,13 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(banana.precoSugerido).toBe(2.5);
   });
 
+  it('usa R$ 0,99 como sugestão padrão quando o custo é até R$ 1,00', () => {
+    const [banana] = buildSpreadsheetRows([{ ...items[1], codigo: '631612' }], { '631612': 'KG' }, 103, { '631612': 0.53 });
+
+    expect(banana.pmz).toBe(0.53);
+    expect(banana.precoSugerido).toBe(0.99);
+  });
+
   it('mantém as colunas vazias quando o produto não tem custo', () => {
     const [semCusto] = buildSpreadsheetRows([items[0]], { '123': 'UN' }, 103, {});
 
@@ -252,14 +259,16 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(segunda.margem).toBe('=IF(E5=0,"",((E5-F5)/E5)*100)');
   });
 
-  it('sugestão é sempre metade do custo, com quantas casas o custo tiver', () => {
-    expect(suggestedPrice(179.6884 / 2)).toBeCloseTo(44.9221, 4);
-    expect(suggestedPrice(0.01)).toBeCloseTo(0.005, 6);
+  it('sugestão é metade do custo, nunca abaixo de R$ 0,99', () => {
+    expect(suggestedPrice(5)).toBe(2.5);
+    expect(suggestedPrice(0.53)).toBe(0.99);
+    expect(suggestedPrice(1)).toBe(0.99);
+    expect(suggestedPrice(179.6884)).toBeCloseTo(89.8442, 4);
   });
 
   it('grava custo, sugestão e a fórmula de margem no arquivo', () => {
     const wb = createValidadeWorkbook(items, tipos, { date: new Date(2026, 9, 28), custos: { '123': 5, '456': 7.5 } });
-    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; s?: { z?: string } }>;
+    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown; f?: string; s?: { z?: string; font?: { color?: { rgb?: string } } } }>;
 
     expect(cell(sheet, 'E4')).toBe(5);
     expect(cell(sheet, 'F4')).toBe(2.5);
@@ -269,9 +278,24 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(cell(sheet, 'F5')).toBe(3.75);
     expect(sheet['G5']?.f).toBe('IF(E5=0,"",((E5-F5)/E5)*100)');
 
-    // Valores em reais com duas casas na tela, sem alterar a precisão do custo.
-    expect(sheet['E4']?.s?.z).toBe('#,##0.00');
-    expect(sheet['F4']?.s?.z).toBe('#,##0.00');
-    expect(sheet['G4']?.s?.z).toBe('0.00');
+    // Reais com até duas casas na tela, sem alterar a precisão do custo.
+    expect(sheet['E4']?.s?.z).toBe('"R$"#,##0.00');
+    expect(sheet['F4']?.s?.z).toBe('"R$"#,##0.00');
+    // Margem em percentual, com o valor já multiplicado por 100.
+    expect(sheet['G4']?.s?.z).toBe('0"%"');
+    expect(sheet['G4']?.s?.font?.color?.rgb).toBe('FF0000');
+    expect(sheet['G5']?.s?.font?.color?.rgb).toBe('FF0000');
+  });
+
+  it('aplica o piso de R$ 0,99 na planilha final', () => {
+    const wb = createValidadeWorkbook(
+      [{ ...items[1], codigo: '631612' }],
+      { '631612': 'KG' },
+      { custos: { '631612': 0.53 } },
+    );
+    const sheet = wb.Sheets['Rebaixa'] as unknown as Record<string, { v?: unknown }>;
+
+    expect(cell(sheet, 'E4')).toBe(0.53);
+    expect(cell(sheet, 'F4')).toBe(0.99);
   });
 });

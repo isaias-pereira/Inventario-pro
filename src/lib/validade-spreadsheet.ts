@@ -61,6 +61,15 @@ const MARGEM_COLUMN = 6;
 const FIRST_DATA_ROW = 4;
 /** Fração do custo usada como preço sugerido de rebaixa. */
 export const SUGESTAO_FRACTION = 0.5;
+/**
+ * Produto barato (custo até R$ 1,00) não pode ser sugerido abaixo de R$ 0,99:
+ * metade de R$ 0,53 seria R$ 0,27, o que não é um preço de ponta praticável.
+ */
+export const SUGESTAO_MINIMA = 0.99;
+/** Formato de moeda em reais com até duas casas decimais. */
+export const CURRENCY_FORMAT = '"R$"#,##0.00';
+/** Formato de porcentagem (o valor já vem multiplicado por 100). */
+export const PERCENT_FORMAT = '0"%"';
 
 // Cores e fontes extraídas do modelo original "Modelo de rabaixa.ods".
 const COLORS = {
@@ -121,9 +130,9 @@ const COLUMN_STYLES: ColumnStyle[] = [
   { wch: 18.3, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataBorder: EAN_BORDER }, // EAN
   { wch: 11.5, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5 }, // CÓDIGO C5
   { wch: 11.5, align: 'left', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, wrap: true }, // DESCRIÇÃO
-  { wch: 11.5, align: 'left', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: '#,##0.00' }, // PMZ
-  { wch: 21.8, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: '#,##0.00' }, // PREÇO SUGERIDO
-  { wch: 15.8, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, dataFill: COLORS.white, dataNumFmt: '0.00' }, // MARGEM %
+  { wch: 13.5, align: 'left', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: CURRENCY_FORMAT }, // PMZ
+  { wch: 21.8, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10, dataNumFmt: CURRENCY_FORMAT }, // PREÇO SUGERIDO
+  { wch: 15.8, align: 'center', headerColor: COLORS.black, headerFill: COLORS.headerStoreFill, dataFont: FONTS.data, dataSize: 9.5, dataBold: true, dataColor: COLORS.red, dataFill: COLORS.white, dataNumFmt: PERCENT_FORMAT }, // MARGEM %
   { wch: 18.6, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // VENCIMENTO
   { wch: 22.7, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // QUANTIDADE
   { wch: 16.6, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // DESCRIÇÃO DA OFERTA
@@ -174,9 +183,13 @@ function columnLetter(index: number): string {
   return String.fromCharCode(65 + index);
 }
 
-/** Preço sugerido de rebaixa: metade do custo. */
+/**
+ * Preço sugerido de rebaixa: metade do custo, mas nunca abaixo de R$ 0,99.
+ * Regra: produto com custo (PMZ) até R$ 1,00 sai com sugestão padrão de R$ 0,99 —
+ * metade de R$ 0,53 seria R$ 0,27, que não é preço de ponta praticável.
+ */
 export function suggestedPrice(custo: number): number {
-  return custo * SUGESTAO_FRACTION;
+  return Math.max(custo * SUGESTAO_FRACTION, SUGESTAO_MINIMA);
 }
 
 /**
