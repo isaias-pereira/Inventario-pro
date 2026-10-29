@@ -738,17 +738,67 @@ export function spreadSheetFileName(date = new Date()): string {
   return `solicitacao-rebaixa-${date.getFullYear()}-${month}-${day}.ods`;
 }
 
-/** Baixa o .ods gerado, com o nome datado e o MIME do OpenDocument. */
-export function saveValidadeOds(bytes: Uint8Array, date = new Date()): void {
-  const blob = new Blob([bytes.slice().buffer], {
-    type: 'application/vnd.oasis.opendocument.spreadsheet',
-  });
+/** MIME oficial do OpenDocument Spreadsheet. */
+export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
+
+function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = spreadSheetFileName(date);
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Baixa o .ods gerado, com o nome datado e o MIME do OpenDocument. */
+export function saveValidadeOds(bytes: Uint8Array, date = new Date()): void {
+  downloadBlob(new Blob([bytes.slice().buffer], { type: ODS_MIME }), spreadSheetFileName(date));
+}
+
+export type ShareOutcome = 'shared' | 'downloaded' | 'cancelled';
+
+/** O aparelho consegue compartilhar arquivos (celular/tablet com Web Share)? */
+function canShareFile(file: File): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+  if (typeof nav.share !== 'function') return false;
+  // `canShare` é o que garante que o arquivo pode ir junto; sem ele, não arriscamos.
+  if (typeof nav.canShare !== 'function') return false;
+  try {
+    return nav.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Abre a folha de compartilhamento do aparelho (WhatsApp, Gmail, Thunderbird…)
+ * com o .ods anexado. Em desktop sem suporte, baixa o arquivo para envio manual.
+ */
+export async function shareValidadeOds(
+  bytes: Uint8Array,
+  options: { date?: Date; text?: string } = {},
+): Promise<ShareOutcome> {
+  const date = options.date ?? new Date();
+  const filename = spreadSheetFileName(date);
+  const file = new File([bytes.slice().buffer], filename, { type: ODS_MIME });
+
+  if (canShareFile(file)) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'Solicitação de rebaixa / perecíveis',
+        text: options.text,
+      });
+      return 'shared';
+    } catch (error) {
+      // Fechar a folha de compartilhamento não é erro: não baixa nada.
+      if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled';
+    }
+  }
+
+  downloadBlob(file, filename);
+  return 'downloaded';
 }

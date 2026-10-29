@@ -3,11 +3,12 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save, createOds, saveSpreadsheet, fetchTipos, fetchCustos } = vi.hoisted(() => ({
+const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCustos } = vi.hoisted(() => ({
   invoke: vi.fn(),
   save: vi.fn(),
   createOds: vi.fn(() => new Uint8Array([1, 2, 3])),
   saveSpreadsheet: vi.fn(),
+  shareOds: vi.fn(async (_bytes: Uint8Array) => 'shared'),
   fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
   fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
 }));
@@ -22,6 +23,7 @@ vi.mock('@/lib/validade-custos', () => ({ fetchProductCustos: fetchCustos }));
 vi.mock('@/lib/validade-spreadsheet', () => ({
   createValidadeOds: createOds,
   saveValidadeOds: saveSpreadsheet,
+  shareValidadeOds: shareOds,
 }));
 vi.mock('jspdf', () => ({
   jsPDF: vi.fn(function jsPDF() {
@@ -48,6 +50,7 @@ beforeEach(() => {
   save.mockReset();
   createOds.mockClear();
   saveSpreadsheet.mockReset();
+  shareOds.mockClear();
   fetchTipos.mockClear();
   window.localStorage.setItem('estoque_pro_token', 'token');
   invoke.mockResolvedValue({
@@ -101,4 +104,27 @@ it('exports the expiry list as an ODS spreadsheet', async () => {
     { '100': 'UN' },
     { custos: { '100': 4.5 } },
   );
+});
+
+it('shares the ODS through the system share sheet', async () => {
+  const user = userEvent.setup();
+  render(<ValidadeView />);
+
+  await screen.findByText('BANANA PRATA');
+  await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
+
+  // O diálogo prepara tipos e custos ao abrir para o compartilhamento manter o gesto.
+  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token'));
+
+  await user.click(await screen.findByRole('button', { name: 'Compartilhar' }));
+
+  await waitFor(() => expect(shareOds).toHaveBeenCalledTimes(1));
+  expect(shareOds.mock.calls[0][0]).toBeInstanceOf(Uint8Array);
+  expect(createOds).toHaveBeenCalledWith(
+    [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
+    { '100': 'UN' },
+    { custos: { '100': 4.5 } },
+  );
+  // O compartilhamento nativo substitui o download: nada foi baixado.
+  expect(saveSpreadsheet).not.toHaveBeenCalled();
 });

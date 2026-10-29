@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
@@ -26,7 +26,13 @@ import { Badge } from '@/components/ui/badge';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
-import { createValidadeOds, isWeightProduct, saveValidadeOds } from '@/lib/validade-spreadsheet';
+import {
+  createValidadeOds,
+  isWeightProduct,
+  saveValidadeOds,
+  shareValidadeOds,
+  type ShareOutcome,
+} from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
 
@@ -99,7 +105,25 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [showArrastao, setShowArrastao] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingPlanilha, setDownloadingPlanilha] = useState(false);
+  const [sharingPlanilha, setSharingPlanilha] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  /** Tipos e custos já buscados para a planilha, prontos para o compartilhamento. */
+  const spreadsheetCache = useRef<{
+    key: string;
+    tipos: Record<string, string>;
+    custos: Record<string, number>;
+  } | null>(null);
+
+  /** Busca tipos e custos da lista; usado pelo download e pelo compartilhamento. */
+  const loadSpreadsheetData = useCallback(async (key: string) => {
+    const token = authGetToken() ?? getToken();
+    const codigos = key.split(',');
+    const [tipos, custos] = await Promise.all([
+      fetchProductTipos(codigos, token),
+      fetchProductCustos(codigos, token),
+    ]);
+    return { tipos, custos };
+  }, [authGetToken]);
 
   const [alertDays, setAlertDays] = useState(() => {
     try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : DEFAULT_ALERT_DAYS; } catch { return DEFAULT_ALERT_DAYS; }
@@ -278,7 +302,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
     return { label: `${diffDays}d`, variant: 'outline' as const, icon: CalendarClock };
   };
 
-  const filteredItems = items.filter((item) => {
+  const filteredItems = useMemo(() => items.filter((item) => {
     const diffDays = daysUntil(item.validade);
 
     switch (filter) {
@@ -287,7 +311,31 @@ const [filter, setFilter] = useState<FilterType>('todos');
       case '30dias': return diffDays <= 30;
       default: return true;
     }
-  });
+  }), [items, filter]);
+
+  /** Identifica a lista atual: se os códigos mudam, o cache de tipos/custos é refeito. */
+  const spreadsheetCodesKey = useMemo(
+    () => filteredItems.map((item) => String(item.codigo)).join(','),
+    [filteredItems],
+  );
+
+  // O celular só abre a folha de compartilhamento dentro do gesto do usuário.
+  // Por isso tipos e custos são buscados assim que o diálogo abre, e não no clique.
+  useEffect(() => {
+    if (!showDownloadDialog || spreadsheetCodesKey === '') return;
+    if (spreadsheetCache.current?.key === spreadsheetCodesKey) return;
+
+    let active = true;
+
+    void loadSpreadsheetData(spreadsheetCodesKey)
+      .then(({ tipos, custos }) => {
+        if (active) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
+      })
+      // Falha aqui não impede o clique: o compartilhamento tenta buscar de novo.
+      .catch(() => undefined);
+
+    return () => { active = false; };
+  }, [showDownloadDialog, spreadsheetCodesKey, loadSpreadsheetData]);
 
   const filterOptions: { key: FilterType; label: string }[] = [
     { key: 'todos', label: 'Todos' },
@@ -425,12 +473,11 @@ const [filter, setFilter] = useState<FilterType>('todos');
     }
     setDownloadingPlanilha(true);
     try {
-      const token = authGetToken() ?? getToken();
-      const codigos = filteredItems.map((item) => String(item.codigo));
-      const [tipos, custos] = await Promise.all([
-        fetchProductTipos(codigos, token),
-        fetchProductCustos(codigos, token),
-      ]);
+      const cached = spreadsheetCache.current?.key === spreadsheetCodesKey
+        ? spreadsheetCache.current
+        : null;
+      const { tipos, custos } = cached ?? await loadSpreadsheetData(spreadsheetCodesKey);
+      if (!cached) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
       const ods = createValidadeOds(filteredItems, tipos, { custos });
       saveValidadeOds(ods);
       toast.success('Planilha gerada com sucesso');
@@ -439,6 +486,68 @@ const [filter, setFilter] = useState<FilterType>('todos');
       toast.error('Erro ao gerar planilha');
     }
     setDownloadingPlanilha(false);
+  };
+
+  /**
+   * Abre o compartilhamento do celular (WhatsApp, Gmail, Thunderbird…) com o .ods.
+   * Se o cache estiver pronto, o arquivo é gerado e compartilhado no mesmo gesto,
+   * que é o que o navegador móvel exige. Sem suporte, baixa a planilha.
+   */
+  const shareSpreadsheet = () => {
+    if (sharingPlanilha) return;
+    if (filteredItems.length === 0) {
+      toast.error('Nenhum produto na lista para compartilhar');
+      return;
+    }
+
+    const itemsToShare = filteredItems;
+    const key = spreadsheetCodesKey;
+    const cached = spreadsheetCache.current?.key === key ? spreadsheetCache.current : null;
+    setSharingPlanilha(true);
+
+    const finish = (outcome: ShareOutcome) => {
+      setSharingPlanilha(false);
+      if (outcome === 'shared') {
+        toast.success('Planilha compartilhada');
+        setShowDownloadDialog(false);
+      } else if (outcome === 'downloaded') {
+        toast.success('Compartilhamento indisponível: planilha baixada', { duration: 6000 });
+        setShowDownloadDialog(false);
+      }
+      // 'cancelled': o usuário fechou a folha do celular; o diálogo continua aberto.
+    };
+
+    const runShare = (tipos: Record<string, string>, custos: Record<string, number>) => {
+      try {
+        const ods = createValidadeOds(itemsToShare, tipos, { custos });
+        // Sem `await` antes: o celular precisa do gesto do usuário para abrir a folha.
+        void shareValidadeOds(ods)
+          .then(finish)
+          .catch(() => {
+            setSharingPlanilha(false);
+            toast.error('Erro ao compartilhar planilha');
+          });
+      } catch {
+        setSharingPlanilha(false);
+        toast.error('Erro ao gerar planilha');
+      }
+    };
+
+    if (cached) {
+      runShare(cached.tipos, cached.custos);
+      return;
+    }
+
+    // Cache frio (diálogo recém-aberto): busca os dados e compartilha em seguida.
+    void loadSpreadsheetData(key)
+      .then(({ tipos, custos }) => {
+        spreadsheetCache.current = { key, tipos, custos };
+        runShare(tipos, custos);
+      })
+      .catch(() => {
+        setSharingPlanilha(false);
+        toast.error('Erro ao preparar planilha');
+      });
   };
 
   return (
@@ -757,7 +866,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
         {/* Export Format Dialog */}
         <Dialog
           open={showDownloadDialog}
-          onOpenChange={(open) => { if (!downloadingPlanilha) setShowDownloadDialog(open); }}
+          onOpenChange={(open) => { if (!downloadingPlanilha && !sharingPlanilha) setShowDownloadDialog(open); }}
         >
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
@@ -767,6 +876,10 @@ const [filter, setFilter] = useState<FilterType>('todos');
               Escolha o formato do arquivo. Serão exportados{' '}
               <span className="font-semibold text-foreground">{filteredItems.length}</span>{' '}
               produto(s) do filtro "{FILTER_LABELS[filter]}".
+              <span className="mt-1 block text-xs">
+                No celular, <span className="font-medium text-foreground">Compartilhar</span> abre
+                o menu do sistema (WhatsApp, Gmail, e-mail…).
+              </span>
             </DialogDescription>
             <div className="grid gap-2 py-1">
               <button
@@ -796,9 +909,24 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 {downloadingPdf && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
               </button>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDownloadDialog(false)} disabled={downloadingPlanilha}>
+            <DialogFooter className="flex-row justify-end gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                onClick={() => setShowDownloadDialog(false)}
+                disabled={downloadingPlanilha || sharingPlanilha}
+              >
                 Cancelar
+              </Button>
+              <Button
+                className="flex-1 sm:flex-none"
+                onClick={shareSpreadsheet}
+                disabled={downloadingPlanilha || sharingPlanilha || filteredItems.length === 0}
+              >
+                {downloadingPlanilha || sharingPlanilha
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Share2 className="mr-2 h-4 w-4" />}
+                Compartilhar
               </Button>
             </DialogFooter>
           </DialogContent>
