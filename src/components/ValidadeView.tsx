@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -1017,54 +1017,79 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
       {/* Detail Dialog */}
       <Dialog open={!!detailItem} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">Detalhes do Produto</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
           {detailItem && (() => {
-            const status = getValidadeStatus(detailItem.validade);
+            const status = detailItem.motivo
+              ? { label: detailItem.motivo, variant: 'secondary' as const, icon: Brush }
+              : getValidadeStatus(detailItem.validade);
             const StatusIcon = status.icon;
+            const urgent = !detailItem.motivo && (status.label === 'Vencido' || status.label === 'Vence Hoje');
             return (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição</p>
-                  <p className="text-sm font-semibold">{detailItem.descricao}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">EAN</p>
-                    <p className="text-sm font-mono">{detailItem.ean}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Código</p>
-                    <p className="text-sm font-mono">{detailItem.codigo}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Quantidade</p>
-                    <p className="text-sm font-semibold">{detailItem.quantidade}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Validade</p>
-                    <p className="text-sm font-semibold">{new Date(detailItem.validade).toLocaleDateString('pt-BR')}</p>
-                  </div>
-                  {detailItem.motivo && (
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Motivo</p>
-                      <p className="text-sm font-semibold">{detailItem.motivo}</p>
+              <>
+                <div className="border-b bg-gradient-to-br from-primary/[0.07] via-background to-background px-5 pb-4 pt-5">
+                  <div className="flex items-start gap-3 pr-7">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/10">
+                      <ShoppingBasket className="h-5 w-5" />
                     </div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registrado por</p>
-                    <p className="text-sm">{detailItem.created_by || '—'}</p>
+                    <div className="min-w-0 flex-1">
+                      <DialogTitle className="text-[15px] font-semibold leading-snug text-foreground">
+                        {detailItem.descricao}
+                      </DialogTitle>
+                      <DialogDescription className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] leading-4 text-muted-foreground">
+                        <span>{detailItem.ean}</span>
+                        <span className="font-sans text-border">•</span>
+                        <span>cód. {detailItem.codigo}</span>
+                      </DialogDescription>
+                    </div>
                   </div>
-                  <Badge variant={status.variant} className="gap-1 text-xs">
-                    <StatusIcon className="h-3 w-3" />
-                    {status.label}
-                  </Badge>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <Badge variant={status.variant} className="gap-1 px-2 py-0.5 text-[11px] font-semibold">
+                      <StatusIcon className="h-3 w-3" />
+                      {status.label}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
+
+                <div className="grid grid-cols-2 gap-2.5 px-5 py-4">
+                  <div className="rounded-lg border bg-card px-3 py-2.5">
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <Boxes className="h-3.5 w-3.5" />
+                      Quantidade
+                    </p>
+                    <p className="mt-1 text-lg font-bold leading-none text-foreground">{detailItem.quantidade}</p>
+                  </div>
+                  <div className={cn('rounded-lg border bg-card px-3 py-2.5', urgent && 'border-red-200 bg-red-50/70')}>
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Validade
+                    </p>
+                    <p className={cn('mt-1 text-lg font-bold leading-none', urgent ? 'text-red-600' : 'text-foreground')}>
+                      {new Date(detailItem.validade).toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <User className="h-3.5 w-3.5" />
+                      Registrado por
+                    </p>
+                    <p className="truncate text-xs font-semibold text-foreground">{detailItem.created_by || '—'}</p>
+                  </div>
+                </div>
+
+                <DialogFooter className="flex-row items-center justify-between gap-2 border-t bg-muted/20 px-5 py-3">
+                  {isAdmin ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { openEdit(detailItem); setDetailItem(null); }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Editar validade
+                    </Button>
+                  ) : <span />}
+                  <Button size="sm" onClick={() => setDetailItem(null)}>Fechar</Button>
+                </DialogFooter>
+              </>
             );
           })()}
         </DialogContent>

@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
@@ -137,6 +137,7 @@ it('opens the product details when the whole card is clicked', async () => {
   const card = screen.getByRole('button', { name: 'Ver detalhes de BANANA PRATA' });
   await user.click(card);
 
-  expect(await screen.findByText('Detalhes do Produto')).toBeInTheDocument();
-  expect(screen.getByText('Registrado por')).toBeInTheDocument();
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('BANANA PRATA')).toBeInTheDocument();
+  expect(within(dialog).getByText('Registrado por')).toBeInTheDocument();
 });
