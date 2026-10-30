@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, SprayCan, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -569,7 +569,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               </Button>
             )}
             <Button variant="outline" size="icon" className="ml-1 h-8 w-8" onClick={() => setShowArrastao(true)} title="Arrastão" aria-label="Abrir Arrastão">
-              <SprayCan className="h-4 w-4 text-foreground" />
+              <img src="https://img.icons8.com/?size=100&id=8068&format=png&color=000000" alt="" className="h-4 w-4" />
             </Button>
 
             <button
