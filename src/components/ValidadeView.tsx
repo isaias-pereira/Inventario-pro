@@ -727,26 +727,33 @@ const [filter, setFilter] = useState<FilterType>('todos');
             return d.getTime() > today.getTime();
           });
           return (
-            <div className="mt-4 rounded-xl border-2 border-red-400/60 bg-white p-3 sm:p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Bell className="h-4 w-4 text-destructive" />
-                <span className="font-semibold text-destructive text-sm">Alertas de Validade</span>
+            <div className="mt-4 rounded-2xl border border-red-200 bg-gradient-to-br from-red-50 to-white shadow-sm p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-100 text-red-700">
+                  <Bell className="h-4 w-4" />
+                </div>
+                <span className="font-semibold text-red-700 text-sm">Alertas de Validade</span>
               </div>
               {expiringToday.length > 0 && (
-                <div className="mb-2">
-                  <p className="text-xs font-semibold text-destructive mb-1">🔴 Vencem HOJE ({expiringToday.length}):</p>
-                  <ul className="text-xs text-muted-foreground space-y-0.5 pl-4 list-disc">
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-red-700 mb-1.5">
+                    Vencem HOJE • {expiringToday.length} item{expiringToday.length > 1 ? 's' : ''}
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1 pl-4 list-disc">
                     {expiringToday.slice(0, 5).map(i => (
-                      <li key={i.id}>{i.descricao} — Qtd: {i.quantidade}</li>
+                      <li key={i.id}><span className="font-medium text-foreground">{i.descricao}</span> <span className="text-muted-foreground">• Qtd: {i.quantidade}</span></li>
                     ))}
-                    {expiringToday.length > 5 && <li>e mais {expiringToday.length - 5}...</li>}
+                    {expiringToday.length > 5 && <li className="text-muted-foreground">e mais {expiringToday.length - 5}...</li>}
                   </ul>
                 </div>
               )}
               {expiringSoon.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  🟡 {expiringSoon.length} produto(s) vencem em até {alertDays} dia(s).
-                </p>
+                <div className="rounded-xl border border-rose-100 bg-white p-3 flex items-start gap-2">
+                  <span className="mt-0.5">🟡</span>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {expiringSoon.length} produto{expiringSoon.length > 1 ? 's' : ''} {expiringSoon.length > 1 ? 'vencem' : 'vence'} em até {alertDays} dia{alertDays > 1 ? 's' : ''}.
+                  </p>
+                </div>
               )}
             </div>
           );
