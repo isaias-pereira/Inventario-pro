@@ -140,7 +140,10 @@ const handler: ApiHandler = async (req, res) => {
       );
 
       if (existing) {
-        if (owner.some((row) => row.codigo !== existing.codigo)) {
+        // O código digitado pode ser um código alternativo (produto_codigos).
+        // O vínculo do EAN precisa usar o código mestre do produto encontrado.
+        const master = String(existing.codigo);
+        if (owner.some((row) => row.codigo !== master)) {
           sendJson(res, { error: 'EAN já pertence a outro produto' }, 409);
           return;
         }
@@ -152,13 +155,13 @@ const handler: ApiHandler = async (req, res) => {
               AND NOT EXISTS (SELECT 1 FROM public.produto_codigos WHERE codigo=$2::bigint AND produto_codigo<>$1::bigint)
               AND NOT EXISTS (SELECT 1 FROM public.produto WHERE ean=ANY($3::bigint[]) AND codigo<>$1::bigint)
               AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=ANY($3::bigint[]) AND produto_codigo<>$1::bigint)
-              THEN 1 ELSE 0 END`, params: [codigo, ean, eans] },
-            { query: 'INSERT INTO public.produto_eans (ean,produto_codigo) VALUES ($1::bigint,$2::bigint) ON CONFLICT (ean) DO NOTHING', params: [ean, codigo] },
+              THEN 1 ELSE 0 END`, params: [master, ean, eans] },
+            { query: 'INSERT INTO public.produto_eans (ean,produto_codigo) VALUES ($1::bigint,$2::bigint) ON CONFLICT (ean) DO NOTHING', params: [ean, master] },
           ],
           [],
           true,
         );
-        sendJson(res, { success: true, action: 'ean_linked', alreadyLinked: owner.length > 0, product: await findProduct(String(existing.codigo), true) });
+        sendJson(res, { success: true, action: 'ean_linked', alreadyLinked: owner.length > 0, product: await findProduct(master, true) });
         return;
       }
 

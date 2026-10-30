@@ -1,91 +1,96 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import AddProductView from "@/components/AddProductView";
-import { invokeFunction } from "@/lib/api";
-import { toast } from "sonner";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import AddProductView from '@/components/AddProductView';
+import { invokeFunction } from '@/lib/api';
+import { toast } from 'sonner';
 
-vi.mock("@/lib/api", () => ({ invokeFunction: vi.fn() }));
+vi.mock('@/lib/api', () => ({ invokeFunction: vi.fn() }));
 
-vi.mock("sonner", () => ({
+vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 const invokeMock = vi.mocked(invokeFunction);
 
-describe("AddProductView - campo tipo", () => {
+const fillForm = () => {
+  fireEvent.change(screen.getByLabelText('EAN'), { target: { value: '7899999999999' } });
+  fireEvent.change(screen.getByLabelText('Código'), { target: { value: '959731' } });
+  fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'teste alt' } });
+};
+
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Adicionar Produto' }));
+
+describe('AddProductView', () => {
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
-    localStorage.setItem("estoque_pro_token", "test-token");
+    localStorage.setItem('estoque_pro_token', 'test-token');
   });
 
-  const fillForm = () => {
-    fireEvent.change(screen.getByPlaceholderText("Código de barras (EAN)"), {
-      target: { value: "1234567890123" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Código interno"), {
-      target: { value: "123" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("DESCRIÇÃO DO PRODUTO"), {
-      target: { value: "TESTE KG" },
-    });
-  };
+  it('starts without a selected type and offers KG and UN', async () => {
+    const user = userEvent.setup();
+    render(<AddProductView />);
 
-  const setupInvoke = () => {
-    invokeMock.mockImplementation((async (_fn: unknown, opts: any) => {
-      if (opts?.body?.action === "check") return { data: { exists: false }, error: null };
-      if (opts?.body?.action === "insert")
-        return { data: { success: true, action: "created" }, error: null };
-      return { data: {}, error: null };
-    }) as any);
-  };
+    expect(screen.getByText('Selecione o tipo')).toBeInTheDocument();
 
-  it("renders Tipo select with default UN", () => {
-    const { container } = render(<AddProductView />);
-    expect(screen.getByText("Tipo")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveTextContent("UN");
-    const nativeSelect = container.querySelector("select") as HTMLSelectElement;
-    expect(nativeSelect).not.toBeNull();
-    expect(nativeSelect.value).toBe("un");
+    await user.click(screen.getByLabelText('Tipo do produto'));
+    expect(await screen.findByRole('option', { name: 'KG' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'UN' })).toBeInTheDocument();
   });
 
-  it("submits tipo=kg when KG is selected and resets to UN after success", async () => {
-    setupInvoke();
-    const { container } = render(<AddProductView />);
-    const nativeSelect = container.querySelector("select") as HTMLSelectElement;
+  it('asks before linking a new EAN to a product found by an alternative code', async () => {
+    invokeMock
+      .mockResolvedValueOnce({
+        data: {
+          exists: true,
+          product: {
+            ean: '7897122601252',
+            codigo: '721310',
+            descricao: 'CARNE SECA VAPZA 400G',
+            tipo: 'un',
+            codigos: ['721310', '959731'],
+            eans: ['7897122601252'],
+          },
+        },
+        error: null,
+      } as never)
+      .mockResolvedValueOnce({
+        data: { success: true, action: 'ean_linked', alreadyLinked: false, product: { codigo: '721310' } },
+        error: null,
+      } as never);
 
-    fireEvent.change(nativeSelect, { target: { value: "kg" } });
-    expect(screen.getByRole("combobox")).toHaveTextContent("KG");
-
-    fillForm();
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar Produto" }));
-
-    await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith(
-        "query-product",
-        expect.objectContaining({
-          body: expect.objectContaining({ action: "insert", tipo: "kg" }),
-        })
-      );
-    });
-    await waitFor(() => {
-      expect(toast.success).toHaveBeenCalled();
-    });
-    expect((container.querySelector("select") as HTMLSelectElement).value).toBe("un");
-  });
-
-  it("submits tipo=un by default", async () => {
-    setupInvoke();
     render(<AddProductView />);
     fillForm();
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar Produto" }));
+    submit();
 
-    await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith(
-        "query-product",
+    expect(await screen.findByText('Produto já existe')).toBeInTheDocument();
+    // Mostra o produto mestre encontrado, não o código digitado.
+    expect(screen.getByText('CARNE SECA VAPZA 400G')).toBeInTheDocument();
+    expect(screen.getByText(/Códigos vinculados:/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vincular EAN' }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenLastCalledWith(
+        'query-product',
         expect.objectContaining({
-          body: expect.objectContaining({ action: "insert", tipo: "un" }),
-        })
-      );
-    });
+          body: { action: 'insert', ean: '7899999999999', codigo: '959731', descricao: 'TESTE ALT', tipo: '' },
+        }),
+      ),
+    );
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('EAN vinculado com sucesso!', expect.anything()));
+  });
+
+  it('shows the API error message when the link fails', async () => {
+    invokeMock
+      .mockResolvedValueOnce({ data: { exists: false }, error: null } as never)
+      .mockResolvedValueOnce({ data: { error: 'EAN já pertence a outro produto' }, error: null } as never);
+
+    render(<AddProductView />);
+    fillForm();
+    submit();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('EAN já pertence a outro produto'));
   });
 });
