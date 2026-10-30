@@ -128,3 +128,15 @@ it('shares the ODS through the system share sheet', async () => {
   // O compartilhamento nativo substitui o download: nada foi baixado.
   expect(saveSpreadsheet).not.toHaveBeenCalled();
 });
+
+it('opens the product details when the whole card is clicked', async () => {
+  const user = userEvent.setup();
+  render(<ValidadeView />);
+
+  await screen.findByText('BANANA PRATA');
+  const card = screen.getByRole('button', { name: 'Ver detalhes de BANANA PRATA' });
+  await user.click(card);
+
+  expect(await screen.findByText('Detalhes do Produto')).toBeInTheDocument();
+  expect(screen.getByText('Registrado por')).toBeInTheDocument();
+});

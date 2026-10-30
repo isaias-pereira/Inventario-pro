@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -775,9 +775,23 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <span className="text-muted-foreground">Carregando...</span>
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/50 p-6 sm:p-8 text-center">
-              <CalendarClock className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
-              <p className="text-muted-foreground">Nenhum produto encontrado para este filtro.</p>
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center sm:p-10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <CalendarClock className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">Nenhum produto por aqui</p>
+                <p className="text-sm text-muted-foreground">
+                  {filter === 'todos'
+                    ? 'Adicione um produto pela busca acima para começar.'
+                    : `Nenhum produto no filtro "${FILTER_LABELS[filter]}".`}
+                </p>
+              </div>
+              {filter !== 'todos' && (
+                <Button variant="outline" size="sm" onClick={() => setFilter('todos')}>
+                  Ver todos os produtos
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
@@ -793,36 +807,67 @@ const [filter, setFilter] = useState<FilterType>('todos');
                   <div
                     key={item.id}
                     className={cn(
-                      "rounded-md border bg-card px-2.5 py-1.5 cursor-pointer transition-colors hover:bg-muted/30",
-                      isUrgent && "bg-white border-2 border-red-400/60"
+                      "group flex items-stretch overflow-hidden rounded-lg border bg-card transition-colors",
+                      isUrgent
+                        ? "border-2 border-red-400/70 bg-white shadow-sm"
+                        : "border-border hover:border-primary/50"
                     )}
-                    onClick={() => setDetailItem(item)}
                   >
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="text-xs font-semibold text-foreground truncate flex-1 min-w-0">{item.descricao}</p>
-                      <Badge variant={status.variant} className="gap-0.5 text-[9px] px-1 py-0 leading-4 shrink-0">
-                        <StatusIcon className="h-2.5 w-2.5" />
-                        {status.label}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] font-mono text-muted-foreground">{item.ean}</span>
-                      <span className="text-[10px] text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantidade}</span></span>
-                      {item.motivo ? (
-                        <span className="text-[10px] font-semibold text-foreground">{item.motivo}</span>
-                      ) : (
-                        <span className="text-[10px] text-foreground font-semibold">{new Date(item.validade).toLocaleDateString('pt-BR')}</span>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetailItem(item)}
+                      aria-label={`Ver detalhes de ${item.descricao}`}
+                      title="Ver detalhes"
+                      className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-muted/60 sm:px-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground">
+                            {item.descricao}
+                          </p>
+                          <Badge variant={status.variant} className="shrink-0 gap-1 px-1.5 py-0 text-[10px] leading-5">
+                            <StatusIcon className="h-3 w-3" />
+                            {status.label}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground sm:text-xs">
+                          <span className="font-mono">{item.ean}</span>
+                          <span>
+                            Qtd: <span className="font-semibold text-foreground">{item.quantidade}</span>
+                          </span>
+                          {item.motivo ? (
+                            <span className="font-semibold text-foreground">{item.motivo}</span>
+                          ) : (
+                            <span className="font-semibold text-foreground">
+                              {new Date(item.validade).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </button>
                     {isAdmin && (
-                      <div className="flex gap-0.5 justify-end mt-0.5" onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:text-primary" onClick={() => openEdit(item)} aria-label={`Editar ${item.descricao}`}>
-                          <Pencil className="h-3 w-3" />
+                      <div className="flex shrink-0 flex-col justify-center gap-0.5 border-l border-border/60 bg-muted/20 px-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-primary hover:bg-primary/10 hover:text-primary"
+                          onClick={() => openEdit(item)}
+                          aria-label={`Editar ${item.descricao}`}
+                          title="Editar validade"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" aria-label={`Remover ${item.descricao}`}>
-                              <Trash2 className="h-3 w-3" />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`Remover ${item.descricao}`}
+                              title="Remover da validade"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
