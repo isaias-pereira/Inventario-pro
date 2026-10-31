@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -986,36 +986,69 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
         {/* Alert Days Config Dialog */}
         <Dialog open={showAlertConfig} onOpenChange={setShowAlertConfig}>
-          <DialogContent className="sm:max-w-xs">
-            <DialogHeader>
+          <DialogContent className="max-w-[92vw] sm:max-w-md md:max-w-lg p-0">
+            <DialogHeader className="sr-only">
               <DialogTitle>Configurar Alerta de Validade</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-              <p className="text-sm text-muted-foreground">
-                Informe com quantos dias de antecedência o sistema deve alertar sobre produtos próximos do vencimento.
-              </p>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="number"
-                  min={1}
-                  max={90}
-                  value={tempAlertDays}
-                  onChange={(e) => setTempAlertDays(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-20 text-center"
-                />
-                <span className="text-sm text-muted-foreground">dia(s)</span>
+            <div className="p-4 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+                    <Bell className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">Alerta de Validade</h3>
+                    <p className="text-sm text-muted-foreground">Notificações de produtos</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowAlertConfig(false)} className="h-8 w-8" aria-label="Fechar">
+                  <span aria-hidden>×</span>
+                </Button>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Defina com quantos dias de antecedência o sistema deve emitir alertas sobre produtos próximos ao vencimento.
+                </p>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Dias de antecedência</label>
+                  <div className="relative">
+                    <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={tempAlertDays}
+                      onChange={(e) => setTempAlertDays(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="pl-9 pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">dias</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[2, 3, 5].map((d) => (
+                      <Button key={d} variant="outline" size="sm" onClick={() => setTempAlertDays(d)}>
+                        {d} dias
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setShowAlertConfig(false)}>Cancelar</Button>
+                  <Button onClick={() => {
+                    setAlertDays(tempAlertDays);
+                    try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch { /* ignore storage errors */ }
+                    setShowAlertConfig(false);
+                    fetchItems();
+                    toast.success(`Alerta configurado para ${tempAlertDays} dia(s)`);
+                  }}>
+                    Salvar
+                    <Check className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAlertConfig(false)}>Cancelar</Button>
-              <Button onClick={() => {
-                setAlertDays(tempAlertDays);
-                try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch { /* ignore storage errors */ }
-                setShowAlertConfig(false);
-                fetchItems();
-                toast.success(`Alerta configurado para ${tempAlertDays} dia(s)`);
-              }}>Salvar</Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
