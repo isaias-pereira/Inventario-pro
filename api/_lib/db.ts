@@ -162,6 +162,15 @@ async function gatewayQuery(statements: Statement[], write: boolean): Promise<Ba
   return data as BatchResult;
 }
 
+/** Converte erros do driver Neon para as mesmas mensagens/status do gateway. */
+function driverError(error: unknown): Error {
+  if (error instanceof Error && typeof (error as { status?: unknown }).status === 'number') {
+    return error;
+  }
+  const known = error as { code?: string; message?: string };
+  return gatewayError(500, known?.code, known?.message);
+}
+
 function createDriver() {
   const url = process.env.NEON_DATABASE_URL;
   if (!url) return null;
@@ -185,7 +194,11 @@ export function createSql(): Sql {
 
     if (call.kind === 'raw') {
       if (driver) {
-        return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
+        try {
+          return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
+        } catch (error) {
+          throw driverError(error);
+        }
       }
       const batch = await gatewayQuery([call.statement], false);
       return batch.results[0]?.rows ?? [];
@@ -193,22 +206,30 @@ export function createSql(): Sql {
 
     if (call.kind === 'batch') {
       if (driver) {
-        // Uma transação: se qualquer comando falhar, tudo é revertido.
-        const results = await driver.transaction((txn) =>
-          call.queries.map((statement) => txn.query(statement.query, statement.params ?? [])),
-        );
-        return {
-          results: results.map((result) => ({
-            rows: driverRows(result),
-            rowCount: null,
-          })),
-        };
+        try {
+          // Uma transação: se qualquer comando falhar, tudo é revertido.
+          const results = await driver.transaction((txn) =>
+            call.queries.map((statement) => txn.query(statement.query, statement.params ?? [])),
+          );
+          return {
+            results: results.map((result) => ({
+              rows: driverRows(result),
+              rowCount: null,
+            })),
+          };
+        } catch (error) {
+          throw driverError(error);
+        }
       }
       return gatewayQuery(call.queries, call.write);
     }
 
     if (driver) {
-      return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
+      try {
+        return driverRows(await driver.query(call.statement.query, call.statement.params ?? []));
+      } catch (error) {
+        throw driverError(error);
+      }
     }
     const batch = await gatewayQuery([call.statement], false);
     return batch.results[0]?.rows ?? [];

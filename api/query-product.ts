@@ -2,6 +2,7 @@ import { createSql, type BatchResult } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { identifier, productInput, canManageProducts } from './_lib/product-validation.js';
+import { buildProductUpdateQueries } from './_lib/product-update.js';
 
 const productSelect = `SELECT p.ean::text, p.codigo::text, p.descricao, p.tipo,
   ARRAY(SELECT DISTINCT c::text FROM (SELECT p.codigo c UNION ALL SELECT codigo FROM public.produto_codigos WHERE produto_codigo=p.codigo) codes ORDER BY c::text) codigos,
@@ -105,29 +106,8 @@ const handler: ApiHandler = async (req, res) => {
           return;
         }
         // All guards and writes run under the same table lock. A failed guard rolls back everything.
-        const params = [original, codigo, ean, descricao, tipo || null, eans];
-        const result = (await sql(
-          [
-            lock,
-            { query: `SELECT 1 / CASE WHEN EXISTS (SELECT 1 FROM public.produto WHERE codigo=$1::bigint)
-              AND NOT EXISTS (SELECT 1 FROM public.produto WHERE codigo=$2::bigint AND codigo<>$1::bigint)
-              AND NOT EXISTS (SELECT 1 FROM public.produto_codigos WHERE codigo=$2::bigint AND produto_codigo<>$1::bigint)
-              AND NOT EXISTS (SELECT 1 FROM public.produto WHERE ean=ANY($3::bigint[]) AND codigo<>$1::bigint)
-              AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=ANY($3::bigint[]) AND produto_codigo<>$1::bigint)
-              THEN 1 ELSE 0 END`, params: [original, codigo, eans] },
-            { query: `INSERT INTO public.produto (codigo,ean,descricao,tipo) SELECT $2::bigint,$3::bigint,$4,$5 FROM public.produto WHERE codigo=$1::bigint AND $1::bigint<>$2::bigint`, params: params.slice(0, 5) },
-            { query: 'DELETE FROM public.produto_codigos WHERE codigo=$2::bigint AND produto_codigo=$1::bigint', params: [original, codigo] },
-            { query: 'UPDATE public.produto_codigos SET produto_codigo=$2::bigint WHERE codigo=$1::bigint', params: [original, codigo] },
-            { query: 'DELETE FROM public.produto_eans WHERE produto_codigo=$2::bigint AND produto_codigo<>$1::bigint', params: [original, codigo] },
-            { query: 'UPDATE public.produto_eans SET produto_codigo=$2::bigint WHERE ean=ANY($3::bigint[])', params: [original, codigo, eans] },
-            { query: 'DELETE FROM public.produto WHERE codigo=$2::bigint AND codigo<>$1::bigint', params: [original, codigo] },
-            { query: 'UPDATE public.produto SET ean=$2::bigint,descricao=$3,tipo=$4 WHERE codigo=$1::bigint', params: [original, codigo, ean, descricao, tipo || null] },
-            { query: 'DELETE FROM public.produto_eans WHERE produto_codigo=$1::bigint', params: [codigo] },
-            { query: 'INSERT INTO public.produto_eans (ean,produto_codigo) SELECT value,$1::bigint FROM unnest($2::bigint[]) value WHERE value<>$3::bigint', params: [codigo, eans, ean] },
-          ],
-          [],
-          true,
-        )) as BatchResult;
+        const queries = buildProductUpdateQueries({ original, codigo, ean, descricao, tipo, eans });
+        const result = (await sql(queries, [], true)) as BatchResult;
         void result;
         sendJson(res, { success: true, action: 'updated', product: await findProduct(codigo, true) });
         return;
