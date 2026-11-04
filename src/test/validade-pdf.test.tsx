@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCustos, blocksFileShare } =
+const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCustos, blocksFileShare, csvBytes } =
   vi.hoisted(() => ({
     invoke: vi.fn(),
     save: vi.fn(),
@@ -13,6 +13,7 @@ const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCus
     fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
     fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
     blocksFileShare: vi.fn(() => false),
+    csvBytes: vi.fn(),
   }));
 
 vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
@@ -22,15 +23,32 @@ vi.mock('@/contexts/AuthContext', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: fetchTipos }));
 vi.mock('@/lib/validade-custos', () => ({ fetchProductCustos: fetchCustos }));
-vi.mock('@/lib/validade-spreadsheet', () => ({
-  createValidadeOds: createOds,
-  saveValidadeOds: saveSpreadsheet,
-  shareValidadeOds: shareOds,
-}));
+// O módulo real é usado; só as funções de arquivo são controladas.
+vi.mock('@/lib/validade-spreadsheet', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/validade-spreadsheet')>();
+  return {
+    ...actual,
+    createValidadeOds: createOds,
+    saveValidadeOds: saveSpreadsheet,
+    shareValidadeOds: shareOds,
+  };
+});
 // O módulo real é usado; só a detecção do bloqueio do .ods é controlada.
 vi.mock('@/lib/system-share', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/system-share')>();
   return { ...actual, browserBlocksFileShare: blocksFileShare };
+});
+// O CSV real é usado; os bytes gerados ficam guardados para a verificação.
+vi.mock('@/lib/validade-csv', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/validade-csv')>();
+  return {
+    ...actual,
+    createValidadeCsv: (...args: Parameters<typeof actual.createValidadeCsv>) => {
+      const bytes = actual.createValidadeCsv(...args);
+      csvBytes(bytes);
+      return bytes;
+    },
+  };
 });
 vi.mock('jspdf', () => ({
   jsPDF: vi.fn(function jsPDF() {
@@ -64,6 +82,7 @@ beforeEach(() => {
   fetchTipos.mockClear();
   fetchCustos.mockClear();
   blocksFileShare.mockReturnValue(false);
+  csvBytes.mockClear();
   clickedDownload = '';
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
@@ -113,7 +132,7 @@ it('exports the expiry list as an ODS spreadsheet', async () => {
   await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
 
   // A opção de planilha usa o tipo do produto para decidir o vencimento.
-  await user.click(await screen.findByRole('button', { name: /Planilha/ }));
+  await user.click(await screen.findByRole('button', { name: /Planilha \(ODS\)/ }));
 
   await waitFor(() => expect(saveSpreadsheet).toHaveBeenCalledTimes(1));
   expect(fetchTipos).toHaveBeenCalledWith(['100'], 'token');
@@ -154,7 +173,7 @@ it('shares the ODS through the system share sheet', async () => {
   expect(saveSpreadsheet).not.toHaveBeenCalled();
 });
 
-it('shares the PDF when the browser refuses the .ods attachment (Chrome)', async () => {
+it('shares the CSV when the browser refuses the .ods attachment (Chrome)', async () => {
   blocksFileShare.mockReturnValue(true);
   const share = vi.fn(async (_data?: ShareData) => undefined);
   Object.defineProperty(navigator, 'share', { configurable: true, value: share });
@@ -168,15 +187,20 @@ it('shares the PDF when the browser refuses the .ods attachment (Chrome)', async
 
   await user.click(await screen.findByRole('button', { name: 'Compartilhar' }));
 
-  // O .ods não entra: o Chrome recusa o tipo e o app envia o PDF.
+  // O .ods não entra: o Chrome recusa o tipo e o app envia o CSV (planilha).
   await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
   const data = share.mock.calls[0][0] as ShareData;
   expect(data.files).toHaveLength(1);
-  expect(data.files?.[0].name).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/);
-  expect(data.files?.[0].type).toBe('application/pdf');
+  expect(data.files?.[0].name).toMatch(/^solicitacao-rebaixa-\d{4}-\d{2}-\d{2}\.csv$/);
+  expect(data.files?.[0].type).toBe('text/csv');
   expect(data.title).toMatch(/^Solicitação de rebaixa \/ perecíveis — \d{2}\/\d{2}\/\d{4}$/);
   expect(data.text).toBe('Segue a planilha de rebaixa com 1 produto(s)');
   expect(shareOds).not.toHaveBeenCalled();
+
+  // O conteúdo é a planilha em si (cabeçalho + linha do produto).
+  const csv = new TextDecoder('utf-8').decode(csvBytes.mock.calls[0][0]);
+  expect(csv).toContain('LOJA;EAN OU BALANÇA;CÓDIGO C5;DESCRIÇÃO');
+  expect(csv).toContain('BANANA PRATA');
 });
 
 it('opens the product details when the whole card is clicked', async () => {

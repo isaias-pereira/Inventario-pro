@@ -36,6 +36,7 @@ import {
 import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
 import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
+import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
 const PDF_MIME = 'application/pdf';
@@ -513,38 +514,28 @@ const [filter, setFilter] = useState<FilterType>('todos');
     setDownloadingPlanilha(false);
   };
 
-  /**
-   * Envia o relatório em PDF pela folha do sistema (Thunderbird no Android).
-   * O PDF é aceito pelo Chrome; a planilha .ods não é (allowlist do Chromium).
-   */
-  const sharePdfByEmail = async () => {
+  /** Baixa a planilha em CSV (abre no LibreOffice Calc e no Excel). */
+  const downloadCsv = async () => {
+    if (downloadingPlanilha) return;
     if (filteredItems.length === 0) {
-      toast.error('Nenhum produto na lista para compartilhar');
+      toast.error('Nenhum produto na lista para exportar');
       return;
     }
-    setSharingPlanilha(true);
+    setDownloadingPlanilha(true);
     try {
-      const bytes = await createValidadePdf();
-      const subject = `Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`;
-      const text = `Segue a planilha de rebaixa com ${filteredItems.length} produto(s)`;
-      const file = fileFromBytes(bytes, pdfFileName(), PDF_MIME);
-      const outcome = await shareFileWithSystem(file, { title: subject, text });
-      setSharingPlanilha(false);
-      if (outcome === 'shared') {
-        toast.success('PDF compartilhado');
-        setShowDownloadDialog(false);
-      } else if (outcome === 'cancelled') {
-        // O usuário fechou a folha do celular; o diálogo continua aberto.
-      } else {
-        // Sem compartilhamento disponível: baixa o PDF para envio manual.
-        savePdfBytes(bytes);
-        toast.success('Compartilhamento indisponível: PDF baixado', { duration: 6000 });
-        setShowDownloadDialog(false);
-      }
+      const cached = spreadsheetCache.current?.key === spreadsheetCodesKey
+        ? spreadsheetCache.current
+        : null;
+      const { tipos, custos } = cached ?? await loadSpreadsheetData(spreadsheetCodesKey);
+      if (!cached) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
+      const csv = createValidadeCsv(filteredItems, tipos, { custos });
+      saveValidadeCsv(csv);
+      toast.success('Planilha CSV gerada com sucesso');
+      setShowDownloadDialog(false);
     } catch {
-      setSharingPlanilha(false);
-      toast.error('Erro ao gerar PDF');
+      toast.error('Erro ao gerar planilha');
     }
+    setDownloadingPlanilha(false);
   };
 
   /**
@@ -567,6 +558,33 @@ const [filter, setFilter] = useState<FilterType>('todos');
     const text = `Segue a planilha de rebaixa com ${itemsToShare.length} produto(s)`;
     setSharingPlanilha(true);
 
+    /**
+     * Compartilha a planilha em CSV: formato aceito pelo Chrome e que abre
+     * direto no LibreOffice Calc e no Excel.
+     */
+    const shareCsv = (tipos: Record<string, string>, custos: Record<string, number>) => {
+      try {
+        const csv = createValidadeCsv(itemsToShare, tipos, { custos });
+        const file = fileFromBytes(csv, csvFileName(), CSV_MIME);
+        void shareFileWithSystem(file, { title: subject, text }).then((outcome) => {
+          setSharingPlanilha(false);
+          if (outcome === 'shared') {
+            toast.success('Planilha compartilhada');
+            setShowDownloadDialog(false);
+          } else if (outcome === 'cancelled') {
+            // O usuário fechou a folha do celular; o diálogo continua aberto.
+          } else {
+            saveValidadeCsv(csv);
+            toast.success('Compartilhamento indisponível: planilha baixada', { duration: 6000 });
+            setShowDownloadDialog(false);
+          }
+        });
+      } catch {
+        setSharingPlanilha(false);
+        toast.error('Erro ao gerar planilha');
+      }
+    };
+
     const finish = (outcome: ShareOutcome) => {
       setSharingPlanilha(false);
       if (outcome === 'shared') {
@@ -575,32 +593,30 @@ const [filter, setFilter] = useState<FilterType>('todos');
       } else if (outcome === 'downloaded') {
         toast.success('Compartilhamento indisponível: planilha baixada', { duration: 6000 });
         setShowDownloadDialog(false);
-      } else if (outcome === 'blocked') {
-        toast.error('Este navegador não permite anexar planilhas .ods', {
-          description: 'Envie o PDF pelo Thunderbird ou baixe a planilha e anexe manualmente.',
-          duration: 10000,
-          action: { label: 'Compartilhar PDF', onClick: () => { void sharePdfByEmail(); } },
-        });
       }
       // 'cancelled': o usuário fechou a folha do celular; o diálogo continua aberto.
     };
 
     const runShare = (tipos: Record<string, string>, custos: Record<string, number>) => {
       // O Chromium só anexa PDF, imagens, áudio, vídeo e texto: o .ods é
-      // recusado. Nesse caso já enviamos o PDF, que o Thunderbird recebe.
+      // recusado. Nesse caso enviamos o CSV, que é uma planilha de verdade
+      // (abre no LibreOffice Calc e no Excel) e o navegador aceita.
       if (browserBlocksFileShare('rebaixa.ods')) {
-        setSharingPlanilha(false);
-        toast.info('O navegador não anexa .ods — enviando o PDF', {
-          description: 'O Chrome aceita PDF, imagens e texto, mas não planilhas OpenDocument.',
-        });
-        void sharePdfByEmail();
+        shareCsv(tipos, custos);
         return;
       }
       try {
         const ods = createValidadeOds(itemsToShare, tipos, { custos });
         // Sem `await` antes: o celular precisa do gesto do usuário para abrir a folha.
         void shareValidadeOds(ods, { subject, text })
-          .then(finish)
+          .then((outcome) => {
+            // O navegador recusou o .ods: manda o CSV, que ele aceita.
+            if (outcome === 'blocked') {
+              shareCsv(tipos, custos);
+              return;
+            }
+            finish(outcome);
+          })
           .catch(() => {
             setSharingPlanilha(false);
             toast.error('Erro ao compartilhar planilha');
@@ -1014,10 +1030,10 @@ const [filter, setFilter] = useState<FilterType>('todos');
               produto(s) do filtro "{FILTER_LABELS[filter]}".
               <span className="mt-1 block text-xs">
                 No celular, <span className="font-medium text-foreground">Compartilhar</span> abre
-                o menu do sistema com o arquivo anexado. Escolha o{' '}
+                o menu do sistema com a planilha anexada. Escolha o{' '}
                 <span className="font-medium text-foreground">Thunderbird</span> para enviar por
-                e-mail (o assunto e o texto já vão preenchidos). No Chrome o anexo vai em PDF,
-                porque o navegador não aceita planilhas .ods.
+                e-mail (o assunto e o texto já vão preenchidos). O anexo vai em CSV, que abre
+                direto no LibreOffice Calc e no Excel — o Chrome não aceita anexar .ods.
               </span>
             </DialogDescription>
             <div className="grid gap-2 py-1">
@@ -1030,7 +1046,20 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 <FileSpreadsheet className="h-6 w-6 shrink-0 text-emerald-600" />
                 <span className="flex min-w-0 flex-col">
                   <span className="text-sm font-semibold">Planilha (ODS)</span>
-                  <span className="text-xs text-muted-foreground">Solicitação de rebaixa / perecíveis</span>
+                  <span className="text-xs text-muted-foreground">Com fórmulas e cores — LibreOffice Calc</span>
+                </span>
+                {downloadingPlanilha && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
+              </button>
+              <button
+                type="button"
+                onClick={downloadCsv}
+                disabled={downloadingPlanilha}
+                className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-60"
+              >
+                <FileSpreadsheet className="h-6 w-6 shrink-0 text-sky-600" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold">Planilha (CSV)</span>
+                  <span className="text-xs text-muted-foreground">Abre no Calc e no Excel — para anexar no e-mail</span>
                 </span>
                 {downloadingPlanilha && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
               </button>
