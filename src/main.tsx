@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { startAnalytics } from "./lib/analytics";
+import { injectSpeedInsights } from "@vercel/speed-insights";
 
 // Unregister service workers in preview/iframe contexts to avoid caching issues
 const isInIframe = (() => {
@@ -19,5 +20,8 @@ if (isPreviewHost || isInIframe) {
 
 // Web Analytics da Vercel (page views + eventos customizados).
 startAnalytics();
+
+// Vercel Speed Insights
+injectSpeedInsights();
 
 createRoot(document.getElementById("root")!).render(<App />);
