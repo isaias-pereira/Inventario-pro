@@ -135,4 +135,24 @@ describe('AddProductView — embalagem fechada', () => {
     );
     expect(await screen.findByText('FD ×60')).toBeInTheDocument();
   });
+
+  it('shows the product description below the EAN field while typing', async () => {
+    invoke.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.codigo === '210') {
+        return { data: { found: true, product: productWithPackaging } };
+      }
+      return { data: { found: false, product: null } };
+    });
+
+    render(<AddProductView />);
+    fireEvent.click(screen.getByLabelText(/Embalagem fechada/));
+    fireEvent.change(screen.getByLabelText('EAN do produto'), { target: { value: '210' } });
+
+    expect(await screen.findByText('BANANA NANICA KG')).toBeInTheDocument();
+    expect(screen.getByText('Descrição:')).toBeInTheDocument();
+    expect(screen.getByText('(cód. 631612)')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('EAN do produto'), { target: { value: '999999' } });
+    expect(await screen.findByText('Produto não encontrado para este EAN.')).toBeInTheDocument();
+  });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { invokeFunction } from '@/lib/api';
 import { formatQuantity, packagingLabel } from '@/lib/packaging';
 import { toast } from 'sonner';
-import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes } from 'lucide-react';
+import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes, Loader2 } from 'lucide-react';
 
 interface PackagingInfo {
   ean_fechado: string;
@@ -66,6 +66,14 @@ const AddProductView = () => {
   const [packagingType, setPackagingType] = useState('');
   const [quantidadeFechada, setQuantidadeFechada] = useState('');
   const [packagingFormOpen, setPackagingFormOpen] = useState(false);
+  const [productLookup, setProductLookup] = useState<
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'found'; descricao: string; codigo: string }
+    | { status: 'not_found' }
+    | { status: 'error' }
+  >({ status: 'idle' });
+  const lookupSeq = useRef(0);
 
   const resetPackagingForm = () => {
     setEanFechado(''); setPackagingType(''); setQuantidadeFechada(''); setPackagingFormOpen(false);
@@ -99,6 +107,36 @@ const AddProductView = () => {
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao consultar produto'); }
     finally { setLoading(false); }
   };
+
+  // Busca assíncrona do produto pelo EAN digitado no modo embalagem fechada.
+  useEffect(() => {
+    const seq = ++lookupSeq.current;
+    const value = ean.trim();
+    if (mode !== 'add' || !closedMode || !value) {
+      setProductLookup({ status: 'idle' });
+      return;
+    }
+    setProductLookup({ status: 'loading' });
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await productRequest({ codigo: value });
+        if (seq !== lookupSeq.current) return;
+        if (data?.found && data.product?.descricao) {
+          setProductLookup({
+            status: 'found',
+            descricao: String(data.product.descricao),
+            codigo: String(data.product.codigo),
+          });
+        } else {
+          setProductLookup({ status: 'not_found' });
+        }
+      } catch {
+        if (seq !== lookupSeq.current) return;
+        setProductLookup({ status: 'error' });
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [ean, mode, closedMode]);
 
   const performInsert = async () => {
     setLoading(true);
@@ -268,6 +306,29 @@ const AddProductView = () => {
                   )}
                 </div>
                 <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} />
+                {mode === 'add' && closedMode && (
+                  <div className="mt-1.5 text-xs" aria-live="polite">
+                    {productLookup.status === 'loading' && (
+                      <p className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Buscando produto...
+                      </p>
+                    )}
+                    {productLookup.status === 'found' && (
+                      <p className="rounded-md bg-muted/60 px-2 py-1.5">
+                        <span className="font-semibold text-foreground">Descrição:</span>{' '}
+                        {productLookup.descricao}
+                        <span className="ml-1 text-muted-foreground">(cód. {productLookup.codigo})</span>
+                      </p>
+                    )}
+                    {productLookup.status === 'not_found' && (
+                      <p className="text-destructive">Produto não encontrado para este EAN.</p>
+                    )}
+                    {productLookup.status === 'error' && (
+                      <p className="text-destructive">Não foi possível consultar o produto agora.</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {mode === 'add' && closedMode ? (
