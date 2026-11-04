@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check, Mail,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -31,12 +31,14 @@ import {
   isWeightProduct,
   saveValidadeOds,
   shareValidadeOds,
+  spreadSheetFileName,
   type ShareOutcome,
 } from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
 import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
+import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
 import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
@@ -113,6 +115,14 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [downloadingPlanilha, setDownloadingPlanilha] = useState(false);
   const [sharingPlanilha, setSharingPlanilha] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  /** Diálogo de envio por e-mail (planilha .ods anexada pelo servidor). */
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailText, setEmailText] = useState('');
+  const [emailConfig, setEmailConfig] = useState<EmailConfig | null>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
   /** Tipos e custos já buscados para a planilha, prontos para o compartilhamento. */
   const spreadsheetCache = useRef<{
     key: string;
@@ -650,6 +660,69 @@ const [filter, setFilter] = useState<FilterType>('todos');
       });
   };
 
+  /** Lê do servidor se o envio de e-mail está disponível e quem é o destinatário. */
+  const loadEmailConfig = useCallback(async () => {
+    setEmailLoading(true);
+    try {
+      const config = await fetchEmailConfig();
+      setEmailConfig(config);
+      // Só preenche quando o campo está vazio: não sobrescreve o que o usuário digitou.
+      setEmailTo((current) => current || config.defaultTo || '');
+    } catch {
+      setEmailConfig({ enabled: false, provider: null, defaultTo: null });
+    }
+    setEmailLoading(false);
+  }, []);
+
+  /** Abre o diálogo de e-mail já com assunto e mensagem preenchidos. */
+  const openEmailDialog = () => {
+    const count = filteredItems.length;
+    setEmailSubject(`Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`);
+    setEmailText(`Segue a planilha de rebaixa com ${count} produto(s)`);
+    setShowEmailDialog(true);
+    void loadEmailConfig();
+  };
+
+  /**
+   * Envia a planilha (.ods) por e-mail: os bytes vão ao servidor, que anexa o
+   * arquivo e despacha pelo provedor configurado na Vercel.
+   */
+  const sendSpreadsheetByEmail = async () => {
+    if (emailSending) return;
+    if (filteredItems.length === 0) {
+      toast.error('Nenhum produto na lista para enviar');
+      return;
+    }
+    if (!emailTo.trim()) {
+      toast.error('Informe o destinatário do e-mail');
+      return;
+    }
+    setEmailSending(true);
+    try {
+      const cached = spreadsheetCache.current?.key === spreadsheetCodesKey
+        ? spreadsheetCache.current
+        : null;
+      const { tipos, custos } = cached ?? await loadSpreadsheetData(spreadsheetCodesKey);
+      if (!cached) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
+      const ods = createValidadeOds(filteredItems, tipos, { custos });
+      const result = await sendRebaixaEmail({
+        to: emailTo.trim(),
+        subject: emailSubject.trim(),
+        text: emailText.trim(),
+        filename: spreadSheetFileName(),
+        content: ods,
+        itens: filteredItems.length,
+      });
+      trackEvent('enviar_email_planilha', { formato: 'ods', itens: result.itens });
+      toast.success(`E-mail enviado para ${result.to}`);
+      setShowEmailDialog(false);
+      setShowDownloadDialog(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao enviar e-mail');
+    }
+    setEmailSending(false);
+  };
+
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-3xl">
@@ -1082,6 +1155,20 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 </span>
                 {downloadingPdf && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
               </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => { setShowDownloadDialog(false); openEmailDialog(); }}
+                  disabled={downloadingPlanilha || sharingPlanilha || filteredItems.length === 0}
+                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-60"
+                >
+                  <Mail className="h-6 w-6 shrink-0 text-indigo-600" />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-sm font-semibold">Enviar por e-mail</span>
+                    <span className="text-xs text-muted-foreground">Planilha .ods anexada pelo servidor</span>
+                  </span>
+                </button>
+              )}
             </div>
             <DialogFooter className="flex-row justify-end gap-2">
               <Button
@@ -1101,6 +1188,98 @@ const [filter, setFilter] = useState<FilterType>('todos');
                   ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   : <Share2 className="mr-2 h-4 w-4" />}
                 Compartilhar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Email Dialog */}
+        <Dialog
+          open={showEmailDialog}
+          onOpenChange={(open) => { if (!emailSending) setShowEmailDialog(open); }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Enviar planilha por e-mail</DialogTitle>
+              <DialogDescription>
+                A planilha <span className="font-medium text-foreground">.ods</span> (com fórmulas e cores) é
+                gerada aqui e anexada pelo servidor, que faz o envio. Destinatário, assunto e
+                mensagem podem ser ajustados.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-1">
+              <div>
+                <label htmlFor="rebaixa-email-to" className="text-sm font-medium">Para</label>
+                <Input
+                  id="rebaixa-email-to"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder="email@empresa.com"
+                  className="mt-1"
+                  inputMode="email"
+                  autoComplete="off"
+                  disabled={emailSending}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Separe vários destinatários por vírgula.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="rebaixa-email-subject" className="text-sm font-medium">Assunto</label>
+                <Input
+                  id="rebaixa-email-subject"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="mt-1"
+                  disabled={emailSending}
+                />
+              </div>
+              <div>
+                <label htmlFor="rebaixa-email-text" className="text-sm font-medium">Mensagem</label>
+                <textarea
+                  id="rebaixa-email-text"
+                  value={emailText}
+                  onChange={(e) => setEmailText(e.target.value)}
+                  rows={3}
+                  disabled={emailSending}
+                  className="mt-1 flex w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                />
+              </div>
+              {emailLoading && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Verificando a configuração de e-mail no servidor...
+                </p>
+              )}
+              {emailConfig && !emailConfig.enabled && !emailLoading && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                  O envio de e-mail não está configurado no servidor. Defina{' '}
+                  <span className="font-mono">RESEND_API_KEY</span> ou{' '}
+                  <span className="font-mono">SMTP_HOST</span> (e{' '}
+                  <span className="font-mono">REBAIXA_EMAIL_FROM</span>,{' '}
+                  <span className="font-mono">REBAIXA_EMAIL_TO</span>) nas variáveis de ambiente da
+                  Vercel. Enquanto isso, use Compartilhar ou o download da planilha.
+                </p>
+              )}
+            </div>
+            <DialogFooter className="flex-row justify-end gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                onClick={() => setShowEmailDialog(false)}
+                disabled={emailSending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1 sm:flex-none"
+                onClick={sendSpreadsheetByEmail}
+                disabled={emailSending || emailLoading || !emailTo.trim() || filteredItems.length === 0}
+              >
+                {emailSending
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Mail className="mr-2 h-4 w-4" />}
+                Enviar
               </Button>
             </DialogFooter>
           </DialogContent>

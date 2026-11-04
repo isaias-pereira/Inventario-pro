@@ -41,6 +41,7 @@ Navegador (React/Vite)
 | `POST /api/manage-consulta` | `manage-consulta` | catálogo de consulta (preço/estoque) |
 | `POST /api/manage-arrastao` | `manage-arrastao` | sessões e itens do arrastão |
 | `POST /api/manage-validade` | `manage-validade` | validade/rebaixa (motivo Excesso/Qualidade) |
+| `POST /api/send-rebaixa-email` | `send-rebaixa-email` | envio da planilha `.ods` por e-mail (só admin) |
 
 Todas exigem `Authorization: Bearer <token>` (exceto `auth-login`).
 
@@ -52,6 +53,12 @@ Todas exigem `Authorization: Bearer <token>` (exceto `auth-login`).
 | `NEON_DATABASE_URL` | uma das duas | connection string do Neon (driver serverless) |
 | `LOVABLE_API_KEY` + `NEON_API_KEY` | uma das duas | credenciais do connector gateway (lote transacional) |
 | `VITE_API_BASE_URL` | não | vazio = mesma origem. Só para apontar a API em outro host |
+| `RESEND_API_KEY` | não | habilita o envio de e-mail pelo Resend |
+| `REBAIXA_EMAIL_FROM` | com e-mail | remetente (no Resend, domínio verificado) |
+| `REBAIXA_EMAIL_TO` | não | destinatário padrão da planilha de rebaixa |
+| `SMTP_HOST` | não | habilita o envio por SMTP (usado quando não há `RESEND_API_KEY`) |
+| `SMTP_PORT` / `SMTP_SECURE` | não | porta (padrão 587) e TLS (true na 465) |
+| `SMTP_USER` / `SMTP_PASS` | não | credenciais do SMTP |
 
 > Hoje **nenhuma** variável existe no projeto da Vercel (`vercel env ls` retorna vazio) —
 > sem elas a API responde 500/401. É o principal bloqueio do merge.
@@ -90,7 +97,18 @@ npx vercel env add NEON_DATABASE_URL production
 npx vercel env add LOVABLE_API_KEY production
 npx vercel env add NEON_API_KEY production
 
-# 3. Repita para preview:
+# 3. E-mail da planilha de rebaixa (opcional) — escolha UM provedor:
+#    (a) Resend
+npx vercel env add RESEND_API_KEY production
+#    (b) SMTP genérico
+npx vercel env add SMTP_HOST production
+npx vercel env add SMTP_USER production
+npx vercel env add SMTP_PASS production
+#    Remetente e destinatário padrão (comuns aos dois)
+npx vercel env add REBAIXA_EMAIL_FROM production
+npx vercel env add REBAIXA_EMAIL_TO production
+
+# 4. Repita para preview:
 npx vercel env add JWT_SECRET preview
 ...
 ```
