@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { invokeFunction, parseJwtPayload } from '@/lib/api';
+import { toQuantity } from '@/lib/packaging';
 
 export interface Product {
   codigo: string;
@@ -170,7 +171,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!error && data?.items) {
           setInventoryItemsState(data.items.map((d: any) => ({
             id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-            quantidade: d.quantidade, created_by: d.created_by || undefined,
+            quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
           })));
         }
       } else {
@@ -178,7 +179,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!error && data?.items) {
           setInventoryItemsState(data.items.map((d: any) => ({
             id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-            quantidade: d.quantidade, created_by: d.created_by || undefined,
+            quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
           })));
           if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
           setCurrentLoteNome(data.lote_nome ?? null);
@@ -202,7 +203,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setViewingLote(data.lote || { numero, status: 'finalizado', created_by: null, created_at: '', finalized_at: null });
     setInventoryItemsState((data.items || []).map((d: any) => ({
       id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-      quantidade: d.quantidade, created_by: d.created_by || undefined,
+      quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
     })));
   }, []);
 
@@ -256,14 +257,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: viewing.numero });
       if (data?.items) setInventoryItemsState(data.items.map((d: any) => ({
         id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-        quantidade: d.quantidade, created_by: d.created_by || undefined,
+        quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
       })));
     } else {
       const { data } = await invokeWithToken('manage-inventory', { action: 'list' });
       if (data?.items) {
         setInventoryItemsState(data.items.map((d: any) => ({
           id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-          quantidade: d.quantidade, created_by: d.created_by || undefined,
+          quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
         })));
         if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
         setCurrentLoteNome(data.lote_nome ?? null);

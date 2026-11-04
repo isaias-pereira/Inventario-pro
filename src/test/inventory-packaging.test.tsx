@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InventarioView from '../components/InventarioView';
 
-const { addItem, invoke } = vi.hoisted(() => ({
+const { addItem, invoke, inventoryState } = vi.hoisted(() => ({
   addItem: vi.fn(),
   invoke: vi.fn(),
+  inventoryState: { items: [] as Array<Record<string, unknown>> },
 }));
 
 vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
@@ -14,12 +15,12 @@ vi.mock('sonner', () => {
 });
 vi.mock('@/contexts/DataContext', () => ({
   useData: () => ({
-    inventoryItems: [],
+    inventoryItems: inventoryState.items,
     addOrUpdateInventoryItem: addItem,
     clearAllInventory: vi.fn(),
     updateInventoryItemQuantidade: vi.fn(),
     removeInventoryItem: vi.fn(),
-    hasInventory: false,
+    hasInventory: inventoryState.items.length > 0,
     fetchInventory: vi.fn(),
     currentLote: 4,
     currentLoteNome: 'TESTE',
@@ -73,6 +74,7 @@ beforeEach(() => {
   addItem.mockReset();
   addItem.mockResolvedValue(undefined);
   invoke.mockReset();
+  inventoryState.items = [];
 });
 
 describe('InventarioView — embalagem fechada', () => {
@@ -135,5 +137,21 @@ describe('InventarioView — embalagem fechada', () => {
         'teste',
       ),
     );
+  });
+
+  it('shows the stored quantity when the database returns numeric as text', () => {
+    inventoryState.items = [
+      {
+        ean: '210',
+        codigo: '631612',
+        descricao: 'BANANA NANICA KG',
+        quantidade: '100.000',
+      },
+    ];
+
+    render(<InventarioView />);
+
+    expect(screen.getAllByText('100').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('0')).toHaveLength(0);
   });
 });

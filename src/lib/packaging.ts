@@ -19,10 +19,24 @@ export function packagingLabel(type: string | null | undefined): { singular: str
   return normalized ? PACKAGING_LABELS[normalized] : { singular: 'embalagem', plural: 'embalagens' };
 }
 
+/**
+ * Converte um valor numérico em número.
+ * O driver do Neon devolve colunas `numeric` como texto (ex.: "100.000"),
+ * então a conversão precisa acontecer antes de calcular ou formatar.
+ */
+export function toQuantity(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const text = value.includes(',') && !value.includes('.') ? value.replace(',', '.') : value;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 /** Mostra a quantidade com até 3 casas decimais, sem zeros à direita. */
-export function formatQuantity(value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  const rounded = Math.round(value * 1000) / 1000;
+export function formatQuantity(value: unknown): string {
+  const rounded = Math.round(toQuantity(value) * 1000) / 1000;
   return String(rounded).replace('.', ',');
 }
 
