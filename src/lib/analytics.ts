@@ -1,17 +1,14 @@
 /**
  * Vercel Web Analytics.
  *
- * O projeto é uma SPA em Vite (não Next.js), então a integração usa o pacote
- * raiz `@vercel/analytics` com `inject()` — o caminho `/next` é só para o
- * App Router do Next.js e não funciona aqui.
+ * O projeto é uma SPA em Vite (não Next.js), então a integração usa o
+ * componente <Analytics /> de `@vercel/analytics/react` no App.tsx.
  *
- * A navegação interna do app (Consulta, Inventário, Validade…) não muda a URL,
- * por isso cada tela é registrada na mão com `trackView`.
+ * Este arquivo fornece funções auxiliares para eventos customizados e
+ * page views manuais (útil quando a navegação interna não muda a URL).
  */
 
-import { inject, pageview, track } from '@vercel/analytics';
-
-let started = false;
+import { track } from '@vercel/analytics/react';
 
 /** Ambientes que não devem contar como tráfego real. */
 function isPreviewEnvironment(): boolean {
@@ -30,29 +27,12 @@ function isPreviewEnvironment(): boolean {
   );
 }
 
-/**
- * Injeta o script do Analytics e começa a registrar as visitas.
- * Nunca pode derrubar o app: qualquer erro é ignorado.
- */
-export function startAnalytics(): void {
-  if (started) return;
-  if (isPreviewEnvironment()) return;
-  started = true;
-  try {
-    // `auto` usa o script de desenvolvimento no `npm run dev`
-    // e o de produção no build da Vercel.
-    inject({ mode: 'auto' });
-  } catch {
-    // Analytics é opcional: segue o app normalmente.
-  }
-}
-
 /** Registra um evento customizado (ex.: 'exportar_planilha'). */
 export function trackEvent(
   name: string,
   properties?: Record<string, string | number | boolean | null | undefined>,
 ): void {
-  if (!started) return;
+  if (isPreviewEnvironment()) return;
   try {
     track(name, properties);
   } catch {
@@ -60,11 +40,17 @@ export function trackEvent(
   }
 }
 
-/** Registra a tela usada pelo usuário (a URL interna não muda). */
+/**
+ * Registra a tela usada pelo usuário (a URL interna não muda).
+ * 
+ * Nota: Com o componente <Analytics />, o tracking automático de page views
+ * funciona baseado em mudanças de URL. Para SPAs onde a navegação não altera
+ * a URL, você pode continuar usando esta função para registrar views manuais.
+ */
 export function trackView(view: string): void {
-  if (!started) return;
+  if (isPreviewEnvironment()) return;
   try {
-    pageview({ path: `/${view}` });
+    track(`view_${view}`);
   } catch {
     // Pageview não enviado não pode quebrar a tela.
   }
