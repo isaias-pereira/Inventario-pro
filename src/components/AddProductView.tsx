@@ -274,7 +274,7 @@ const AddProductView = () => {
                 <>
                   {packagingFields}
                   <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                    <span className="font-semibold text-foreground">Regra:</span> o tipo da embalagem (CX/FD/SC) fica separado do tipo do produto (KG/UN) para não conflitar no banco.
+                    <span className="font-semibold text-foreground">Aviso:</span> As embalagem (CX/FD/SC) fica separado do tipo do produto (KG/UN) do produto.
                   </div>
                 </>
               ) : (
