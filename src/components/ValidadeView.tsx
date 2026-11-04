@@ -503,6 +503,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
     const itemsToShare = filteredItems;
     const key = spreadsheetCodesKey;
     const cached = spreadsheetCache.current?.key === key ? spreadsheetCache.current : null;
+    const subject = `Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`;
+    const text = `Segue a planilha de rebaixa com ${itemsToShare.length} produto(s) do filtro "${FILTER_LABELS[filter]}".`;
     setSharingPlanilha(true);
 
     const finish = (outcome: ShareOutcome) => {
@@ -521,7 +523,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
       try {
         const ods = createValidadeOds(itemsToShare, tipos, { custos });
         // Sem `await` antes: o celular precisa do gesto do usuário para abrir a folha.
-        void shareValidadeOds(ods)
+        void shareValidadeOds(ods, { subject, text })
           .then(finish)
           .catch(() => {
             setSharingPlanilha(false);
@@ -930,7 +932,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
               produto(s) do filtro "{FILTER_LABELS[filter]}".
               <span className="mt-1 block text-xs">
                 No celular, <span className="font-medium text-foreground">Compartilhar</span> abre
-                o menu do sistema (WhatsApp, Gmail, e-mail…).
+                o menu do sistema com a planilha anexada. Escolha o{' '}
+                <span className="font-medium text-foreground">Thunderbird</span> para enviar por
+                e-mail (o assunto e o texto já vão preenchidos).
               </span>
             </DialogDescription>
             <div className="grid gap-2 py-1">

@@ -779,7 +779,7 @@ function canShareFile(file: File): boolean {
  */
 export async function shareValidadeOds(
   bytes: Uint8Array,
-  options: { date?: Date; text?: string } = {},
+  options: { date?: Date; subject?: string; text?: string } = {},
 ): Promise<ShareOutcome> {
   const date = options.date ?? new Date();
   const filename = spreadSheetFileName(date);
@@ -789,7 +789,7 @@ export async function shareValidadeOds(
     try {
       await navigator.share({
         files: [file],
-        title: 'Solicitação de rebaixa / perecíveis',
+        title: options.subject ?? 'Solicitação de rebaixa / perecíveis',
         text: options.text,
       });
       return 'shared';

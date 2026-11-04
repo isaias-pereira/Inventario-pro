@@ -57,6 +57,23 @@ describe('compartilhamento da planilha de rebaixa', () => {
     expect(clickSpy).not.toHaveBeenCalled();
   });
 
+  it('usa o assunto informado como título do compartilhamento', async () => {
+    const share = vi.fn(async (_data?: ShareData) => undefined);
+    setShareSupport(share, () => true);
+
+    await expect(
+      shareValidadeOds(bytes, {
+        date,
+        subject: 'Solicitação de rebaixa / perecíveis — 05/10/2026',
+        text: 'Segue a planilha com 12 produto(s).',
+      }),
+    ).resolves.toBe('shared');
+
+    const data = share.mock.calls[0][0] as ShareData;
+    expect(data.title).toBe('Solicitação de rebaixa / perecíveis — 05/10/2026');
+    expect(data.text).toBe('Segue a planilha com 12 produto(s).');
+  });
+
   it('não baixa nada quando o usuário fecha a folha de compartilhamento', async () => {
     const share = vi.fn(async () => {
       throw new DOMException('Cancelado', 'AbortError');
