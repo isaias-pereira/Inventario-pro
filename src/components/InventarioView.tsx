@@ -8,6 +8,7 @@ import autoTable from 'jspdf-autotable';
 import {
   ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Plus, Download, Trash2, ClipboardList, Pencil, Check, X, Loader2, Undo2, ArrowDownAZ, ArrowDown01, ArrowUp01, RefreshCw, Filter, CheckCircle2, Eye, PauseCircle, AlertTriangle,
 } from 'lucide-react';
+import { formatQuantity, packagingBadge, packagingLabel, productUnit } from '@/lib/packaging';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
@@ -27,10 +28,19 @@ import {
 } from '@/components/ui/alert-dialog';
 import BarcodeScanner from '@/components/BarcodeScanner';
 
+interface PackagingInfo {
+  ean_fechado: string;
+  tipo_embalagem: string;
+  quantidade_fechada: number;
+  descricao?: string | null;
+}
+
 interface ProductResult {
   ean: string;
   codigo: string;
   descricao: string;
+  tipo?: string | null;
+  embalagem?: PackagingInfo | null;
 }
 
 const InventarioView = () => {
@@ -115,7 +125,7 @@ const InventarioView = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [lastCounted, setLastCounted] = useState<{ descricao: string; codigo: string; quantidade: number } | null>(null);
+  const [lastCounted, setLastCounted] = useState<{ descricao: string; codigo: string; quantidade: number; detalhe?: string } | null>(null);
   const [autoCount, setAutoCount] = useState(false);
   const autoCountRef = useRef(false);
   autoCountRef.current = autoCount;
@@ -221,22 +231,42 @@ const InventarioView = () => {
 
   const autoContar = async (prod: ProductResult) => {
     const existing = inventoryItems.find(i => i.codigo === prod.codigo);
+    const factor = prod.embalagem ? Number(prod.embalagem.quantidade_fechada) : 1;
+    const total = Number(factor.toFixed(3));
+    const unit = productUnit(prod.tipo);
     lastActionRef.current = { type: 'add', codigo: prod.codigo, prevQuantidade: existing ? existing.quantidade : null };
-    await addOrUpdateInventoryItem({ ean: prod.ean, codigo: prod.codigo, descricao: prod.descricao }, 1, user?.username);
-    setLastCounted({ descricao: prod.descricao, codigo: prod.codigo, quantidade: 1 });
+    await addOrUpdateInventoryItem({ ean: prod.ean, codigo: prod.codigo, descricao: prod.descricao }, total, user?.username);
+    setLastCounted({
+      descricao: prod.descricao,
+      codigo: prod.codigo,
+      quantidade: total,
+      detalhe: prod.embalagem
+        ? `1 ${prod.embalagem.tipo_embalagem} ×${formatQuantity(factor)} = ${formatQuantity(total)} ${unit}`
+        : undefined,
+    });
     setCode(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
-    showUndoToast(existing ? '+1 adicionado' : 'Item adicionado (+1)');
+    showUndoToast(existing ? `+${formatQuantity(total)} adicionado` : prod.embalagem ? 'Embalagem adicionada' : 'Item adicionado (+1)');
   };
 
   const handleContar = async () => {
     if (!product || quantidade.trim() === '' || submitting) return;
     const qty = Number(quantidade);
     if (qty < 0) return;
+    const factor = product.embalagem ? Number(product.embalagem.quantidade_fechada) : 1;
+    const total = Number((qty * factor).toFixed(3));
+    const unit = productUnit(product.tipo);
     setSubmitting(true);
     const existing = inventoryItems.find(i => i.codigo === product.codigo);
     lastActionRef.current = { type: 'add', codigo: product.codigo, prevQuantidade: existing ? existing.quantidade : null };
-    await addOrUpdateInventoryItem({ ean: product.ean, codigo: product.codigo, descricao: product.descricao }, qty, user?.username);
-    setLastCounted({ descricao: product.descricao, codigo: product.codigo, quantidade: qty });
+    await addOrUpdateInventoryItem({ ean: product.ean, codigo: product.codigo, descricao: product.descricao }, total, user?.username);
+    setLastCounted({
+      descricao: product.descricao,
+      codigo: product.codigo,
+      quantidade: total,
+      detalhe: product.embalagem
+        ? `${formatQuantity(qty)} ${product.embalagem.tipo_embalagem} ×${formatQuantity(factor)} = ${formatQuantity(total)} ${unit}`
+        : undefined,
+    });
     setCode(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
     showUndoToast(existing ? 'Quantidade atualizada' : 'Item adicionado ao inventário');
     setSubmitting(false);
@@ -259,7 +289,7 @@ const InventarioView = () => {
     autoTable(doc, {
       startY: 43,
       head: [['EAN', 'Código', 'Descrição', 'Quantidade']],
-      body: inventoryItems.map((i) => [i.ean, i.codigo, i.descricao, String(i.quantidade)]),
+      body: inventoryItems.map((i) => [i.ean, i.codigo, i.descricao, formatQuantity(i.quantidade)]),
       headStyles: { fillColor: [34, 120, 60], textColor: 255, fontStyle: 'bold', lineWidth: 0.2, lineColor: [180, 180, 180] },
       bodyStyles: { lineWidth: 0.2, lineColor: [180, 180, 180] },
       alternateRowStyles: { fillColor: [245, 250, 245] },
@@ -278,7 +308,7 @@ const InventarioView = () => {
     const finalY = (doc as any).lastAutoTable?.finalY || 100;
     doc.setTextColor(60, 60, 60);
     doc.setFontSize(10);
-    doc.text(`Total de produtos: ${inventoryItems.length}  |  Total de itens: ${totalItems}`, 14, finalY + 10);
+    doc.text(`Total de produtos: ${inventoryItems.length}  |  Total de itens: ${formatQuantity(totalItems)}`, 14, finalY + 10);
     
     const pageHeight = doc.internal.pageSize.height;
     doc.setFontSize(8);
@@ -358,6 +388,14 @@ const InventarioView = () => {
       default: return 0;
     }
   });
+
+  const packaging = product?.embalagem ?? null;
+  const packagingQuantity = packaging ? Number(packaging.quantidade_fechada) : 1;
+  const packagingName = packaging ? packagingLabel(packaging.tipo_embalagem) : null;
+  const foundUnit = productUnit(product?.tipo);
+  const convertedPreview = packaging && quantidade.trim() !== ''
+    ? Number((Number(quantidade) * packagingQuantity).toFixed(3))
+    : null;
 
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
@@ -520,9 +558,9 @@ const InventarioView = () => {
           <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-white/90 px-3 py-1.5 text-xs sm:text-sm shadow-sm">
             <span className="truncate text-gray-700">
               {lastCounted.descricao}
-              <span className="ml-1 text-gray-500">(cód {lastCounted.codigo})</span>
+              <span className="ml-1 text-gray-500">({lastCounted.detalhe || `cód ${lastCounted.codigo}`})</span>
             </span>
-            <span className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-bold text-primary">{lastCounted.quantidade}</span>
+            <span className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-bold text-primary">{formatQuantity(lastCounted.quantidade)}</span>
           </div>
         )}
         </>
@@ -556,10 +594,17 @@ const InventarioView = () => {
               <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-4 sm:px-6 py-3 sm:py-4">
                 <ShoppingBasket className="h-5 w-5 text-primary" />
                 <span className="font-semibold text-foreground">Produto Encontrado</span>
+                {packaging && (
+                  <span className="ml-auto rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+                    {packagingBadge(packaging.tipo_embalagem, packagingQuantity)}
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
                 {[
-                  { label: 'EAN', value: product.ean },
+                  packaging
+                    ? { label: 'EAN fechado', value: packaging.ean_fechado }
+                    : { label: 'EAN', value: product.ean },
                   { label: 'Código', value: product.codigo },
                   { label: 'Descrição', value: product.descricao },
                 ].map((item) => (
@@ -569,29 +614,47 @@ const InventarioView = () => {
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-3 border-t border-border px-4 sm:px-6 py-3 sm:py-4">
-                <Input
-                  value={quantidade}
-                  onChange={(e) => {
-                    let val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
-                    const parts = val.split('.');
-                    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-                    if (parts.length === 2 && parts[1].length > 3) val = parts[0] + '.' + parts[1].slice(0, 3);
-                    setQuantidade(val);
-                  }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleContar(); }}
-                  placeholder="Qtd"
-                  className="max-w-[100px] sm:max-w-[150px]"
-                  inputMode="decimal"
-                />
-                <Button onClick={handleContar} disabled={submitting || quantidade.trim() === '' || Number(quantidade) < 0} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Contar
-                </Button>
-                <Button variant="outline" onClick={() => { setCode(''); setQuantidade(''); setProduct(null); setSearchStatus('idle'); }} className="gap-2">
-                  Cancelar
-                </Button>
+              <div className="flex flex-wrap items-end gap-3 border-t border-border px-4 sm:px-6 py-3 sm:py-4">
+                <div>
+                  <label htmlFor="inventory-quantity" className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {packagingName ? `Qtd de ${packagingName.plural}` : 'Quantidade'}
+                  </label>
+                  <Input
+                    id="inventory-quantity"
+                    value={quantidade}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
+                      const parts = val.split('.');
+                      if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                      if (parts.length === 2 && parts[1].length > 3) val = parts[0] + '.' + parts[1].slice(0, 3);
+                      setQuantidade(val);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleContar(); }}
+                    placeholder="Qtd"
+                    className="max-w-[100px] sm:max-w-[150px]"
+                    inputMode="decimal"
+                  />
+                </div>
+                {packaging && convertedPreview !== null && (
+                  <div className="pb-2 text-sm font-semibold text-primary">
+                    = {formatQuantity(convertedPreview)} {foundUnit}
+                  </div>
+                )}
+                <div className="ml-auto flex gap-2">
+                  <Button onClick={handleContar} disabled={submitting || quantidade.trim() === '' || Number(quantidade) < 0} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Contar
+                  </Button>
+                  <Button variant="outline" onClick={() => { setCode(''); setQuantidade(''); setProduct(null); setSearchStatus('idle'); }} className="gap-2">
+                    Cancelar
+                  </Button>
+                </div>
               </div>
+              {packaging && (
+                <div className="border-t border-border bg-muted/30 px-4 sm:px-6 py-2 text-xs text-muted-foreground">
+                  1 {packagingName?.singular} = {formatQuantity(packagingQuantity)} {foundUnit}. Ao contar, o total convertido é somado ao inventário.
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -628,7 +691,7 @@ const InventarioView = () => {
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 ml-2">
-                        <span className="text-lg font-bold text-gray-900">{item.quantidade}</span>
+                        <span className="text-lg font-bold text-gray-900">{formatQuantity(item.quantidade)}</span>
                         {isAdmin && !isViewing && (
                           <>
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => startEdit(item)} aria-label={`Editar quantidade de ${item.descricao}`}>
@@ -679,7 +742,7 @@ const InventarioView = () => {
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={cancelEdit} aria-label="Cancelar edição da quantidade"><X className="h-4 w-4" /></Button>
                           </div>
                         ) : (
-                          item.quantidade
+                          formatQuantity(item.quantidade)
                         )}
                       </TableCell>
                        {isAdmin && !isViewing && (

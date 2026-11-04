@@ -4,9 +4,18 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { invokeFunction } from '@/lib/api';
+import { formatQuantity, packagingLabel } from '@/lib/packaging';
 import { toast } from 'sonner';
-import { PackagePlus, Pencil, Search, Plus, Trash2, Save } from 'lucide-react';
+import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes } from 'lucide-react';
+
+interface PackagingInfo {
+  ean_fechado: string;
+  tipo_embalagem: string;
+  quantidade_fechada: number;
+  descricao?: string | null;
+}
 
 interface ExistingProduct {
   ean: string | null;
@@ -15,8 +24,18 @@ interface ExistingProduct {
   tipo?: string | null;
   codigos?: string[];
   eans?: string[];
+  embalagens?: PackagingInfo[];
 }
 const digits = (value: string) => value.replace(/\D/g, '').slice(0, 14);
+
+/** Mantém apenas dígitos, um separador decimal e até 3 casas. */
+const decimal = (value: string) => {
+  let next = value.replace(/[^0-9.,]/g, '').replace(',', '.');
+  const parts = next.split('.');
+  if (parts.length > 2) next = parts[0] + '.' + parts.slice(1).join('');
+  if (parts.length === 2 && parts[1].length > 3) next = parts[0] + '.' + parts[1].slice(0, 3);
+  return next;
+};
 
 async function productRequest(body: Record<string, unknown>) {
   const token = localStorage.getItem('estoque_pro_token');
@@ -41,9 +60,20 @@ const AddProductView = () => {
   const [existing, setExisting] = useState<ExistingProduct | null>(null);
   const [editing, setEditing] = useState<ExistingProduct | null>(null);
 
+  // Modo embalagem fechada (CX/FD/SC)
+  const [closedMode, setClosedMode] = useState(false);
+  const [eanFechado, setEanFechado] = useState('');
+  const [packagingType, setPackagingType] = useState('');
+  const [quantidadeFechada, setQuantidadeFechada] = useState('');
+  const [packagingFormOpen, setPackagingFormOpen] = useState(false);
+
+  const resetPackagingForm = () => {
+    setEanFechado(''); setPackagingType(''); setQuantidadeFechada(''); setPackagingFormOpen(false);
+  };
+
   const clearFields = () => {
     setEan(''); setCodigo(''); setDescricao(''); setTipo(''); setLinkedEans([]);
-    setExisting(null); setEditing(null);
+    setExisting(null); setEditing(null); setClosedMode(false); resetPackagingForm();
   };
   const changeMode = (next: 'add' | 'edit') => {
     clearFields(); setSearch(''); setMode(next); setConfirmOpen(false);
@@ -56,6 +86,7 @@ const AddProductView = () => {
     const primary = product.ean ? String(product.ean) : eans[0] || '';
     setEan(primary);
     setLinkedEans(eans.filter(value => value !== primary));
+    resetPackagingForm();
   };
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -82,8 +113,50 @@ const AddProductView = () => {
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao adicionar produto'); }
     finally { setLoading(false); setConfirmOpen(false); }
   };
+
+  const handleAddPackaging = async () => {
+    const productEan = mode === 'edit' && editing ? String(editing.codigo) : ean.trim();
+    if (!productEan) { toast.error('Informe o EAN do produto'); return; }
+    if (!eanFechado.trim() || !packagingType || quantidadeFechada.trim() === '') {
+      toast.error('Preencha o EAN fechado, o tipo e a quantidade fechada');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await productRequest({
+        action: 'add_packaging',
+        ean: productEan,
+        eanFechado: eanFechado.trim(),
+        tipo: packagingType,
+        quantidadeFechada,
+      });
+      if (mode === 'edit' && editing) {
+        setEditing(prev => prev ? { ...prev, embalagens: data.product?.embalagens ?? prev.embalagens } : prev);
+        toast.success('Embalagem vinculada com sucesso!');
+        resetPackagingForm();
+      } else {
+        toast.success('Embalagem vinculada com sucesso!', {
+          description: `${packagingType} ×${formatQuantity(Number(quantidadeFechada.replace(',', '.')))} → ${data.product?.descricao ?? ''}.`,
+        });
+        clearFields();
+      }
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao vincular embalagem'); }
+    finally { setLoading(false); }
+  };
+
+  const handleRemovePackaging = async (packagingEan: string) => {
+    setLoading(true);
+    try {
+      await productRequest({ action: 'remove_packaging', eanFechado: packagingEan });
+      setEditing(prev => prev ? { ...prev, embalagens: (prev.embalagens || []).filter(item => item.ean_fechado !== packagingEan) } : prev);
+      toast.success('Embalagem removida');
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao remover embalagem'); }
+    finally { setLoading(false); }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mode === 'add' && closedMode) { await handleAddPackaging(); return; }
     if (!ean.trim() || !codigo.trim() || !descricao.trim()) { toast.error('Preencha EAN, código e descrição'); return; }
     if (mode === 'edit') {
       if (!editing) return;
@@ -106,6 +179,47 @@ const AddProductView = () => {
       await performInsert();
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao verificar produto'); setLoading(false); }
   };
+
+  const packagingFields = (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor="packaging-closed-ean" className="mb-1 block text-sm font-medium">EAN fechado</label>
+        <Input id="packaging-closed-ean" value={eanFechado} onChange={event => setEanFechado(digits(event.target.value))} inputMode="numeric" placeholder="Código da caixa, fardo ou saco" disabled={loading} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="packaging-type" className="mb-1 block text-sm font-medium">Tipo</label>
+          <Select value={packagingType} onValueChange={setPackagingType} disabled={loading}>
+            <SelectTrigger id="packaging-type" aria-label="Tipo da embalagem">
+              <SelectValue placeholder="CX/FD/SC" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="CX">CX — Caixa</SelectItem>
+              <SelectItem value="FD">FD — Fardo</SelectItem>
+              <SelectItem value="SC">SC — Saco</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label htmlFor="packaging-quantity" className="mb-1 block text-sm font-medium">Quantidade fechada</label>
+          <Input id="packaging-quantity" value={quantidadeFechada} onChange={event => setQuantidadeFechada(decimal(event.target.value))} inputMode="decimal" placeholder="Ex.: 10" disabled={loading} />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A quantidade será convertida para un ou kg conforme o tipo do produto vinculado.
+      </p>
+    </div>
+  );
+
+  const packagingActions = (
+    <div className="flex gap-2">
+      <Button type="button" onClick={handleAddPackaging} disabled={loading} className="gap-2">
+        <Plus />
+        {loading ? 'Aguarde...' : 'Vincular embalagem'}
+      </Button>
+      <Button type="button" variant="ghost" onClick={resetPackagingForm} disabled={loading}>Cancelar</Button>
+    </div>
+  );
 
   return (
     <div className="mx-auto max-w-lg px-4 py-8">
@@ -133,44 +247,118 @@ const AddProductView = () => {
           {(mode === 'add' || editing) && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="product-ean" className="mb-1 block text-sm font-medium">{mode === 'edit' ? 'EAN principal' : 'EAN'}</label>
-                <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder="Código de barras (EAN)" required disabled={loading} />
-              </div>
-              {mode === 'edit' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">EANs vinculados</span>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setLinkedEans(values => [...values, ''])} disabled={loading || linkedEans.length >= 199} aria-label="Adicionar EAN vinculado" title="Adicionar EAN vinculado"><Plus /></Button>
-                  </div>
-                  {linkedEans.map((value, index) => (
-                    <div key={index} className="flex gap-2">
-                      <Input aria-label={`EAN vinculado ${index + 1}`} value={value} onChange={event => setLinkedEans(values => values.map((item, position) => position === index ? digits(event.target.value) : item))} inputMode="numeric" required disabled={loading} className="min-w-0" />
-                      <Button type="button" size="icon" variant="outline" disabled={loading} onClick={() => setLinkedEans(values => values.filter((_, position) => position !== index))} aria-label={`Remover EAN vinculado ${index + 1}`} title="Remover EAN vinculado" className="shrink-0"><Trash2 /></Button>
-                    </div>
-                  ))}
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label htmlFor="product-ean" className="text-sm font-medium">
+                    {mode === 'add' && closedMode ? 'EAN do produto' : mode === 'edit' ? 'EAN principal' : 'EAN'}
+                  </label>
+                  {mode === 'add' && (
+                    <label htmlFor="product-closed-mode" className="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Checkbox
+                        id="product-closed-mode"
+                        checked={closedMode}
+                        onCheckedChange={(value) => {
+                          setClosedMode(value === true);
+                          setExisting(null); setConfirmOpen(false); resetPackagingForm();
+                        }}
+                        disabled={loading}
+                      />
+                      Embalagem fechada
+                      <span className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">CX/FD/SC</span>
+                    </label>
+                  )}
                 </div>
+                <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} />
+              </div>
+
+              {mode === 'add' && closedMode ? (
+                <>
+                  {packagingFields}
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                    <span className="font-semibold text-foreground">Regra:</span> o tipo da embalagem (CX/FD/SC) fica separado do tipo do produto (KG/UN) para não conflitar no banco.
+                  </div>
+                </>
+              ) : (
+                <>
+                  {mode === 'edit' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">EANs vinculados</span>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setLinkedEans(values => [...values, ''])} disabled={loading || linkedEans.length >= 199} aria-label="Adicionar EAN vinculado" title="Adicionar EAN vinculado"><Plus /></Button>
+                      </div>
+                      {linkedEans.map((value, index) => (
+                        <div key={index} className="flex gap-2">
+                          <Input aria-label={`EAN vinculado ${index + 1}`} value={value} onChange={event => setLinkedEans(values => values.map((item, position) => position === index ? digits(event.target.value) : item))} inputMode="numeric" required disabled={loading} className="min-w-0" />
+                          <Button type="button" size="icon" variant="outline" disabled={loading} onClick={() => setLinkedEans(values => values.filter((_, position) => position !== index))} aria-label={`Remover EAN vinculado ${index + 1}`} title="Remover EAN vinculado" className="shrink-0"><Trash2 /></Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div>
+                    <label htmlFor="product-code" className="mb-1 block text-sm font-medium">Código</label>
+                    <Input id="product-code" value={codigo} onChange={event => setCodigo(digits(event.target.value))} inputMode="numeric" placeholder="Código interno" required disabled={loading} />
+                  </div>
+                  <div>
+                    <label htmlFor="product-description" className="mb-1 block text-sm font-medium">Descrição</label>
+                    <Input id="product-description" value={descricao} onChange={event => setDescricao(event.target.value.toUpperCase().slice(0, 100))} maxLength={100} placeholder="DESCRIÇÃO DO PRODUTO" required disabled={loading} />
+                  </div>
+                  <div>
+                    <label htmlFor="product-type" className="mb-1 block text-sm font-medium">Tipo</label>
+                    <Select value={tipo} onValueChange={setTipo} disabled={loading}>
+                      <SelectTrigger id="product-type" aria-label="Tipo do produto">
+                        <SelectValue placeholder="Selecione o tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="KG">KG</SelectItem>
+                        <SelectItem value="UN">UN</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {mode === 'edit' && editing && (
+                    <div className="space-y-3 rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-sm font-medium"><Boxes className="h-4 w-4" />Embalagens fechadas</span>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setPackagingFormOpen(open => !open)} disabled={loading} aria-label="Nova embalagem">
+                          <Plus />
+                          Nova
+                        </Button>
+                      </div>
+                      {(editing.embalagens ?? []).length === 0 && !packagingFormOpen && (
+                        <p className="text-xs text-muted-foreground">Nenhuma embalagem vinculada.</p>
+                      )}
+                      {(editing.embalagens ?? []).map(pack => {
+                        const label = packagingLabel(pack.tipo_embalagem);
+                        return (
+                          <div key={pack.ean_fechado} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5">
+                            <div className="min-w-0">
+                              <p className="flex flex-wrap items-center gap-2 text-sm">
+                                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary">
+                                  {String(pack.tipo_embalagem).toUpperCase()} ×{formatQuantity(Number(pack.quantidade_fechada))}
+                                </span>
+                                <span className="font-mono text-xs text-muted-foreground">{pack.ean_fechado}</span>
+                                <span className="text-xs text-muted-foreground">{label.singular}</span>
+                              </p>
+                              {pack.descricao && <p className="truncate text-xs text-muted-foreground">{pack.descricao}</p>}
+                            </div>
+                            <Button type="button" size="icon" variant="ghost" onClick={() => handleRemovePackaging(pack.ean_fechado)} disabled={loading} aria-label={`Remover embalagem ${pack.ean_fechado}`} title="Remover embalagem" className="shrink-0 text-destructive hover:text-destructive"><Trash2 /></Button>
+                          </div>
+                        );
+                      })}
+                      {packagingFormOpen && (
+                        <div className="rounded-md border border-dashed p-3">
+                          {packagingFields}
+                          {packagingActions}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
-              <div>
-                <label htmlFor="product-code" className="mb-1 block text-sm font-medium">Código</label>
-                <Input id="product-code" value={codigo} onChange={event => setCodigo(digits(event.target.value))} inputMode="numeric" placeholder="Código interno" required disabled={loading} />
-              </div>
-              <div>
-                <label htmlFor="product-description" className="mb-1 block text-sm font-medium">Descrição</label>
-                <Input id="product-description" value={descricao} onChange={event => setDescricao(event.target.value.toUpperCase().slice(0, 100))} maxLength={100} placeholder="DESCRIÇÃO DO PRODUTO" required disabled={loading} />
-              </div>
-              <div>
-                <label htmlFor="product-type" className="mb-1 block text-sm font-medium">Tipo</label>
-                <Select value={tipo} onValueChange={setTipo} disabled={loading}>
-                  <SelectTrigger id="product-type" aria-label="Tipo do produto">
-                    <SelectValue placeholder="Selecione o tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="KG">KG</SelectItem>
-                    <SelectItem value="UN">UN</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>{mode === 'edit' ? <Save /> : <PackagePlus />}{loading ? 'Aguarde...' : mode === 'edit' ? 'Salvar alterações' : 'Adicionar Produto'}</Button>
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {mode === 'edit' ? <Save /> : <PackagePlus />}
+                {loading ? 'Aguarde...' : mode === 'edit' ? 'Salvar alterações' : closedMode ? 'Vincular embalagem' : 'Adicionar Produto'}
+              </Button>
             </form>
           )}
         </CardContent>

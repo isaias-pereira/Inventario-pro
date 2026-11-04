@@ -56,4 +56,21 @@ describe('buildProductUpdateQueries', () => {
       expect(statement.params?.length ?? 0, statement.query).toBe(maxPlaceholder(statement.query));
     }
   });
+
+  it('locks and moves closed packages when the master code changes', () => {
+    const queries = buildProductUpdateQueries(input);
+    const lock = queries.find((statement) => statement.query.startsWith('LOCK TABLE'));
+    const move = queries.find((statement) => statement.query.startsWith('UPDATE public.produto_embalagens'));
+
+    expect(lock?.query).toContain('public.produto_embalagens');
+    expect(move?.params).toEqual(['631612', '631613']);
+  });
+
+  it('blocks a new code or EAN that is already a closed package barcode', () => {
+    const guard = buildProductUpdateQueries(input).find((statement) =>
+      statement.query.includes('public.produto_embalagens WHERE ean_fechado'),
+    );
+
+    expect(guard?.query).toContain('ean_fechado=$2::bigint OR ean_fechado=ANY($3::bigint[])');
+  });
 });

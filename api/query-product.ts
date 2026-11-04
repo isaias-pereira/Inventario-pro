@@ -3,13 +3,36 @@ import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { identifier, productInput, canManageProducts } from './_lib/product-validation.js';
 import { buildProductUpdateQueries } from './_lib/product-update.js';
+import { packagingInput } from './_lib/packaging-validation.js';
 
 const productSelect = `SELECT p.ean::text, p.codigo::text, p.descricao, p.tipo,
   ARRAY(SELECT DISTINCT c::text FROM (SELECT p.codigo c UNION ALL SELECT codigo FROM public.produto_codigos WHERE produto_codigo=p.codigo) codes ORDER BY c::text) codigos,
-  ARRAY(SELECT e::text FROM (SELECT p.ean e UNION SELECT ean FROM public.produto_eans WHERE produto_codigo=p.codigo) eans WHERE e IS NOT NULL ORDER BY e) eans
+  ARRAY(SELECT e::text FROM (SELECT p.ean e UNION SELECT ean FROM public.produto_eans WHERE produto_codigo=p.codigo) eans WHERE e IS NOT NULL ORDER BY e) eans,
+  COALESCE((SELECT json_agg(json_build_object(
+    'ean_fechado', pe.ean_fechado::text,
+    'tipo_embalagem', pe.tipo_embalagem,
+    'quantidade_fechada', pe.quantidade_fechada::float8,
+    'descricao', pe.descricao
+  ) ORDER BY pe.tipo_embalagem, pe.ean_fechado)
+    FROM public.produto_embalagens pe WHERE pe.produto_codigo=p.codigo), '[]'::json) embalagens
   FROM public.produto p`;
 const codeCondition = `p.codigo=$1::bigint OR p.codigo IN (SELECT produto_codigo FROM public.produto_codigos WHERE codigo=$1::bigint)`;
-const allCondition = `(${codeCondition}) OR p.ean=$1::bigint OR p.codigo IN (SELECT produto_codigo FROM public.produto_eans WHERE ean=$1::bigint)`;
+const allCondition = `(${codeCondition}) OR p.ean=$1::bigint OR p.codigo IN (SELECT produto_codigo FROM public.produto_eans WHERE ean=$1::bigint) OR p.codigo IN (SELECT produto_codigo FROM public.produto_embalagens WHERE ean_fechado=$1::bigint)`;
+
+interface PackagingRow {
+  ean_fechado: string;
+  tipo_embalagem: string;
+  quantidade_fechada: number;
+  descricao: string | null;
+}
+
+/** Anexa a embalagem que corresponde exatamente ao código lido. */
+function attachPackaging(product: Record<string, unknown> | null, scanned: string) {
+  if (!product) return null;
+  const embalagens = Array.isArray(product.embalagens) ? (product.embalagens as PackagingRow[]) : [];
+  const embalagem = embalagens.find((row) => String(row.ean_fechado) === scanned) ?? null;
+  return { ...product, embalagem };
+}
 
 // Custo (numeric 12,4) por código, incluindo códigos alternativos (produto_codigos).
 // O registro mestre vence o alternativo quando o mesmo código existe nos dois.
@@ -37,11 +60,11 @@ const handler: ApiHandler = async (req, res) => {
 
     const body = await readJsonBody<Record<string, unknown>>(req);
     const action = body.action;
-    if (action !== undefined && !['check', 'insert', 'edit_lookup', 'update', 'costs'].includes(String(action))) {
+    if (action !== undefined && !['check', 'insert', 'edit_lookup', 'update', 'costs', 'add_packaging', 'remove_packaging'].includes(String(action))) {
       sendJson(res, { error: 'Ação inválida' }, 400);
       return;
     }
-    if (['insert', 'update', 'edit_lookup'].includes(String(action)) && !canManageProducts(payload.role)) {
+    if (['insert', 'update', 'edit_lookup', 'add_packaging', 'remove_packaging'].includes(String(action)) && !canManageProducts(payload.role)) {
       sendJson(res, { error: 'Apenas administradores podem gerenciar produtos' }, 403);
       return;
     }
@@ -70,12 +93,6 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    const codigo = identifier(body.codigo);
-    if (!codigo) {
-      sendJson(res, { error: 'Código inválido (apenas dígitos, até 14)' }, 400);
-      return;
-    }
-
     const findProduct = async (value: string, byCode = false) => {
       const rows = await sql(
         `${productSelect} WHERE ${byCode ? codeCondition : allCondition} ORDER BY (p.ean=$1::bigint) DESC NULLS LAST LIMIT 1`,
@@ -83,6 +100,87 @@ const handler: ApiHandler = async (req, res) => {
       );
       return rows[0] ?? null;
     };
+
+    // EMBALAGENS FECHADAS — caixa (CX), fardo (FD) ou saco (SC) vinculado a um produto.
+    if (action === 'add_packaging' || action === 'remove_packaging') {
+      const lock = {
+        query:
+          'LOCK TABLE public.produto, public.produto_codigos, public.produto_eans, public.produto_embalagens IN SHARE ROW EXCLUSIVE MODE',
+      };
+
+      if (action === 'remove_packaging') {
+        const eanFechado = identifier(body.eanFechado);
+        if (!eanFechado) {
+          sendJson(res, { error: 'EAN fechado inválido (apenas dígitos, até 14)' }, 400);
+          return;
+        }
+        const removed = await sql(
+          'DELETE FROM public.produto_embalagens WHERE ean_fechado=$1::bigint RETURNING id',
+          [eanFechado],
+        );
+        if (removed.length === 0) {
+          sendJson(res, { error: 'Embalagem não encontrada' }, 404);
+          return;
+        }
+        sendJson(res, { success: true, action: 'packaging_removed' });
+        return;
+      }
+
+      const productEan = identifier(body.ean);
+      const input = packagingInput(body);
+      if (!productEan) {
+        sendJson(res, { error: 'Informe o EAN do produto que receberá a embalagem' }, 400);
+        return;
+      }
+      if (!input) {
+        sendJson(
+          res,
+          { error: 'Verifique o EAN fechado, o tipo (CX/FD/SC) e a quantidade (maior que zero)' },
+          400,
+        );
+        return;
+      }
+
+      const product = await findProduct(productEan);
+      if (!product) {
+        sendJson(res, { error: 'Produto não encontrado para o EAN informado' }, 404);
+        return;
+      }
+      const master = String(product.codigo);
+
+      await sql(
+        [
+          lock,
+          { query: `SELECT 1 / CASE WHEN EXISTS (SELECT 1 FROM public.produto WHERE codigo=$1::bigint)
+            AND NOT EXISTS (SELECT 1 FROM public.produto WHERE ean=$2::bigint)
+            AND NOT EXISTS (SELECT 1 FROM public.produto_codigos WHERE codigo=$2::bigint)
+            AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=$2::bigint)
+            AND NOT EXISTS (SELECT 1 FROM public.produto_embalagens WHERE ean_fechado=$2::bigint)
+            THEN 1 ELSE 0 END`, params: [master, input.eanFechado] },
+          {
+            query: `INSERT INTO public.produto_embalagens
+              (ean_fechado, produto_codigo, tipo_embalagem, quantidade_fechada, descricao)
+              VALUES ($1::bigint,$2::bigint,$3,$4::numeric,$5)`,
+            params: [input.eanFechado, master, input.tipo, input.quantidadeFechada, input.descricao || null],
+          },
+        ],
+        [],
+        true,
+      );
+
+      sendJson(res, {
+        success: true,
+        action: 'packaging_added',
+        product: await findProduct(master, true),
+      });
+      return;
+    }
+
+    const codigo = identifier(body.codigo);
+    if (!codigo) {
+      sendJson(res, { error: 'Código inválido (apenas dígitos, até 14)' }, 400);
+      return;
+    }
 
     if (action === 'check') {
       const product = await findProduct(codigo, true);
@@ -97,7 +195,10 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       const { ean, descricao, tipo, eans } = input;
-      const lock = { query: 'LOCK TABLE public.produto, public.produto_codigos, public.produto_eans IN SHARE ROW EXCLUSIVE MODE' };
+      const lock = {
+        query:
+          'LOCK TABLE public.produto, public.produto_codigos, public.produto_eans, public.produto_embalagens IN SHARE ROW EXCLUSIVE MODE',
+      };
 
       if (action === 'update') {
         const original = identifier(body.originalCodigo);
@@ -115,7 +216,10 @@ const handler: ApiHandler = async (req, res) => {
 
       const existing = await findProduct(codigo, true);
       const owner = await sql(
-        'SELECT codigo::text FROM public.produto WHERE ean=$1::bigint UNION SELECT produto_codigo::text FROM public.produto_eans WHERE ean=$1::bigint LIMIT 2',
+        `SELECT codigo::text FROM public.produto WHERE ean=$1::bigint
+         UNION SELECT produto_codigo::text FROM public.produto_eans WHERE ean=$1::bigint
+         UNION SELECT produto_codigo::text FROM public.produto_embalagens WHERE ean_fechado=$1::bigint
+         LIMIT 2`,
         [ean],
       );
 
@@ -135,6 +239,7 @@ const handler: ApiHandler = async (req, res) => {
               AND NOT EXISTS (SELECT 1 FROM public.produto_codigos WHERE codigo=$2::bigint AND produto_codigo<>$1::bigint)
               AND NOT EXISTS (SELECT 1 FROM public.produto WHERE ean=ANY($3::bigint[]) AND codigo<>$1::bigint)
               AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=ANY($3::bigint[]) AND produto_codigo<>$1::bigint)
+              AND NOT EXISTS (SELECT 1 FROM public.produto_embalagens WHERE ean_fechado=ANY($3::bigint[]))
               THEN 1 ELSE 0 END`, params: [master, ean, eans] },
             { query: 'INSERT INTO public.produto_eans (ean,produto_codigo) VALUES ($1::bigint,$2::bigint) ON CONFLICT (ean) DO NOTHING', params: [ean, master] },
           ],
@@ -150,7 +255,9 @@ const handler: ApiHandler = async (req, res) => {
         await sql(
           [
             lock,
-            { query: 'SELECT 1 / CASE WHEN NOT EXISTS (SELECT 1 FROM public.produto WHERE codigo=$1::bigint) THEN 1 ELSE 0 END', params: [codigo] },
+            { query: `SELECT 1 / CASE WHEN NOT EXISTS (SELECT 1 FROM public.produto WHERE codigo=$1::bigint)
+              AND NOT EXISTS (SELECT 1 FROM public.produto_embalagens WHERE ean_fechado=$1::bigint)
+              THEN 1 ELSE 0 END`, params: [codigo] },
             { query: 'INSERT INTO public.produto_codigos (codigo,produto_codigo) VALUES ($1::bigint,$2::bigint)', params: [codigo, main] },
           ],
           [],
@@ -165,7 +272,9 @@ const handler: ApiHandler = async (req, res) => {
           lock,
           { query: `SELECT 1 / CASE WHEN NOT EXISTS (SELECT 1 FROM public.produto WHERE codigo=$1::bigint OR ean=$2::bigint)
             AND NOT EXISTS (SELECT 1 FROM public.produto_codigos WHERE codigo=$1::bigint)
-            AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=$2::bigint) THEN 1 ELSE 0 END`, params: [codigo, ean] },
+            AND NOT EXISTS (SELECT 1 FROM public.produto_eans WHERE ean=$2::bigint)
+            AND NOT EXISTS (SELECT 1 FROM public.produto_embalagens WHERE ean_fechado=$1::bigint OR ean_fechado=$2::bigint)
+            THEN 1 ELSE 0 END`, params: [codigo, ean] },
           { query: 'INSERT INTO public.produto (ean,codigo,descricao,tipo) VALUES ($1::bigint,$2::bigint,$3,$4)', params: [ean, codigo, descricao, tipo || null] },
         ],
         [],
@@ -176,7 +285,7 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     const product = await findProduct(codigo);
-    sendJson(res, { found: !!product, product });
+    sendJson(res, { found: !!product, product: attachPackaging(product, codigo) });
   } catch (error) {
     console.error('Error querying product:', error instanceof Error ? error.message : 'Unknown error');
     const known = error as { status?: number; message?: string };
