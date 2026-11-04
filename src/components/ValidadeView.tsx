@@ -35,6 +35,10 @@ import {
 } from '@/lib/validade-spreadsheet';
 import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
+import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
+
+/** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
+const PDF_MIME = 'application/pdf';
 
 
 interface ProductResult {
@@ -344,6 +348,131 @@ const [filter, setFilter] = useState<FilterType>('todos');
     { key: '30dias', label: '30 dias' },
   ];
 
+  /** Monta o relatório de validade em PDF e devolve os bytes. */
+  const createValidadePdf = async (): Promise<Uint8Array> => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginX = 14;
+    const now = new Date();
+
+    const sorted = [...filteredItems].sort(
+      (a, b) => new Date(a.validade).getTime() - new Date(b.validade).getTime(),
+    );
+    const expired = sorted.filter((i) => daysUntil(i.validade) < 0).length;
+    const expiringToday = sorted.filter((i) => daysUntil(i.validade) === 0).length;
+
+    // ===== Cabeçalho / Título =====
+    doc.setFillColor(33, 37, 41);
+    doc.rect(0, 0, pageW, 22, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('Controle de Validade', marginX, 14);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('Estoque Pro', pageW - marginX, 14, { align: 'right' });
+
+    // ===== Metadados =====
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.text(`Gerado em: ${format(now, 'dd/MM/yyyy HH:mm')}`, marginX, 30);
+    const summary = [
+      `Filtro: ${FILTER_LABELS[filter]}`,
+      `Total: ${sorted.length}`,
+      `Vencidos: ${expired}`,
+      `Vencem hoje: ${expiringToday}`,
+    ].join('   |   ');
+    const summaryLines = doc.splitTextToSize(summary, pageW - marginX * 2);
+    doc.text(summaryLines, marginX, 35);
+
+    // ===== Tabela =====
+    const tableTop = 35 + summaryLines.length * 4 + 3;
+    const columns = [
+      { label: 'Código', x: marginX, w: 20 },
+      { label: 'EAN', x: marginX + 20, w: 26 },
+      { label: 'Descrição', x: marginX + 46, w: 72 },
+      { label: 'Qtd', x: marginX + 118, w: 12 },
+      { label: 'Validade', x: marginX + 130, w: 22 },
+      { label: 'Status', x: marginX + 152, w: 30 },
+    ];
+    const rowH = 7;
+
+    const drawHeader = (y: number) => {
+      doc.setFillColor(33, 37, 41);
+      doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      columns.forEach((c) => doc.text(c.label, c.x + 2, y + rowH - 2));
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'normal');
+    };
+
+    let y = tableTop;
+    drawHeader(y);
+    y += rowH;
+
+    sorted.forEach((item, idx) => {
+      if (y + rowH > pageH - 12) {
+        doc.addPage();
+        y = 16;
+        drawHeader(y);
+        y += rowH;
+      }
+      if (idx % 2 === 0) {
+        doc.setFillColor(245, 245, 245);
+        doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
+      }
+
+      const diffDays = daysUntil(item.validade);
+      const status = item.motivo ? item.motivo : getValidadeStatus(item.validade).label;
+      if (item.motivo) doc.setTextColor(0, 0, 0);
+      else if (diffDays <= 0) doc.setTextColor(200, 0, 0);
+      else if (diffDays <= alertDays) doc.setTextColor(204, 102, 0);
+      else doc.setTextColor(0, 0, 0);
+
+      const desc = String(item.descricao);
+      const descTrunc = desc.length > 38 ? desc.slice(0, 37) + '…' : desc;
+
+      doc.setFontSize(8);
+      doc.text(String(item.codigo), columns[0].x + 2, y + rowH - 2);
+      doc.text(String(item.ean), columns[1].x + 2, y + rowH - 2);
+      doc.text(descTrunc, columns[2].x + 2, y + rowH - 2);
+      doc.text(String(item.quantidade), columns[3].x + 2, y + rowH - 2);
+      doc.text(item.motivo ? '—' : new Date(item.validade).toLocaleDateString('pt-BR'), columns[4].x + 2, y + rowH - 2);
+      doc.text(status, columns[5].x + 2, y + rowH - 2);
+      y += rowH;
+    });
+
+    // ===== Rodapé com paginação =====
+    doc.setTextColor(120, 120, 120);
+    doc.setFontSize(8);
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.text(`Página ${i} de ${pageCount}`, pageW - marginX, pageH - 6, { align: 'right' });
+    }
+
+    return new Uint8Array(doc.output('arraybuffer') as ArrayBuffer);
+  };
+
+  /** Nome do arquivo PDF com a data de hoje. */
+  const pdfFileName = (date = new Date()) => `validade-${format(date, 'yyyy-MM-dd')}.pdf`;
+
+  /** Baixa os bytes do PDF no aparelho. */
+  const savePdfBytes = (bytes: Uint8Array) => {
+    const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: PDF_MIME }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = pdfFileName();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const downloadPdf = async () => {
     if (downloadingPdf) return;
     if (filteredItems.length === 0) {
@@ -352,112 +481,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
     }
     setDownloadingPdf(true);
     try {
-      const { jsPDF } = await import('jspdf');
-      const doc = new jsPDF();
-      const pageW = doc.internal.pageSize.getWidth();
-      const pageH = doc.internal.pageSize.getHeight();
-      const marginX = 14;
-      const now = new Date();
-
-      const sorted = [...filteredItems].sort(
-        (a, b) => new Date(a.validade).getTime() - new Date(b.validade).getTime(),
-      );
-      const expired = sorted.filter((i) => daysUntil(i.validade) < 0).length;
-      const expiringToday = sorted.filter((i) => daysUntil(i.validade) === 0).length;
-
-      // ===== Cabeçalho / Título =====
-      doc.setFillColor(33, 37, 41);
-      doc.rect(0, 0, pageW, 22, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.text('Controle de Validade', marginX, 14);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.text('Estoque Pro', pageW - marginX, 14, { align: 'right' });
-
-      // ===== Metadados =====
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(9);
-      doc.text(`Gerado em: ${format(now, 'dd/MM/yyyy HH:mm')}`, marginX, 30);
-      const summary = [
-        `Filtro: ${FILTER_LABELS[filter]}`,
-        `Total: ${sorted.length}`,
-        `Vencidos: ${expired}`,
-        `Vencem hoje: ${expiringToday}`,
-      ].join('   |   ');
-      const summaryLines = doc.splitTextToSize(summary, pageW - marginX * 2);
-      doc.text(summaryLines, marginX, 35);
-
-      // ===== Tabela =====
-      const tableTop = 35 + summaryLines.length * 4 + 3;
-      const columns = [
-        { label: 'Código', x: marginX, w: 20 },
-        { label: 'EAN', x: marginX + 20, w: 26 },
-        { label: 'Descrição', x: marginX + 46, w: 72 },
-        { label: 'Qtd', x: marginX + 118, w: 12 },
-        { label: 'Validade', x: marginX + 130, w: 22 },
-        { label: 'Status', x: marginX + 152, w: 30 },
-      ];
-      const rowH = 7;
-
-      const drawHeader = (y: number) => {
-        doc.setFillColor(33, 37, 41);
-        doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        columns.forEach((c) => doc.text(c.label, c.x + 2, y + rowH - 2));
-        doc.setTextColor(0, 0, 0);
-        doc.setFont('helvetica', 'normal');
-      };
-
-      let y = tableTop;
-      drawHeader(y);
-      y += rowH;
-
-      sorted.forEach((item, idx) => {
-        if (y + rowH > pageH - 12) {
-          doc.addPage();
-          y = 16;
-          drawHeader(y);
-          y += rowH;
-        }
-        if (idx % 2 === 0) {
-          doc.setFillColor(245, 245, 245);
-          doc.rect(marginX, y, pageW - marginX * 2, rowH, 'F');
-        }
-
-        const diffDays = daysUntil(item.validade);
-        const status = item.motivo ? item.motivo : getValidadeStatus(item.validade).label;
-        if (item.motivo) doc.setTextColor(0, 0, 0);
-        else if (diffDays <= 0) doc.setTextColor(200, 0, 0);
-        else if (diffDays <= alertDays) doc.setTextColor(204, 102, 0);
-        else doc.setTextColor(0, 0, 0);
-
-        const desc = String(item.descricao);
-        const descTrunc = desc.length > 38 ? desc.slice(0, 37) + '…' : desc;
-
-        doc.setFontSize(8);
-        doc.text(String(item.codigo), columns[0].x + 2, y + rowH - 2);
-        doc.text(String(item.ean), columns[1].x + 2, y + rowH - 2);
-        doc.text(descTrunc, columns[2].x + 2, y + rowH - 2);
-        doc.text(String(item.quantidade), columns[3].x + 2, y + rowH - 2);
-        doc.text(item.motivo ? '—' : new Date(item.validade).toLocaleDateString('pt-BR'), columns[4].x + 2, y + rowH - 2);
-        doc.text(status, columns[5].x + 2, y + rowH - 2);
-        y += rowH;
-      });
-
-      // ===== Rodapé com paginação =====
-      doc.setTextColor(120, 120, 120);
-      doc.setFontSize(8);
-      const pageCount = doc.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.text(`Página ${i} de ${pageCount}`, pageW - marginX, pageH - 6, { align: 'right' });
-      }
-
-      doc.save(`validade-${format(now, 'yyyy-MM-dd')}.pdf`);
+      const bytes = await createValidadePdf();
+      savePdfBytes(bytes);
       toast.success('PDF gerado com sucesso');
     } catch {
       toast.error('Erro ao gerar PDF');
@@ -489,9 +514,44 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   /**
-   * Abre o compartilhamento do celular (WhatsApp, Gmail, Thunderbird…) com o .ods.
-   * Se o cache estiver pronto, o arquivo é gerado e compartilhado no mesmo gesto,
-   * que é o que o navegador móvel exige. Sem suporte, baixa a planilha.
+   * Envia o relatório em PDF pela folha do sistema (Thunderbird no Android).
+   * O PDF é aceito pelo Chrome; a planilha .ods não é (allowlist do Chromium).
+   */
+  const sharePdfByEmail = async () => {
+    if (filteredItems.length === 0) {
+      toast.error('Nenhum produto na lista para compartilhar');
+      return;
+    }
+    setSharingPlanilha(true);
+    try {
+      const bytes = await createValidadePdf();
+      const subject = `Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`;
+      const text = `Segue a planilha de rebaixa com ${filteredItems.length} produto(s)`;
+      const file = fileFromBytes(bytes, pdfFileName(), PDF_MIME);
+      const outcome = await shareFileWithSystem(file, { title: subject, text });
+      setSharingPlanilha(false);
+      if (outcome === 'shared') {
+        toast.success('PDF compartilhado');
+        setShowDownloadDialog(false);
+      } else if (outcome === 'cancelled') {
+        // O usuário fechou a folha do celular; o diálogo continua aberto.
+      } else {
+        // Sem compartilhamento disponível: baixa o PDF para envio manual.
+        savePdfBytes(bytes);
+        toast.success('Compartilhamento indisponível: PDF baixado', { duration: 6000 });
+        setShowDownloadDialog(false);
+      }
+    } catch {
+      setSharingPlanilha(false);
+      toast.error('Erro ao gerar PDF');
+    }
+  };
+
+  /**
+   * Abre o compartilhamento do celular (WhatsApp, Gmail, Thunderbird…) com a
+   * planilha. Se o cache estiver pronto, o arquivo é gerado e compartilhado no
+   * mesmo gesto, que é o que o navegador móvel exige. Sem suporte, baixa a
+   * planilha.
    */
   const shareSpreadsheet = () => {
     if (sharingPlanilha) return;
@@ -515,11 +575,27 @@ const [filter, setFilter] = useState<FilterType>('todos');
       } else if (outcome === 'downloaded') {
         toast.success('Compartilhamento indisponível: planilha baixada', { duration: 6000 });
         setShowDownloadDialog(false);
+      } else if (outcome === 'blocked') {
+        toast.error('Este navegador não permite anexar planilhas .ods', {
+          description: 'Envie o PDF pelo Thunderbird ou baixe a planilha e anexe manualmente.',
+          duration: 10000,
+          action: { label: 'Compartilhar PDF', onClick: () => { void sharePdfByEmail(); } },
+        });
       }
       // 'cancelled': o usuário fechou a folha do celular; o diálogo continua aberto.
     };
 
     const runShare = (tipos: Record<string, string>, custos: Record<string, number>) => {
+      // O Chromium só anexa PDF, imagens, áudio, vídeo e texto: o .ods é
+      // recusado. Nesse caso já enviamos o PDF, que o Thunderbird recebe.
+      if (browserBlocksFileShare('rebaixa.ods')) {
+        setSharingPlanilha(false);
+        toast.info('O navegador não anexa .ods — enviando o PDF', {
+          description: 'O Chrome aceita PDF, imagens e texto, mas não planilhas OpenDocument.',
+        });
+        void sharePdfByEmail();
+        return;
+      }
       try {
         const ods = createValidadeOds(itemsToShare, tipos, { custos });
         // Sem `await` antes: o celular precisa do gesto do usuário para abrir a folha.
@@ -589,7 +665,13 @@ const [filter, setFilter] = useState<FilterType>('todos');
               variant="outline"
               size="icon"
               className="ml-1 h-8 w-8"
-              onClick={() => setShowDownloadDialog(true)}
+              onClick={() => {
+                setShowDownloadDialog(true);
+                // Carrega o jspdf agora para o compartilhamento do PDF não
+                // depender de uma busca na hora do clique (o celular exige
+                // que a folha abra dentro do gesto do usuário).
+                void import('jspdf');
+              }}
               disabled={downloadingPdf || downloadingPlanilha || loading}
               title="Exportar lista de validade"
               aria-label="Exportar lista de validade"
@@ -932,9 +1014,10 @@ const [filter, setFilter] = useState<FilterType>('todos');
               produto(s) do filtro "{FILTER_LABELS[filter]}".
               <span className="mt-1 block text-xs">
                 No celular, <span className="font-medium text-foreground">Compartilhar</span> abre
-                o menu do sistema com a planilha anexada. Escolha o{' '}
+                o menu do sistema com o arquivo anexado. Escolha o{' '}
                 <span className="font-medium text-foreground">Thunderbird</span> para enviar por
-                e-mail (o assunto e o texto já vão preenchidos).
+                e-mail (o assunto e o texto já vão preenchidos). No Chrome o anexo vai em PDF,
+                porque o navegador não aceita planilhas .ods.
               </span>
             </DialogDescription>
             <div className="grid gap-2 py-1">

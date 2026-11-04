@@ -4,6 +4,8 @@
  * cores, bordas, larguras, merges e a fórmula viva da margem.
  */
 
+import { fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
+
 export const DEFAULT_STORE = 103;
 
 export const SHEET_TITLE = 'SOLICITAÇÃO DE REBAIXA / PERECÍVEIS';
@@ -757,25 +759,22 @@ export function saveValidadeOds(bytes: Uint8Array, date = new Date()): void {
   downloadBlob(new Blob([bytes.slice().buffer], { type: ODS_MIME }), spreadSheetFileName(date));
 }
 
-export type ShareOutcome = 'shared' | 'downloaded' | 'cancelled';
-
-/** O aparelho consegue compartilhar arquivos (celular/tablet com Web Share)? */
-function canShareFile(file: File): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
-  if (typeof nav.share !== 'function') return false;
-  // `canShare` é o que garante que o arquivo pode ir junto; sem ele, não arriscamos.
-  if (typeof nav.canShare !== 'function') return false;
-  try {
-    return nav.canShare({ files: [file] });
-  } catch {
-    return false;
-  }
-}
+/**
+ * Resultado do compartilhamento:
+ * - `shared`: a folha do sistema abriu e o arquivo foi entregue;
+ * - `cancelled`: o usuário fechou a folha;
+ * - `blocked`: o navegador recusou o arquivo (ex.: `.ods` no Chromium);
+ * - `downloaded`: o aparelho não tem Web Share API, então o arquivo foi baixado.
+ */
+export type ShareOutcome = 'shared' | 'cancelled' | 'blocked' | 'downloaded';
 
 /**
  * Abre a folha de compartilhamento do aparelho (WhatsApp, Gmail, Thunderbird…)
- * com o .ods anexado. Em desktop sem suporte, baixa o arquivo para envio manual.
+ * com o .ods anexado.
+ *
+ * Sem Web Share API no aparelho, baixa o arquivo para envio manual.
+ * Quando o navegador recusa o anexo (o Chromium não aceita `.ods`), devolve
+ * `blocked` para o chamador oferecer o PDF — que o navegador aceita.
  */
 export async function shareValidadeOds(
   bytes: Uint8Array,
@@ -783,22 +782,16 @@ export async function shareValidadeOds(
 ): Promise<ShareOutcome> {
   const date = options.date ?? new Date();
   const filename = spreadSheetFileName(date);
-  const file = new File([bytes.slice().buffer], filename, { type: ODS_MIME });
+  const file = fileFromBytes(bytes, filename, ODS_MIME);
 
-  if (canShareFile(file)) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: options.subject ?? 'Solicitação de rebaixa / perecíveis',
-        text: options.text,
-      });
-      return 'shared';
-    } catch (error) {
-      // Fechar a folha de compartilhamento não é erro: não baixa nada.
-      if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled';
-    }
+  const outcome = await shareFileWithSystem(file, {
+    title: options.subject ?? 'Solicitação de rebaixa / perecíveis',
+    text: options.text,
+  });
+
+  if (outcome === 'unavailable') {
+    downloadBlob(file, filename);
+    return 'downloaded';
   }
-
-  downloadBlob(file, filename);
-  return 'downloaded';
+  return outcome;
 }

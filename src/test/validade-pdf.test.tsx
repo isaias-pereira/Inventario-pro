@@ -3,21 +3,23 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import ValidadeView from '../components/ValidadeView';
 
-const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCustos } = vi.hoisted(() => ({
-  invoke: vi.fn(),
-  save: vi.fn(),
-  createOds: vi.fn(() => new Uint8Array([1, 2, 3])),
-  saveSpreadsheet: vi.fn(),
-  shareOds: vi.fn(async (_bytes: Uint8Array, _options?: { subject?: string; text?: string }) => 'shared'),
-  fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
-  fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
-}));
+const { invoke, save, createOds, saveSpreadsheet, shareOds, fetchTipos, fetchCustos, blocksFileShare } =
+  vi.hoisted(() => ({
+    invoke: vi.fn(),
+    save: vi.fn(),
+    createOds: vi.fn(() => new Uint8Array([1, 2, 3])),
+    saveSpreadsheet: vi.fn(),
+    shareOds: vi.fn(async (_bytes: Uint8Array, _options?: { subject?: string; text?: string }) => 'shared'),
+    fetchTipos: vi.fn(async () => ({ '100': 'UN' })),
+    fetchCustos: vi.fn(async () => ({ '100': 4.5 })),
+    blocksFileShare: vi.fn(() => false),
+  }));
 
 vi.mock('@/lib/api', () => ({ invokeFunction: invoke }));
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { role: 'admin' }, getToken: () => 'token', isAdmin: true }),
 }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: fetchTipos }));
 vi.mock('@/lib/validade-custos', () => ({ fetchProductCustos: fetchCustos }));
 vi.mock('@/lib/validade-spreadsheet', () => ({
@@ -25,6 +27,11 @@ vi.mock('@/lib/validade-spreadsheet', () => ({
   saveValidadeOds: saveSpreadsheet,
   shareValidadeOds: shareOds,
 }));
+// O módulo real é usado; só a detecção do bloqueio do .ods é controlada.
+vi.mock('@/lib/system-share', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/system-share')>();
+  return { ...actual, browserBlocksFileShare: blocksFileShare };
+});
 vi.mock('jspdf', () => ({
   jsPDF: vi.fn(function jsPDF() {
     return {
@@ -39,10 +46,13 @@ vi.mock('jspdf', () => ({
       addPage: vi.fn(),
       setPage: vi.fn(),
       getNumberOfPages: () => 1,
+      output: () => new ArrayBuffer(16),
       save,
     };
   }),
 }));
+
+let clickedDownload = '';
 
 beforeEach(() => {
   cleanup();
@@ -52,6 +62,17 @@ beforeEach(() => {
   saveSpreadsheet.mockReset();
   shareOds.mockClear();
   fetchTipos.mockClear();
+  fetchCustos.mockClear();
+  blocksFileShare.mockReturnValue(false);
+  clickedDownload = '';
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn(() => 'blob:pdf'),
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    clickedDownload = this.download;
+  });
   window.localStorage.setItem('estoque_pro_token', 'token');
   invoke.mockResolvedValue({
     data: {
@@ -81,8 +102,7 @@ it('downloads the expiry list as a PDF', async () => {
   // O botão de exportar abre a escolha entre planilha e PDF.
   await user.click(await screen.findByRole('button', { name: /PDF/ }));
 
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-  expect(save.mock.calls[0][0]).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/);
+  await waitFor(() => expect(clickedDownload).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/));
 });
 
 it('exports the expiry list as an ODS spreadsheet', async () => {
@@ -132,6 +152,31 @@ it('shares the ODS through the system share sheet', async () => {
   );
   // O compartilhamento nativo substitui o download: nada foi baixado.
   expect(saveSpreadsheet).not.toHaveBeenCalled();
+});
+
+it('shares the PDF when the browser refuses the .ods attachment (Chrome)', async () => {
+  blocksFileShare.mockReturnValue(true);
+  const share = vi.fn(async (_data?: ShareData) => undefined);
+  Object.defineProperty(navigator, 'share', { configurable: true, value: share });
+
+  const user = userEvent.setup();
+  render(<ValidadeView />);
+
+  await screen.findByText('BANANA PRATA');
+  await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
+  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token'));
+
+  await user.click(await screen.findByRole('button', { name: 'Compartilhar' }));
+
+  // O .ods não entra: o Chrome recusa o tipo e o app envia o PDF.
+  await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+  const data = share.mock.calls[0][0] as ShareData;
+  expect(data.files).toHaveLength(1);
+  expect(data.files?.[0].name).toMatch(/^validade-\d{4}-\d{2}-\d{2}\.pdf$/);
+  expect(data.files?.[0].type).toBe('application/pdf');
+  expect(data.title).toMatch(/^Solicitação de rebaixa \/ perecíveis — \d{2}\/\d{2}\/\d{4}$/);
+  expect(data.text).toBe('Segue a planilha de rebaixa com 1 produto(s)');
+  expect(shareOds).not.toHaveBeenCalled();
 });
 
 it('opens the product details when the whole card is clicked', async () => {

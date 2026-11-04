@@ -65,13 +65,13 @@ describe('compartilhamento da planilha de rebaixa', () => {
       shareValidadeOds(bytes, {
         date,
         subject: 'Solicitação de rebaixa / perecíveis — 05/10/2026',
-        text: 'Segue a planilha com 12 produto(s).',
+        text: 'Segue a planilha com 12 produto(s)',
       }),
     ).resolves.toBe('shared');
 
     const data = share.mock.calls[0][0] as ShareData;
     expect(data.title).toBe('Solicitação de rebaixa / perecíveis — 05/10/2026');
-    expect(data.text).toBe('Segue a planilha com 12 produto(s).');
+    expect(data.text).toBe('Segue a planilha com 12 produto(s)');
   });
 
   it('não baixa nada quando o usuário fecha a folha de compartilhamento', async () => {
@@ -86,7 +86,31 @@ describe('compartilhamento da planilha de rebaixa', () => {
     expect(clickSpy).not.toHaveBeenCalled();
   });
 
-  it('baixa a planilha quando o aparelho não compartilha arquivos', async () => {
+  it('informa quando o navegador recusa o arquivo (.ods não é aceito pelo Chrome)', async () => {
+    const share = vi.fn(async () => {
+      throw new DOMException('File type not supported', 'NotAllowedError');
+    });
+    setShareSupport(share, () => true);
+
+    await expect(shareValidadeOds(bytes, { date })).resolves.toBe('blocked');
+    expect(share).toHaveBeenCalledTimes(1);
+    // Não baixa nada: quem oferece o PDF é a tela.
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('tenta o compartilhamento mesmo quando canShare recusa (o Chrome só barra na hora de enviar)', async () => {
+    const share = vi.fn(async () => {
+      throw new TypeError('Provided value cannot be serialized');
+    });
+    setShareSupport(share, () => false);
+
+    await expect(shareValidadeOds(bytes, { date })).resolves.toBe('blocked');
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('baixa a planilha quando o aparelho não tem compartilhamento', async () => {
     setShareSupport(undefined, undefined);
 
     await expect(shareValidadeOds(bytes, { date })).resolves.toBe('downloaded');
@@ -94,28 +118,6 @@ describe('compartilhamento da planilha de rebaixa', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     const blob = createObjectURL.mock.calls[0][0] as Blob;
     expect(blob.type).toBe(ODS_MIME);
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    expect(clickedDownload).toBe('solicitacao-rebaixa-2026-10-05.ods');
-  });
-
-  it('baixa quando o navegador tem share mas recusa o arquivo', async () => {
-    const share = vi.fn(async () => undefined);
-    setShareSupport(share, () => false);
-
-    await expect(shareValidadeOds(bytes, { date })).resolves.toBe('downloaded');
-
-    expect(share).not.toHaveBeenCalled();
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    expect(clickedDownload).toBe('solicitacao-rebaixa-2026-10-05.ods');
-  });
-
-  it('cai no download quando o compartilhamento falha por falta de gesto', async () => {
-    const share = vi.fn(async () => {
-      throw new DOMException('Precisa de ativação do usuário', 'NotAllowedError');
-    });
-    setShareSupport(share, () => true);
-
-    await expect(shareValidadeOds(bytes, { date })).resolves.toBe('downloaded');
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(clickedDownload).toBe('solicitacao-rebaixa-2026-10-05.ods');
   });
