@@ -504,7 +504,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
     const key = spreadsheetCodesKey;
     const cached = spreadsheetCache.current?.key === key ? spreadsheetCache.current : null;
     const subject = `Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`;
-    const text = `Segue a planilha de rebaixa com ${itemsToShare.length} produto(s) do filtro "${FILTER_LABELS[filter]}".`;
+    const text = `Segue a planilha de rebaixa com ${itemsToShare.length} produto(s)`;
     setSharingPlanilha(true);
 
     const finish = (outcome: ShareOutcome) => {

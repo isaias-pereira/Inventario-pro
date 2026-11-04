@@ -123,9 +123,8 @@ it('shares the ODS through the system share sheet', async () => {
   // O assunto e o corpo vão preenchidos para o Thunderbird/Gmail no celular.
   expect(shareOds.mock.calls[0][1]).toEqual({
     subject: expect.stringMatching(/^Solicitação de rebaixa \/ perecíveis — \d{2}\/\d{2}\/\d{4}$/),
-    text: expect.stringContaining('1 produto(s)'),
+    text: 'Segue a planilha de rebaixa com 1 produto(s)',
   });
-  expect(shareOds.mock.calls[0][1].text).toContain('do filtro "Todos"');
   expect(createOds).toHaveBeenCalledWith(
     [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
     { '100': 'UN' },
