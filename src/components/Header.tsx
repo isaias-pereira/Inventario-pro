@@ -44,8 +44,19 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
   return (
     <header className="border-b border-primary/20 bg-primary shadow-lg">
       <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-4">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button onClick={() => handleNav('consulta')} className="text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="Estoque Pro — ir para a página inicial">Estoque Pro</button>
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="Estoque Pro — ir para a página inicial">Estoque Pro</button>
+          {user?.username && (
+            <>
+              <span className="h-4 w-px shrink-0 bg-primary-foreground/30" aria-hidden="true" />
+              <span
+                className="max-w-[72px] truncate text-xs text-primary-foreground/85 sm:max-w-[180px] sm:text-sm"
+                title={user.username}
+              >
+                {user.username}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
