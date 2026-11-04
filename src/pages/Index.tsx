@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Header, { ViewType } from '@/components/Header';
 import ConsultaView from '@/components/ConsultaView';
@@ -9,12 +9,11 @@ import AddProductView from '@/components/AddProductView';
 import MetasView from '@/components/MetasView';
 import ValidadeView from '@/components/ValidadeView';
 import LoginPage from '@/pages/LoginPage';
+import { trackView } from '@/lib/analytics';
 
 const Index = () => {
   const { user, isAdmin, userRole } = useAuth();
   const [view, setView] = useState<ViewType>('consulta');
-
-  if (!user) return <LoginPage />;
 
   // Determine default view based on role
   const getDefaultView = (): ViewType => {
@@ -35,7 +34,15 @@ const Index = () => {
     return false;
   };
 
-  const safeView = hasAccess(view) ? view : getDefaultView();
+  const safeView = user ? (hasAccess(view) ? view : getDefaultView()) : 'consulta';
+
+  // A navegação interna não muda a URL: cada tela é registrada no Analytics.
+  useEffect(() => {
+    if (!user) return;
+    trackView(safeView);
+  }, [safeView, user]);
+
+  if (!user) return <LoginPage />;
 
   const viewTitles: Record<ViewType, string> = {
     consulta: 'Consulta de Produtos',

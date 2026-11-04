@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { startAnalytics } from "./lib/analytics";
 
 // Unregister service workers in preview/iframe contexts to avoid caching issues
 const isInIframe = (() => {
@@ -15,5 +16,8 @@ if (isPreviewHost || isInIframe) {
     regs.forEach((r) => r.unregister());
   });
 }
+
+// Web Analytics da Vercel (page views + eventos customizados).
+startAnalytics();
 
 createRoot(document.getElementById("root")!).render(<App />);

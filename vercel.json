@@ -10,7 +10,7 @@
       "destination": "/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|_vercel/).*)",
       "destination": "/index.html"
     }
   ]

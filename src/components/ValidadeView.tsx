@@ -37,6 +37,7 @@ import { fetchProductTipos } from '@/lib/validade-tipos';
 import { fetchProductCustos } from '@/lib/validade-custos';
 import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
+import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
 const PDF_MIME = 'application/pdf';
@@ -484,6 +485,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
     try {
       const bytes = await createValidadePdf();
       savePdfBytes(bytes);
+      trackEvent('exportar_pdf', { itens: filteredItems.length });
       toast.success('PDF gerado com sucesso');
     } catch {
       toast.error('Erro ao gerar PDF');
@@ -506,6 +508,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
       if (!cached) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
       const ods = createValidadeOds(filteredItems, tipos, { custos });
       saveValidadeOds(ods);
+      trackEvent('exportar_planilha', { formato: 'ods', itens: filteredItems.length });
       toast.success('Planilha gerada com sucesso');
       setShowDownloadDialog(false);
     } catch {
@@ -530,6 +533,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
       if (!cached) spreadsheetCache.current = { key: spreadsheetCodesKey, tipos, custos };
       const csv = createValidadeCsv(filteredItems, tipos, { custos });
       saveValidadeCsv(csv);
+      trackEvent('exportar_planilha', { formato: 'csv', itens: filteredItems.length });
       toast.success('Planilha CSV gerada com sucesso');
       setShowDownloadDialog(false);
     } catch {
@@ -569,6 +573,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
         void shareFileWithSystem(file, { title: subject, text }).then((outcome) => {
           setSharingPlanilha(false);
           if (outcome === 'shared') {
+            trackEvent('compartilhar_planilha', { formato: 'csv', itens: itemsToShare.length });
             toast.success('Planilha compartilhada');
             setShowDownloadDialog(false);
           } else if (outcome === 'cancelled') {
@@ -588,6 +593,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
     const finish = (outcome: ShareOutcome) => {
       setSharingPlanilha(false);
       if (outcome === 'shared') {
+        trackEvent('compartilhar_planilha', { formato: 'ods', itens: itemsToShare.length });
         toast.success('Planilha compartilhada');
         setShowDownloadDialog(false);
       } else if (outcome === 'downloaded') {
