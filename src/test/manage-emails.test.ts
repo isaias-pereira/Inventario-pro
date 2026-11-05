@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canManageEmails,
   canReadEmails,
+  isUniqueViolation,
   normalizeEmail,
   normalizeId,
   normalizeMessage,
@@ -105,6 +106,20 @@ describe('normalizeId', () => {
     expect(normalizeId(1.5)).toBeNull();
     expect(normalizeId('abc')).toBeNull();
     expect(normalizeId(undefined)).toBeNull();
+  });
+});
+
+describe('isUniqueViolation', () => {
+  it('reconhece o conflito de unicidade do Postgres', () => {
+    expect(isUniqueViolation(Object.assign(new Error('conflito'), { code: '23505' }))).toBe(true);
+    expect(isUniqueViolation(new Error('duplicate key value violates unique constraint'))).toBe(true);
+  });
+
+  it('ignora outros erros', () => {
+    expect(isUniqueViolation(Object.assign(new Error('timeout'), { code: '57014' }))).toBe(false);
+    expect(isUniqueViolation(new Error('syntax error'))).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
   });
 });
 

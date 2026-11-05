@@ -89,6 +89,13 @@ export function normalizeId(value: unknown): number | null {
   return number;
 }
 
+/** Erro de unicidade do Postgres (23505) — e-mail já cadastrado. */
+export function isUniqueViolation(error: unknown): boolean {
+  const known = error as { code?: unknown; message?: unknown } | null;
+  if (known?.code === '23505') return true;
+  return typeof known?.message === 'string' && /duplicate|unique|already exists/i.test(known.message);
+}
+
 const CREATE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS public.email_padrao (
     id BIGSERIAL PRIMARY KEY,
@@ -231,8 +238,7 @@ const handler: ApiHandler = async (req, res) => {
           );
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : '';
-        if (/duplicate|unique/i.test(message)) {
+        if (isUniqueViolation(error)) {
           sendJson(res, { error: 'Este e-mail já está cadastrado' }, 400);
           return;
         }
@@ -297,8 +303,7 @@ const handler: ApiHandler = async (req, res) => {
           );
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : '';
-        if (/duplicate|unique/i.test(message)) {
+        if (isUniqueViolation(error)) {
           sendJson(res, { error: 'Este e-mail já está cadastrado' }, 400);
           return;
         }

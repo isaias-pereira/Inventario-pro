@@ -122,7 +122,7 @@ function gatewayError(status: number, code: string | undefined, message: string 
     text = 'Banco ocupado. Tente novamente em instantes.';
     httpStatus = 429;
   }
-  return Object.assign(new Error(text), { status: httpStatus });
+  return Object.assign(new Error(text), { status: httpStatus, code });
 }
 
 async function gatewayQuery(statements: Statement[], write: boolean): Promise<BatchResult> {
