@@ -38,9 +38,10 @@ const {
     itens: 1,
   })),
   useAuth: vi.fn(() => ({
-    user: { role: 'admin' },
+    user: { role: 'admin' as string },
     getToken: () => 'token',
     isAdmin: true,
+    userRole: 'admin' as string,
   })),
 }));
 
@@ -70,6 +71,7 @@ beforeEach(() => {
     user: { role: 'admin' },
     getToken: () => 'token',
     isAdmin: true,
+    userRole: 'admin',
   });
   window.localStorage.setItem('estoque_pro_token', 'token');
   invoke.mockResolvedValue({
@@ -143,11 +145,28 @@ it('avisa quando o servidor não tem e-mail configurado', async () => {
   expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
 });
 
-it('esconde a opção de e-mail para quem não é administrador', async () => {
+it('mostra a opção de e-mail para o encarregado', async () => {
   useAuth.mockReturnValue({
     user: { role: 'encarregado' },
     getToken: () => 'token',
     isAdmin: false,
+    userRole: 'encarregado',
+  });
+
+  const user = userEvent.setup();
+  render(<ValidadeView />);
+  await screen.findByText('BANANA PRATA');
+  await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
+
+  expect(await screen.findByRole('button', { name: /Enviar por e-mail/ })).toBeInTheDocument();
+});
+
+it('esconde a opção de e-mail para quem não é admin nem encarregado', async () => {
+  useAuth.mockReturnValue({
+    user: { role: 'user' },
+    getToken: () => 'token',
+    isAdmin: false,
+    userRole: 'user',
   });
 
   const user = userEvent.setup();

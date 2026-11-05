@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ShoppingCart, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
-export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'add-produto';
+export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto';
 
 interface HeaderProps {
   currentView: ViewType;
@@ -27,6 +27,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     { key: 'inventario' as const, label: 'Inventário', icon: ClipboardList, roles: ['admin', 'user', 'enc_flv'] },
     { key: 'metas' as const, label: 'Metas', icon: Target, roles: ['admin'] },
     { key: 'validade' as const, label: 'Validade', icon: CalendarClock, roles: ['admin', 'user', 'promotor', 'encarregado', 'col_validade', 'enc_flv'] },
+    { key: 'rebaixa' as const, label: 'Rebaixa', icon: Tag, roles: ['admin', 'encarregado', 'enc_flv'] },
   ];
 
   const mainNavItems = allNavItems.filter(item => userRole && item.roles.includes(userRole));
@@ -47,15 +48,15 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="Estoque Pro — ir para a página inicial">Estoque Pro</button>
           {user?.username && (
-            <>
+            <span className="hidden min-w-0 items-center gap-2 sm:flex">
               <span className="h-4 w-px shrink-0 bg-primary-foreground/30" aria-hidden="true" />
               <span
-                className="max-w-[72px] truncate text-xs text-primary-foreground/85 sm:max-w-[180px] sm:text-sm"
+                className="max-w-[180px] truncate text-sm text-primary-foreground/85"
                 title={user.username}
               >
                 {user.username}
               </span>
-            </>
+            </span>
           )}
         </div>
 
@@ -66,13 +67,13 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
               variant={currentView === item.key ? 'secondary' : 'ghost'}
               size="icon"
               onClick={() => handleNav(item.key)}
-              className={`h-8 w-8 sm:h-9 sm:w-9 ${currentView !== item.key ? 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground' : ''}`}
+              className={`h-7 w-7 sm:h-9 sm:w-9 ${currentView !== item.key ? 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground' : ''}`}
               title={item.label}
               aria-label={item.label}
               aria-current={currentView === item.key ? 'page' : undefined}
 
             >
-              <item.icon className="h-4 w-4 sm:h-5 sm:w-5" />
+              <item.icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
             </Button>
           ))}
 
@@ -83,8 +84,8 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
           {/* User dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground" title={user?.username} aria-label={`Menu do usuário${user?.username ? ` ${user.username}` : ''}`}>
-                <ChevronDown className="h-4 w-4" />
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground sm:h-9 sm:w-9" title={user?.username} aria-label={`Menu do usuário${user?.username ? ` ${user.username}` : ''}`}>
+                <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">

@@ -11,12 +11,19 @@
  *   para avisar quando o envio está indisponível e preencher o destinatário;
  * - `send`: envia a planilha.
  *
- * Restrito a administradores (`role === 'admin'`).
+ * Restrito a administradores e encarregados (`role === 'admin' | 'encarregado'`).
  */
 
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
+
+/** Papéis que podem disparar a planilha por e-mail. */
+export const EMAIL_ROLES = ['admin', 'encarregado'] as const;
+
+export function canSendRebaixaEmail(role: unknown): boolean {
+  return typeof role === 'string' && (EMAIL_ROLES as readonly string[]).includes(role);
+}
 
 /** MIME oficial do OpenDocument Spreadsheet. */
 const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
@@ -88,8 +95,8 @@ const handler: ApiHandler = async (req, res) => {
     const payload = authenticate(req, res);
     if (!payload) return;
 
-    if (payload.role !== 'admin') {
-      sendJson(res, { error: 'Apenas administradores podem enviar a planilha por e-mail' }, 403);
+    if (!canSendRebaixaEmail(payload.role)) {
+      sendJson(res, { error: 'Apenas admin e encarregado podem enviar a planilha por e-mail' }, 403);
       return;
     }
 

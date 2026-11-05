@@ -84,7 +84,7 @@ export function createValidadeCsv(
       row.vencimento,
       String(row.quantidade),
       row.descricaoOferta,
-      row.precoFinalRebaxa,
+      typeof row.precoFinalRebaxa === 'number' ? brNumber(row.precoFinalRebaxa) : '',
       row.inicio,
       row.final,
     ];

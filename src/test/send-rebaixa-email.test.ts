@@ -19,6 +19,7 @@ vi.mock('../../api/_lib/mailer', async (importOriginal) => {
 
 import handler, {
   attachmentName,
+  canSendRebaixaEmail,
   decodeAttachment,
   defaultSubject,
 } from '../../api/send-rebaixa-email';
@@ -123,6 +124,41 @@ describe('endpoint de envio por e-mail', () => {
 
     expect(state.status).toBe(403);
     expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it('permite o encarregado enviar a planilha', async () => {
+    authenticateMock.mockReturnValue({ sub: 'encarregado', role: 'encarregado', exp: 0 });
+    const { res, state } = fakeResponse();
+    await handler(
+      request({
+        action: 'send',
+        to: 'comercial@empresa.com',
+        filename: 'rebaixa.ods',
+        contentBase64: odsBase64,
+        itens: 2,
+      }),
+      res,
+    );
+
+    expect(state.status).toBe(200);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('recusa enc. flv no envio por e-mail', async () => {
+    authenticateMock.mockReturnValue({ sub: 'flv', role: 'enc_flv', exp: 0 });
+    const { res, state } = fakeResponse();
+    await handler(request({ action: 'send' }), res);
+
+    expect(state.status).toBe(403);
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it('reconhece apenas admin e encarregado como remetentes', () => {
+    expect(canSendRebaixaEmail('admin')).toBe(true);
+    expect(canSendRebaixaEmail('encarregado')).toBe(true);
+    expect(canSendRebaixaEmail('enc_flv')).toBe(false);
+    expect(canSendRebaixaEmail('user')).toBe(false);
+    expect(canSendRebaixaEmail(undefined)).toBe(false);
   });
 
   it('envia a planilha com o anexo em base64', async () => {

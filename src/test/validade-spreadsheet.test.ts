@@ -356,3 +356,91 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(cellValue(primeira[6])).toBe('-86.7924528302');
   });
 });
+
+describe('campos da Rebaixa na planilha', () => {
+  const rebaixaItems: ValidadeSpreadsheetItem[] = [
+    {
+      ean: '2000000000012',
+      codigo: '456',
+      descricao: 'BANANA PRATA',
+      quantidade: 2.5,
+      validade: null,
+      tipo: 'KG',
+      oferta: 'Qualidade',
+      precoFinal: 3.45,
+    },
+    {
+      ...items[0],
+      tipo: 'UN',
+      oferta: '  ',
+      precoFinal: 2.5,
+    },
+  ];
+
+  it('usa o tipo explícito no lugar do mapa de tipos', () => {
+    // O mapa diz o contrário de propósito: o tipo do item deve vencer.
+    const [banana, leite] = buildSpreadsheetRows(
+      rebaixaItems,
+      { '456': 'UN', '123': 'KG' },
+      103,
+      { '456': 7.5, '123': 5 },
+    );
+
+    expect(banana.vencimento).toBe('');
+    expect(leite.vencimento).toBe('30/10/2026');
+  });
+
+  it('leva o motivo para a descrição da oferta e o preço final para a coluna', () => {
+    const [banana, leite] = buildSpreadsheetRows(rebaixaItems, tipos, 103, { '456': 7.5, '123': 5 });
+
+    expect(banana.descricaoOferta).toBe('Qualidade');
+    expect(banana.precoFinalRebaxa).toBe(3.45);
+    expect(leite.descricaoOferta).toBe('');
+    expect(leite.precoFinalRebaxa).toBe(2.5);
+  });
+
+  it('arredonda o preço final para centavos e ignora valores inválidos', () => {
+    const [centavos, zero, negativo, invalido] = buildSpreadsheetRows(
+      [
+        { ...items[0], precoFinal: 2.345 },
+        { ...items[0], precoFinal: 0 },
+        { ...items[0], precoFinal: -1 },
+        { ...items[0], precoFinal: Number.NaN },
+      ],
+      tipos,
+    );
+
+    expect(centavos.precoFinalRebaxa).toBe(2.35);
+    expect(zero.precoFinalRebaxa).toBe('');
+    expect(negativo.precoFinalRebaxa).toBe('');
+    expect(invalido.precoFinalRebaxa).toBe('');
+  });
+
+  it('grava a oferta e o preço final como número no XML', () => {
+    const doc = parseContent(
+      buildValidadeOdsContent(rebaixaItems, tipos, {
+        date: new Date(2026, 9, 28),
+        custos: { '456': 7.5, '123': 5 },
+      }),
+    );
+    const rows = rowsOf(doc);
+
+    const banana = cellsOf(rows[3]);
+    expect(cellText(banana[7])).toBe('');
+    expect(cellValue(banana[9])).toBe('Qualidade');
+    expect(banana[10].getAttribute('office:value-type')).toBe('float');
+    expect(cellValue(banana[10])).toBe('3.45');
+    expect(cellText(banana[10])).toBe('R$ 3,45');
+
+    const leite = cellsOf(rows[4]);
+    expect(cellText(leite[9])).toBe('');
+    expect(cellValue(leite[10])).toBe('2.5');
+    expect(cellText(leite[10])).toBe('R$ 2,50');
+  });
+
+  it('usa o formato de moeda na coluna PREÇO FINAL REBAIXA', () => {
+    const doc = parseContent(buildValidadeOdsContent(rebaixaItems, tipos, { custos: { '456': 7.5 } }));
+
+    expect(styleByName(doc, 'ceD10')?.getAttribute('style:data-style-name')).toBe('Nbrl');
+  });
+});

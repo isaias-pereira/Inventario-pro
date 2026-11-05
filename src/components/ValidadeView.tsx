@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check, Mail,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check, Mail, Tag,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -39,6 +39,7 @@ import { fetchProductCustos } from '@/lib/validade-custos';
 import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
 import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
+import { addRebaixaItems, motivoFromValidade, tipoFromMotivo } from '@/lib/rebaixa';
 import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
@@ -91,7 +92,9 @@ const FILTER_LABELS: Record<FilterType, string> = {
 };
 
 const ValidadeView = () => {
-  const { user, getToken: authGetToken, isAdmin } = useAuth();
+  const { user, getToken: authGetToken, isAdmin, userRole } = useAuth();
+  const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado' || userRole === 'enc_flv';
+  const canSendEmail = isAdmin || userRole === 'encarregado';
   const [code, setCode] = useState('');
   const [validade, setValidade] = useState('');
   const [motivo, setMotivo] = useState<MotivoKg | ''>('');
@@ -277,6 +280,33 @@ const [filter, setFilter] = useState<FilterType>('todos');
       await fetchItems();
     } else {
       toast.error('Erro ao remover');
+    }
+  };
+
+  /** Envia um item da Validade para o rascunho da Rebaixa. */
+  const sendToRebaixa = async (item: ValidadeItem) => {
+    // Item com motivo entra como KG (a data da Validade é ignorada); sem
+    // motivo, entra como UN e mantém o vencimento.
+    const motivo = motivoFromValidade(item.motivo);
+    const tipo = tipoFromMotivo(item.motivo);
+    try {
+      const result = await addRebaixaItems([{
+        ean: String(item.ean),
+        codigo: String(item.codigo),
+        descricao: item.descricao,
+        tipo,
+        quantidade: Number(item.quantidade) || 0,
+        validade: tipo === 'UN' ? item.validade : null,
+        motivo,
+        validade_id: item.id,
+      }]);
+      if (result.added > 0) {
+        toast.success('Item enviado para a rebaixa');
+      } else {
+        toast.info('Item já está na rebaixa');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao enviar para a rebaixa');
     }
   };
 
@@ -1032,45 +1062,61 @@ const [filter, setFilter] = useState<FilterType>('todos');
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                     </button>
-                    {isAdmin && (
+                    {(isAdmin || canSendToRebaixa) && (
                       <div className="flex shrink-0 flex-col justify-center gap-0.5 border-l border-border/60 bg-muted/20 px-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-primary hover:bg-primary/10 hover:text-primary"
-                          onClick={() => openEdit(item)}
-                          aria-label={`Editar ${item.descricao}`}
-                          title="Editar validade"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                        {canSendToRebaixa && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                            onClick={() => void sendToRebaixa(item)}
+                            aria-label={`Enviar ${item.descricao} para a rebaixa`}
+                            title="Enviar para rebaixa"
+                          >
+                            <Tag className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {isAdmin && (
+                          <>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              aria-label={`Remover ${item.descricao}`}
-                              title="Remover da validade"
+                              className="h-7 w-7 text-primary hover:bg-primary/10 hover:text-primary"
+                              onClick={() => openEdit(item)}
+                              aria-label={`Editar ${item.descricao}`}
+                              title="Editar validade"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Remover item?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Deseja remover "{item.descricao}" do controle de validade?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleRemove(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                Remover
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label={`Remover ${item.descricao}`}
+                                  title="Remover da validade"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remover item?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Deseja remover "{item.descricao}" do controle de validade?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleRemove(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                    Remover
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1155,7 +1201,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 </span>
                 {downloadingPdf && <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin" />}
               </button>
-              {isAdmin && (
+              {canSendEmail && (
                 <button
                   type="button"
                   onClick={() => { setShowDownloadDialog(false); openEmailDialog(); }}
@@ -1417,17 +1463,29 @@ const [filter, setFilter] = useState<FilterType>('todos');
                   </div>
                 </div>
 
-                <DialogFooter className="flex-row items-center justify-between gap-2 border-t bg-muted/20 px-5 py-3">
-                  {isAdmin ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { openEdit(detailItem); setDetailItem(null); }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Editar validade
-                    </Button>
-                  ) : <span />}
+                <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-5 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canSendToRebaixa && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { void sendToRebaixa(detailItem); setDetailItem(null); }}
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                        Enviar para rebaixa
+                      </Button>
+                    )}
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { openEdit(detailItem); setDetailItem(null); }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Editar validade
+                      </Button>
+                    )}
+                  </div>
                   <Button size="sm" onClick={() => setDetailItem(null)}>Fechar</Button>
                 </DialogFooter>
               </>

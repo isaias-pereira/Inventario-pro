@@ -101,6 +101,42 @@ describe('planilha de rebaixa em CSV', () => {
     expect(rows[1]).toContain('"REGAJO ""VIP""; 500ML"');
   });
 
+  it('grava o motivo KG na descrição da oferta e o preço final na coluna', () => {
+    const rows = linesOf(createValidadeCsv(
+      [
+        {
+          ean: '2000000000012',
+          codigo: '456',
+          descricao: 'BANANA PRATA',
+          quantidade: 2.5,
+          validade: null,
+          tipo: 'KG',
+          oferta: 'Qualidade',
+          precoFinal: 3.45,
+        },
+        { ...items[0], tipo: 'UN', oferta: '', precoFinal: 2.5 },
+      ],
+      tipos,
+      { custos: { '456': 7.5, '123': 5 } },
+    ));
+
+    const banana = rows[1].split(';');
+    expect(banana[7]).toBe('');
+    expect(banana[9]).toBe('Qualidade');
+    expect(banana[10]).toBe('3,45');
+
+    const leite = rows[2].split(';');
+    expect(leite[7]).toBe('30/10/2026');
+    expect(leite[9]).toBe('');
+    expect(leite[10]).toBe('2,50');
+  });
+
+  it('deixa o preço final vazio quando não informado', () => {
+    const rows = linesOf(createValidadeCsv(items, tipos));
+    expect(rows[1].split(';')[10]).toBe('');
+    expect(rows[2].split(';')[10]).toBe('');
+  });
+
   it('gera o nome do arquivo com a data', () => {
     expect(csvFileName(new Date(2026, 9, 5))).toBe('solicitacao-rebaixa-2026-10-05.csv');
   });

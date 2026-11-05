@@ -33,7 +33,14 @@ export interface ValidadeSpreadsheetItem {
   codigo: string | number;
   descricao: string;
   quantidade: number;
-  validade: string;
+  /** Vencimento; ausente/nulo em produtos KG (a Rebaixa usa motivo). */
+  validade?: string | null;
+  /** Tipo explícito (KG/UN); quando ausente, usa o mapa `tipos`. */
+  tipo?: string | null;
+  /** Texto da coluna DESCRIÇÃO DA OFERTA (a Rebaixa grava o motivo KG). */
+  oferta?: string | null;
+  /** Preço final decidido na tela; vazio quando não informado. */
+  precoFinal?: number | null;
 }
 
 export interface ValidadeSpreadsheetRow {
@@ -50,7 +57,8 @@ export interface ValidadeSpreadsheetRow {
   vencimento: string;
   quantidade: number;
   descricaoOferta: string;
-  precoFinalRebaxa: string;
+  /** Preço final decidido na Rebaixa; vazio quando não informado. */
+  precoFinalRebaxa: string | number;
   inicio: string;
   final: string;
 }
@@ -126,7 +134,7 @@ const COLUMN_STYLES: ColumnStyle[] = [
   { width: 18.6, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // VENCIMENTO
   { width: 22.7, align: 'center', headerColor: COLORS.red, headerFill: COLORS.headerStoreFill, dataFont: FONTS.default, dataSize: 10 }, // QUANTIDADE
   { width: 16.6, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // DESCRIÇÃO DA OFERTA
-  { width: 11.5, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5, dataBold: true, dataItalic: true, dataColor: COLORS.blue }, // PREÇO FINAL REBAIXA
+  { width: 11.5, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5, dataBold: true, dataItalic: true, dataColor: COLORS.blue, dataFormat: 'currency' }, // PREÇO FINAL REBAIXA
   { width: 11.5, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // INÍCIO
   { width: 36.3, align: 'center', headerColor: COLORS.blue, headerFill: COLORS.headerCommercialFill, dataFont: FONTS.data, dataSize: 9.5 }, // FINAL
 ];
@@ -200,8 +208,14 @@ export function buildSpreadsheetRows(
 ): ValidadeSpreadsheetRow[] {
   return items.map((item, index) => {
     const codigo = String(item.codigo);
+    const tipo = item.tipo?.trim() || tipos[codigo];
     const custo = custos[codigo];
     const temCusto = typeof custo === 'number' && Number.isFinite(custo) && custo > 0;
+    const precoFinal = typeof item.precoFinal === 'number'
+      && Number.isFinite(item.precoFinal)
+      && item.precoFinal > 0
+      ? Math.round(item.precoFinal * 100) / 100
+      : '';
 
     return {
       loja: store,
@@ -215,10 +229,11 @@ export function buildSpreadsheetRows(
       // Margem calculada pela própria planilha, assim o comercial pode ajustar a sugestão.
       margem: temCusto ? marginFormula(FIRST_DATA_ROW + index) : '',
       // KG fica vazio, UN recebe a validade da lista e tipo desconhecido não é chutado como UN.
-      vencimento: isUnitProduct(tipos[codigo]) ? formatDateBR(item.validade) : '',
+      vencimento: isUnitProduct(tipo) && item.validade ? formatDateBR(item.validade) : '',
       quantidade: Number(item.quantidade) || 0,
-      descricaoOferta: '',
-      precoFinalRebaxa: '',
+      // A Rebaixa grava o motivo KG aqui; a Validade continua com a coluna em branco.
+      descricaoOferta: typeof item.oferta === 'string' ? item.oferta.trim() : '',
+      precoFinalRebaxa: precoFinal,
       inicio: '',
       final: '',
     };
@@ -540,7 +555,9 @@ export function buildValidadeOdsContent(
       textCell('ceD7', row.vencimento),
       numberCell('ceD8', row.quantidade, String(row.quantidade)),
       textCell('ceD9', row.descricaoOferta),
-      textCell('ceD10', row.precoFinalRebaxa),
+      typeof row.precoFinalRebaxa === 'number'
+        ? numberCell('ceD10', row.precoFinalRebaxa, formatBrl(row.precoFinalRebaxa))
+        : textCell('ceD10', ''),
       textCell('ceD11', row.inicio),
       textCell('ceD12', row.final),
     ];
