@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { createTransportMock, sendMailMock } = vi.hoisted(() => ({
   createTransportMock: vi.fn(),
-  sendMailMock: vi.fn(async () => ({ messageId: 'abc' })),
+  sendMailMock: vi.fn(async (_message: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    attachments?: { filename: string; content: Buffer; contentType: string }[];
+  }) => ({ messageId: 'abc' })),
 }));
 
 vi.mock('nodemailer', () => ({
