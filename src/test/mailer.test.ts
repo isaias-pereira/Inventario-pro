@@ -265,6 +265,9 @@ describe('envio por SMTP', () => {
       port: 587,
       secure: false,
       auth: { user: 'rebaixa@empresa.com.br', pass: 'senha-secreta' },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
 
     expect(sendMailMock).toHaveBeenCalledTimes(1);

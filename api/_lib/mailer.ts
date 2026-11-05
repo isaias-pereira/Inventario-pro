@@ -145,6 +145,11 @@ export async function sendViaSmtp(message: MailMessage, config: MailConfig): Pro
     port,
     secure,
     auth: user ? { user, pass } : undefined,
+    // Prazos curtos: se o servidor de e-mail não responder, a Function falha
+    // com uma mensagem clara em vez de ficar pendurada.
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
   });
 
   await transporter.sendMail({
