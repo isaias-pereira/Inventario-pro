@@ -18,6 +18,9 @@ const BarcodeScanner = ({ onDetected, disabled = false, label = 'Escanear códig
   const [error, setError] = useState('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const onDetectedRef = useRef(onDetected);
+  // Timer que ajusta o <video> depois que a câmera começa: precisa ser
+  // cancelado no unmount para não rodar depois do fim do teste/tela.
+  const videoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -114,7 +117,9 @@ const BarcodeScanner = ({ onDetected, disabled = false, label = 'Escanear códig
 
     // iOS requires playsinline on the video element to render inline
     // (otherwise it tries to enter fullscreen and may fail in a PWA).
-    setTimeout(() => {
+    if (videoTimerRef.current) clearTimeout(videoTimerRef.current);
+    videoTimerRef.current = setTimeout(() => {
+      videoTimerRef.current = null;
       const v = document.querySelector(`#${READER_ID} video`) as HTMLVideoElement | null;
       if (v) {
         v.setAttribute('playsinline', 'true');
@@ -127,6 +132,10 @@ const BarcodeScanner = ({ onDetected, disabled = false, label = 'Escanear códig
 
   useEffect(() => {
     return () => {
+      if (videoTimerRef.current) {
+        clearTimeout(videoTimerRef.current);
+        videoTimerRef.current = null;
+      }
       stopScanner();
     };
   }, []);

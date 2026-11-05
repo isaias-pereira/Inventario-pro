@@ -9,12 +9,12 @@
  * - o rascunho é salvo no servidor e o histórico guarda cada lote enviado.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AlertTriangle, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight,
   Download, FileSpreadsheet, History, Loader2, Lock, Mail, Package, Pencil,
-  Plus, RefreshCw, Scale, Search, Share2, Tag, Trash2,
+  Plus, RefreshCw, Scale, Search, Share2, Star, Tag, Trash2,
 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -79,6 +79,7 @@ import {
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
 import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/lib/system-share';
 import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
+import { activeEmails, applyTemplate, defaultEmail, fetchEmails, type EmailPadrao } from '@/lib/emails';
 import { daysUntil } from '@/lib/validade-notifications';
 import { trackEvent } from '@/lib/analytics';
 
@@ -187,6 +188,12 @@ const RebaixaView = () => {
   const [emailConfig, setEmailConfig] = useState<EmailConfig | null>(null);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
+  // E-mails padrão cadastrados na aba E-mail (atalhos do envio).
+  const [emailsPadrao, setEmailsPadrao] = useState<EmailPadrao[]>([]);
+  const [emailDefaults, setEmailDefaults] = useState<{ assunto: string; mensagem: string } | null>(null);
+  // O usuário já editou assunto/mensagem: o padrão não pode sobrescrever.
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailPrefilledRef = useRef(false);
 
   // ── Histórico ──────────────────────────────────────────────────────
   const [showHistory, setShowHistory] = useState(false);
@@ -697,11 +704,65 @@ const RebaixaView = () => {
     }
   }, []);
 
+  /** Texto padrão da mensagem com as variáveis já trocadas. */
+  const emailTemplateValues = useMemo(() => ({
+    data: new Date().toLocaleDateString('pt-BR'),
+    quantidade: items.length,
+    produtos: items
+      .map((item) => `${item.descricao} (${formatQuantity(item.quantidade, item.tipo)})`)
+      .join('; '),
+  }), [items]);
+
+  /** Carrega os e-mails padrão cadastrados na aba E-mail (atalhos do envio). */
+  const loadEmailsPadrao = useCallback(async () => {
+    try {
+      const data = await fetchEmails();
+      setEmailsPadrao(data.emails);
+      setEmailDefaults(data.defaults);
+      if (!emailTouched) {
+        setEmailSubject(applyTemplate(data.defaults.assunto, emailTemplateValues));
+        setEmailText(applyTemplate(data.defaults.mensagem, emailTemplateValues));
+      }
+    } catch {
+      setEmailsPadrao([]);
+    }
+  }, [emailTemplateValues, emailTouched]);
+
+  /**
+   * Preenche o destinatário: o e-mail padrão da aba E-mail tem prioridade;
+   * sem ele, usa o padrão do servidor (REBAIXA_EMAIL_TO).
+   */
+  useEffect(() => {
+    if (emailPrefilledRef.current) return;
+    if (!emailConfig && emailsPadrao.length === 0) return;
+    const padrao = defaultEmail(emailsPadrao);
+    if (padrao) {
+      setEmailTo(padrao.email);
+      emailPrefilledRef.current = true;
+    } else if (emailConfig?.defaultTo) {
+      setEmailTo(emailConfig.defaultTo);
+      emailPrefilledRef.current = true;
+    }
+  }, [emailConfig, emailsPadrao]);
+
   const openEmail = () => {
     setEmailSubject(`Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`);
     setEmailText(`Segue a planilha de rebaixa com ${items.length} produto(s)`);
+    setEmailTouched(false);
+    emailPrefilledRef.current = false;
     setShowEmail(true);
     void loadEmailConfig();
+    void loadEmailsPadrao();
+  };
+
+  /** Escolhe um atalho: substitui o destinatário ou soma ao que já está no campo. */
+  const pickEmail = (address: string) => {
+    setEmailTo((current) => {
+      const value = current.trim();
+      if (!value) return address;
+      if (value.split(/[,;]/).some((part) => part.trim().toLowerCase() === address.toLowerCase())) return value;
+      return `${value}, ${address}`;
+    });
   };
 
   const sendByEmail = async () => {
@@ -1764,14 +1825,35 @@ const RebaixaView = () => {
                 autoComplete="off"
                 disabled={emailSending}
               />
-              <p className="mt-1 text-xs text-muted-foreground">Separe vários destinatários por vírgula.</p>
+              {activeEmails(emailsPadrao).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeEmails(emailsPadrao).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => pickEmail(item.email)}
+                      disabled={emailSending}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-800 transition-colors hover:bg-sky-100 disabled:opacity-50"
+                      title={`${item.nome} — ${item.email}`}
+                    >
+                      {item.padrao && <Star className="h-3 w-3 text-amber-500" />}
+                      {item.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {activeEmails(emailsPadrao).length > 0
+                  ? 'Toque em um atalho da aba E-mail ou separe vários destinatários por vírgula.'
+                  : 'Separe vários destinatários por vírgula.'}
+              </p>
             </div>
             <div>
               <label htmlFor="rebaixa-email-subject" className="text-sm font-medium">Assunto</label>
               <Input
                 id="rebaixa-email-subject"
                 value={emailSubject}
-                onChange={(event) => setEmailSubject(event.target.value)}
+                onChange={(event) => { setEmailSubject(event.target.value); setEmailTouched(true); }}
                 className="mt-1"
                 disabled={emailSending}
               />
@@ -1781,7 +1863,7 @@ const RebaixaView = () => {
               <textarea
                 id="rebaixa-email-text"
                 value={emailText}
-                onChange={(event) => setEmailText(event.target.value)}
+                onChange={(event) => { setEmailText(event.target.value); setEmailTouched(true); }}
                 rows={3}
                 disabled={emailSending}
                 className="mt-1 flex w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
@@ -1791,6 +1873,11 @@ const RebaixaView = () => {
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Verificando a configuração de e-mail no servidor...
+              </p>
+            )}
+            {emailDefaults && (
+              <p className="text-xs text-muted-foreground">
+                Assunto e mensagem vêm do padrão da aba E-mail — dá para editar aqui.
               </p>
             )}
             {emailConfig && !emailConfig.enabled && !emailLoading && (

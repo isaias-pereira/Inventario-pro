@@ -9,6 +9,7 @@ import AddProductView from '@/components/AddProductView';
 import MetasView from '@/components/MetasView';
 import ValidadeView from '@/components/ValidadeView';
 import RebaixaView from '@/components/RebaixaView';
+import EmailView from '@/components/EmailView';
 import LoginPage from '@/pages/LoginPage';
 import { trackView } from '@/lib/analytics';
 
@@ -28,7 +29,7 @@ const Index = () => {
   // Check if user has access to the current view
   const hasAccess = (v: ViewType): boolean => {
     if (userRole === 'admin') return true;
-    if (userRole === 'encarregado') return v === 'validade' || v === 'rebaixa';
+    if (userRole === 'encarregado') return v === 'validade' || v === 'rebaixa' || v === 'email';
     if (userRole === 'enc_flv') return v === 'inventario' || v === 'validade' || v === 'rebaixa';
     if (userRole === 'user') return v === 'inventario' || v === 'validade';
     if (userRole === 'promotor' || userRole === 'col_validade') return v === 'validade';
@@ -51,6 +52,7 @@ const Index = () => {
     metas: 'Metas e Indicadores',
     validade: 'Controle de Validade',
     rebaixa: 'Rebaixa',
+    email: 'E-mail',
     base: 'Base de Dados',
     usuarios: 'Gerenciamento de Usuários',
     'add-produto': 'Adicionar Produto',
@@ -70,6 +72,7 @@ const Index = () => {
       {safeView === 'metas' && <MetasView />}
       {safeView === 'validade' && <ValidadeView />}
       {safeView === 'rebaixa' && <RebaixaView />}
+      {safeView === 'email' && <EmailView />}
       {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
       {safeView === 'usuarios' && isAdmin && <UserManagementView />}
       {safeView === 'add-produto' && isAdmin && <AddProductView />}

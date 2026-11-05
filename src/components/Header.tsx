@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
-export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto';
+export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email';
 
 interface HeaderProps {
   currentView: ViewType;
@@ -37,6 +37,10 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     { key: 'usuarios' as const, label: 'Usuários', icon: Users },
     { key: 'add-produto' as const, label: 'Adicionar Produto', icon: PackagePlus },
   ];
+
+  // E-mail padrão das rebaixas: admin cadastra, encarregado consulta.
+  const emailItems = [{ key: 'email' as const, label: 'E-Mail', icon: Mail }];
+  const showEmailItems = isAdmin || userRole === 'encarregado';
 
   const handleNav = (view: ViewType) => {
     onNavigate(view);
@@ -94,6 +98,21 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
                 {userRole && <span className="ml-1 text-xs opacity-60">({userRole === 'admin' ? 'admin' : userRole === 'encarregado' ? 'encarregado' : userRole === 'enc_flv' ? 'enc. flv' : userRole === 'promotor' ? 'promotor' : userRole === 'col_validade' ? 'col. validade' : 'usuário'})</span>}
               </div>
               <DropdownMenuSeparator />
+              {showEmailItems && (
+                <>
+                  {emailItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onClick={() => handleNav(item.key)}
+                      className={`gap-2 cursor-pointer ${currentView === item.key ? 'bg-accent font-medium' : ''}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {isAdmin && <DropdownMenuSeparator />}
+                </>
+              )}
               {isAdmin && (
                 <>
                   {adminItems.map((item) => (
