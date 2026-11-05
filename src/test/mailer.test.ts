@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { createTransportMock, sendMailMock } = vi.hoisted(() => ({
+  createTransportMock: vi.fn(),
+  sendMailMock: vi.fn(async () => ({ messageId: 'abc' })),
+}));
+
+vi.mock('nodemailer', () => ({
+  createTransport: createTransportMock,
+}));
+
 import {
   buildResendPayload,
   mailerConfig,
   sendMail,
   sendViaResend,
+  sendViaSmtp,
   validateRecipients,
   type MailConfig,
   type MailMessage,
@@ -40,6 +51,8 @@ function clearMailEnv(): void {
 afterEach(() => {
   clearMailEnv();
   vi.restoreAllMocks();
+  createTransportMock.mockReset();
+  sendMailMock.mockReset();
 });
 
 describe('configuração do e-mail', () => {
@@ -218,5 +231,70 @@ describe('envio pelo servidor', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('envio por SMTP', () => {
+  it('conecta no servidor configurado e anexa a planilha', async () => {
+    process.env.SMTP_HOST = 'mail.empresa.com.br';
+    process.env.SMTP_PORT = '587';
+    process.env.SMTP_USER = 'rebaixa@empresa.com.br';
+    process.env.SMTP_PASS = 'senha-secreta';
+    createTransportMock.mockReturnValue({ sendMail: sendMailMock });
+
+    await sendViaSmtp(
+      {
+        ...message,
+        attachment: {
+          filename: 'rebaixa.ods',
+          contentType: 'application/vnd.oasis.opendocument.spreadsheet',
+          content: new Uint8Array([1, 2, 3]),
+        },
+      },
+      config,
+    );
+
+    expect(createTransportMock).toHaveBeenCalledWith({
+      host: 'mail.empresa.com.br',
+      port: 587,
+      secure: false,
+      auth: { user: 'rebaixa@empresa.com.br', pass: 'senha-secreta' },
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const sent = sendMailMock.mock.calls[0][0];
+    expect(sent.from).toBe('rebaixa@empresa.com');
+    expect(sent.to).toBe('comercial@empresa.com');
+    expect(sent.subject).toBe(message.subject);
+    expect(sent.text).toBe(message.text);
+    expect(sent.attachments[0].filename).toBe('rebaixa.ods');
+    expect(sent.attachments[0].contentType).toBe('application/vnd.oasis.opendocument.spreadsheet');
+    expect(Buffer.from(sent.attachments[0].content).toString('utf8')).toBe(
+      String.fromCharCode(1, 2, 3),
+    );
+  });
+
+  it('usa TLS direto na porta 465', async () => {
+    process.env.SMTP_HOST = 'mail.empresa.com.br';
+    process.env.SMTP_PORT = '465';
+    createTransportMock.mockReturnValue({ sendMail: sendMailMock });
+
+    await sendViaSmtp(message, config);
+
+    expect(createTransportMock).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 465, secure: true }),
+    );
+  });
+
+  it('exige o host do SMTP', async () => {
+    clearMailEnv();
+    await expect(sendViaSmtp(message, config)).rejects.toThrow(/SMTP_HOST/);
+  });
+
+  it('exige o remetente', async () => {
+    process.env.SMTP_HOST = 'mail.empresa.com.br';
+    await expect(sendViaSmtp(message, { ...config, from: null })).rejects.toThrow(
+      /REBAIXA_EMAIL_FROM/,
+    );
   });
 });
