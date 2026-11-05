@@ -190,6 +190,7 @@ const RebaixaView = () => {
   const [emailSending, setEmailSending] = useState(false);
   // E-mails padrão cadastrados na aba E-mail (atalhos do envio).
   const [emailsPadrao, setEmailsPadrao] = useState<EmailPadrao[]>([]);
+  const [emailsLoaded, setEmailsLoaded] = useState(false);
   const [emailDefaults, setEmailDefaults] = useState<{ assunto: string; mensagem: string } | null>(null);
   // O usuário já editou assunto/mensagem: o padrão não pode sobrescrever.
   const [emailTouched, setEmailTouched] = useState(false);
@@ -725,30 +726,34 @@ const RebaixaView = () => {
       }
     } catch {
       setEmailsPadrao([]);
+    } finally {
+      setEmailsLoaded(true);
     }
   }, [emailTemplateValues, emailTouched]);
 
   /**
    * Preenche o destinatário: o e-mail padrão da aba E-mail tem prioridade;
-   * sem ele, usa o padrão do servidor (REBAIXA_EMAIL_TO).
+   * sem ele, usa o padrão do servidor (REBAIXA_EMAIL_TO). Espera as duas
+   * respostas para não ficar com o padrão do servidor por causa da corrida.
    */
   useEffect(() => {
     if (emailPrefilledRef.current) return;
-    if (!emailConfig && emailsPadrao.length === 0) return;
+    if (!emailsLoaded || !emailConfig) return;
     const padrao = defaultEmail(emailsPadrao);
     if (padrao) {
       setEmailTo(padrao.email);
       emailPrefilledRef.current = true;
-    } else if (emailConfig?.defaultTo) {
+    } else if (emailConfig.defaultTo) {
       setEmailTo(emailConfig.defaultTo);
       emailPrefilledRef.current = true;
     }
-  }, [emailConfig, emailsPadrao]);
+  }, [emailConfig, emailsPadrao, emailsLoaded]);
 
   const openEmail = () => {
     setEmailSubject(`Solicitação de rebaixa / perecíveis — ${new Date().toLocaleDateString('pt-BR')}`);
     setEmailText(`Segue a planilha de rebaixa com ${items.length} produto(s)`);
     setEmailTouched(false);
+    setEmailsLoaded(false);
     emailPrefilledRef.current = false;
     setShowEmail(true);
     void loadEmailConfig();

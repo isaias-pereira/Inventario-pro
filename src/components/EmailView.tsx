@@ -230,7 +230,12 @@ const EmailView = () => {
               {emails.map((item) => (
                 <li key={item.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{item.nome}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {item.padrao && (
+                        <Star className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-amber-500" aria-hidden="true" />
+                      )}
+                      {item.nome}
+                    </p>
                     <p className="truncate font-mono text-xs text-slate-500">{item.email}</p>
                   </div>
 
