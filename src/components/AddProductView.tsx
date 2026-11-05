@@ -224,8 +224,8 @@ const AddProductView = () => {
       <div>
         <label htmlFor="packaging-closed-ean" className="mb-1 block text-sm font-medium">EAN fechado</label>
         <div className="flex gap-2">
-          <Input id="packaging-closed-ean" value={eanFechado} onChange={event => setEanFechado(digits(event.target.value))} inputMode="numeric" placeholder="Código da caixa, fardo ou saco" disabled={loading} className="min-w-0" />
           <BarcodeScanner label="Escanear EAN fechado" onDetected={code => setEanFechado(digits(code))} disabled={loading} />
+          <Input id="packaging-closed-ean" value={eanFechado} onChange={event => setEanFechado(digits(event.target.value))} inputMode="numeric" placeholder="Código da caixa, fardo ou saco" disabled={loading} className="min-w-0" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -310,8 +310,8 @@ const AddProductView = () => {
                   )}
                 </div>
                 <div className="flex gap-2">
-                  <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} className="min-w-0" />
                   <BarcodeScanner label="Escanear EAN do produto" onDetected={code => setEan(digits(code))} disabled={loading} />
+                  <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} className="min-w-0" />
                 </div>
                 {mode === 'add' && closedMode && (
                   <div className="mt-1.5 text-xs" aria-live="polite">
