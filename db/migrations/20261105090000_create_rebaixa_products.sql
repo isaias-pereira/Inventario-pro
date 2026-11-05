@@ -40,8 +40,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_rebaixa_validade_draft
   ON public.rebaixa_products(validade_id)
   WHERE status = 'rascunho' AND validade_id IS NOT NULL;
 
-ALTER TABLE public.rebaixa_products ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Deny direct access to rebaixa_products" ON public.rebaixa_products;
-CREATE POLICY "Deny direct access to rebaixa_products" ON public.rebaixa_products
-  AS RESTRICTIVE FOR ALL TO public USING (false) WITH CHECK (false);
+-- Observação: como as demais tabelas do projeto, a Rebaixa fica sem RLS — o
+-- acesso acontece só pela Serverless Function, com a conexão do Neon.
