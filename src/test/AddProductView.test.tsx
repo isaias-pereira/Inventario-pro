@@ -1,9 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AddProductView from '@/components/AddProductView';
 import { invokeFunction } from '@/lib/api';
 import { toast } from 'sonner';
+
+// A câmera não existe no jsdom: o mock guarda o callback de leitura para
+// simular a leitura de um código de barras.
+const { scanCallback } = vi.hoisted(() => ({
+  scanCallback: { current: null as null | ((text: string) => void) },
+}));
+
+vi.mock('html5-qrcode', () => ({
+  Html5Qrcode: class {
+    isScanning = false;
+    async start(_camera: unknown, _config: unknown, onSuccess: (text: string) => void) {
+      scanCallback.current = onSuccess;
+    }
+    async stop() {}
+    async clear() {}
+    static async getCameras() { return []; }
+  },
+}));
 
 vi.mock('@/lib/api', () => ({ invokeFunction: vi.fn() }));
 
@@ -92,5 +110,33 @@ describe('AddProductView', () => {
     submit();
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('EAN já pertence a outro produto'));
+  });
+
+  it('fills the product EAN with the scanned code without sending the form', async () => {
+    const user = userEvent.setup();
+    render(<AddProductView />);
+
+    await user.click(screen.getByRole('button', { name: 'Escanear EAN do produto' }));
+    await waitFor(() => expect(scanCallback.current).toBeTruthy());
+
+    await act(async () => { scanCallback.current?.('7891234567890'); });
+
+    await waitFor(() => expect(screen.getByLabelText('EAN')).toHaveValue('7891234567890'));
+    // O botão do leitor é type="button": não pode enviar o formulário.
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('fills the closed packaging EAN with the scanned code', async () => {
+    const user = userEvent.setup();
+    render(<AddProductView />);
+
+    await user.click(screen.getByRole('checkbox', { name: /Embalagem fechada/ }));
+    await user.click(screen.getByRole('button', { name: 'Escanear EAN fechado' }));
+    await waitFor(() => expect(scanCallback.current).toBeTruthy());
+
+    await act(async () => { scanCallback.current?.('7895555555555'); });
+
+    await waitFor(() => expect(screen.getByLabelText('EAN fechado')).toHaveValue('7895555555555'));
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

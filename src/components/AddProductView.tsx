@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { invokeFunction } from '@/lib/api';
 import { formatQuantity, packagingLabel } from '@/lib/packaging';
+import BarcodeScanner from '@/components/BarcodeScanner';
 import { toast } from 'sonner';
 import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes, Loader2 } from 'lucide-react';
 
@@ -222,7 +223,10 @@ const AddProductView = () => {
     <div className="space-y-3">
       <div>
         <label htmlFor="packaging-closed-ean" className="mb-1 block text-sm font-medium">EAN fechado</label>
-        <Input id="packaging-closed-ean" value={eanFechado} onChange={event => setEanFechado(digits(event.target.value))} inputMode="numeric" placeholder="Código da caixa, fardo ou saco" disabled={loading} />
+        <div className="flex gap-2">
+          <Input id="packaging-closed-ean" value={eanFechado} onChange={event => setEanFechado(digits(event.target.value))} inputMode="numeric" placeholder="Código da caixa, fardo ou saco" disabled={loading} className="min-w-0" />
+          <BarcodeScanner label="Escanear EAN fechado" onDetected={code => setEanFechado(digits(code))} disabled={loading} />
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -305,7 +309,10 @@ const AddProductView = () => {
                     </label>
                   )}
                 </div>
-                <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} />
+                <div className="flex gap-2">
+                  <Input id="product-ean" value={ean} onChange={event => setEan(digits(event.target.value))} inputMode="numeric" placeholder={mode === 'add' && closedMode ? 'EAN do produto que receberá a embalagem' : 'Código de barras (EAN)'} required disabled={loading} className="min-w-0" />
+                  <BarcodeScanner label="Escanear EAN do produto" onDetected={code => setEan(digits(code))} disabled={loading} />
+                </div>
                 {mode === 'add' && closedMode && (
                   <div className="mt-1.5 text-xs" aria-live="polite">
                     {productLookup.status === 'loading' && (

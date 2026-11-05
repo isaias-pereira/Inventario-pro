@@ -5,11 +5,15 @@ import { Button } from '@/components/ui/button';
 
 interface BarcodeScannerProps {
   onDetected: (code: string) => void;
+  /** Desabilita o botão (ex.: enquanto o formulário salva). */
+  disabled?: boolean;
+  /** Rótulo acessível do botão ( differentiate quando há mais de um leitor). */
+  label?: string;
 }
 
 const READER_ID = 'barcode-reader';
 
-const BarcodeScanner = ({ onDetected }: BarcodeScannerProps) => {
+const BarcodeScanner = ({ onDetected, disabled = false, label = 'Escanear código de barras' }: BarcodeScannerProps) => {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -130,11 +134,14 @@ const BarcodeScanner = ({ onDetected }: BarcodeScannerProps) => {
   return (
     <>
       <Button
+        type="button"
         onClick={handleOpen}
         variant="outline"
         size="icon"
         className="shrink-0"
+        disabled={disabled}
         title="Escanear código de barras"
+        aria-label={label}
       >
         <Camera className="h-5 w-5" />
       </Button>
