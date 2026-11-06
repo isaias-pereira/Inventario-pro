@@ -24,6 +24,12 @@ export const LABEL_SYSTEM_PROMPT = [
   '- "quantidade": quantidade de unidades da embalagem (inteiro). Não confunda com o peso. Se não der para saber, null.',
   '- "tipo": "KG" se o produto for vendido a peso/balança, "UN" caso contrário. Se não souber, null.',
   '- "confianca": número entre 0 e 1 com sua certeza na leitura.',
+  'Armadilhas comuns em etiqueta de preço (SIGA NESSAS REGRAS):',
+  '- Data de emissão/impressão ("Data:", "Impresso em", " impresso") NÃO é validade: devolva null em "validade".',
+  '- Preço (R$, "8,99"), peso (g, ml, kg) e valor por KG NÃO são quantidade: devolva null em "quantidade".',
+  '- "PREÇO POR KG" é apenas referência de preço: NÃO significa venda a balança. "tipo" só é "KG" quando a etiqueta disser que o produto é vendido a peso.',
+  '- Ignore códigos 2D (Data Matrix/QR), número da loja, tributação ("Trib"), peso líquido e número do fiscal.',
+  '- Campo ilegível = null. Nunca chute um valor para "preencher".',
 ].join('\n');
 
 /** Pergunta enviada junto da foto. */

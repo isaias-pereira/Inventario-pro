@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LABEL_SYSTEM_PROMPT,
   mergeLabelWithProduct,
   normalizeLabel,
   parseConfidence,
@@ -10,6 +11,15 @@ import {
 } from '../../api/_lib/ai-label';
 
 describe('Leitura de etiqueta por IA', () => {
+  it('o prompt descarta as armadilhas de etiqueta de preço', () => {
+    // Sem estas regras o modelo pode tratar "Data: 20/11/2026" como validade,
+    // "8,99" como quantidade ou "PREÇO POR KG" como venda a peso.
+    expect(LABEL_SYSTEM_PROMPT).toContain('Data de emissão/impressão');
+    expect(LABEL_SYSTEM_PROMPT).toContain('NÃO são quantidade');
+    expect(LABEL_SYSTEM_PROMPT).toContain('PREÇO POR KG');
+    expect(LABEL_SYSTEM_PROMPT).toContain('Data Matrix');
+  });
+
   it('lê a validade nos formatos que aparecem na etiqueta', () => {
     expect(parseExpiryDate('2027-03-12')).toBe('2027-03-12');
     expect(parseExpiryDate('12/03/2027')).toBe('2027-03-12');

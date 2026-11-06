@@ -66,11 +66,11 @@ function canImport(role: unknown): boolean {
 
 /**
  * Log de consumo por chamada (acompanhar custo/latência nas logs da Vercel).
- * Não guarda nenhum dado do usuário — só modelo e contagem de tokens.
+ * Não guarda nenhum dado do usuário — só modelo, tokens e duração.
  */
-function logAiUsage(action: string, result: AiResult): void {
+function logAiUsage(action: string, result: AiResult, durationMs: number): void {
   console.log(
-    `[ai] ${action} model=${result.model} in=${result.usage.inputTokens} out=${result.usage.outputTokens} tokens`,
+    `[ai] ${action} model=${result.model} in=${result.usage.inputTokens} out=${result.usage.outputTokens} tokens em ${durationMs}ms`,
   );
 }
 
@@ -140,6 +140,7 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
+      const startedAt = Date.now();
       const result = await callAi({
         system: LABEL_SYSTEM_PROMPT,
         prompt: LABEL_PROMPT,
@@ -150,7 +151,7 @@ const handler: ApiHandler = async (req, res) => {
         maxTokens: 2048,
         temperature: 0.1,
       });
-      logAiUsage('read_label', result);
+      logAiUsage('read_label', result, Date.now() - startedAt);
 
       const raw = parseJsonObject(result.text);
       if (!raw) {
@@ -226,6 +227,7 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       const { system, prompt } = buildImportPrompt(target, headers, samples);
+      const startedAt = Date.now();
       const result = await callAi({
         system,
         prompt,
@@ -233,7 +235,7 @@ const handler: ApiHandler = async (req, res) => {
         maxTokens: 1200,
         temperature: 0.1,
       });
-      logAiUsage('import_review', result);
+      logAiUsage('import_review', result, Date.now() - startedAt);
       const review = parseImportReview(result.text, target, headers.length);
       if (!review) {
         sendJson(res, { error: 'A IA não devolveu uma revisão válida. O mapeamento automático foi mantido.' }, 502);

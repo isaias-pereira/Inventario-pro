@@ -17,8 +17,15 @@ const AI_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 /** Modelo usado quando `AI_MODEL` não está configurada. */
 export const DEFAULT_AI_MODEL = 'mistralai/mistral-large-4-1t-a52b';
 
-/** Tempo máximo de espera pelo provedor (a Function tem `maxDuration` próprio). */
-const DEFAULT_TIMEOUT_MS = 25000;
+/**
+ * Tempo máximo de espera pelo provedor.
+ *
+ * A Function `ai-assist` tem `maxDuration: 60` na Vercel: 45 s aqui deixa
+ * margem para a resposta e para a consulta ao catálogo. Foto de etiqueta
+ * real (com ruído, perspectiva e printing) pode passar de 25 s — o modelo
+ * raciocina antes de responder.
+ */
+const DEFAULT_TIMEOUT_MS = 45000;
 
 /** Tokens máximos da resposta (a tarefa é curta: extrair dados de uma imagem). */
 const DEFAULT_MAX_TOKENS = 1024;
