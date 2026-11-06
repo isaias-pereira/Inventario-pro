@@ -400,11 +400,11 @@ const InventarioView = () => {
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-3xl">
-        <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 pt-2 pb-3 backdrop-blur-md bg-black/40 border-b border-white/10">
+        <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 pt-2 pb-3 backdrop-blur-xl bg-white/10 border-b border-white/20">
         <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xl sm:text-2xl font-bold text-white">
+          <h2 className="text-xl sm:text-2xl font-bold text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.55)]">
             Inventário
-            <span className="ml-2 text-sm font-normal text-white/70">
+            <span className="ml-2 text-sm font-normal text-white/80 drop-shadow-[0_1px_5px_rgba(0,0,0,0.6)]">
               ({inventoryItems.length} {inventoryItems.length === 1 ? 'item' : 'itens'}
               {isViewing
                 ? ` — Lote #${String(viewingLote!.numero).padStart(3, '0')}${viewingLote!.nome ? ` ${viewingLote!.nome.toUpperCase()}` : ''} (finalizado)`
@@ -429,7 +429,7 @@ const InventarioView = () => {
                 toast.success('Inventário sincronizado');
               }}
             >
-              <RefreshCw className={`h-4 w-4 text-white ${syncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)] ${syncing ? 'animate-spin' : ''}`} />
             </Button>
             {hasInventory && (
               <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
