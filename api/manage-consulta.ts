@@ -2,6 +2,14 @@ import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 
+/**
+ * Limite de produtos por importação.
+ *
+ * O corpo de uma Function da Vercel aceita 4,5 MB; sem teto, uma planilha
+ * grande estoura o limite e a importação inteira é perdida.
+ */
+export const MAX_CONSULTA_PRODUCTS = 5000;
+
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
 
@@ -27,6 +35,10 @@ const handler: ApiHandler = async (req, res) => {
       const { products } = body;
       if (!Array.isArray(products) || products.length === 0) {
         sendJson(res, { error: 'Lista de produtos é obrigatória' }, 400);
+        return;
+      }
+      if (products.length > MAX_CONSULTA_PRODUCTS) {
+        sendJson(res, { error: `A planilha tem ${products.length} produtos; o limite é ${MAX_CONSULTA_PRODUCTS}.` }, 413);
         return;
       }
 

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag, Camera,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -40,6 +40,8 @@ import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/li
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
 import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
 import { addRebaixaItems, motivoFromValidade, tipoFromMotivo } from '@/lib/rebaixa';
+import { prepareImage } from '@/lib/ai-image';
+import { labelToForm } from '@/lib/ai-label';
 import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
@@ -102,6 +104,11 @@ const ValidadeView = () => {
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading' | 'not_found' | 'error' | 'found'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  /** Leitura da etiqueta por foto (IA): carregando e campo de arquivo. */
+  const [readingLabel, setReadingLabel] = useState(false);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+  /** A leitura por foto está disponível neste ambiente? (null = ainda não consultou) */
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [items, setItems] = useState<ValidadeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<ValidadeItem[]>([]);
@@ -172,6 +179,22 @@ const [filter, setFilter] = useState<FilterType>('todos');
     fetchItems();
   }, [fetchItems]);
 
+  // A leitura por foto depende da IA configurada no servidor: quando não está,
+  // o botão avisa em vez de enviar a foto.
+  useEffect(() => {
+    let active = true;
+    const token = authGetToken() ?? getToken();
+    void invokeFunction('ai-assist', {
+      body: { action: 'config' },
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    })
+      .then(({ data, error }) => {
+        if (active && !error) setAiAvailable(Boolean(data?.enabled));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [authGetToken]);
+
   // Show notification toast on mount if there are items expiring
   useEffect(() => {
     if (notifications.length > 0) {
@@ -239,6 +262,77 @@ const [filter, setFilter] = useState<FilterType>('todos');
     } catch {
       setSearchStatus('error');
       setErrorMsg('Erro ao conectar ao banco de dados.');
+    }
+  };
+
+  /**
+   * Lê a etiqueta pela foto (IA) e preenche o formulário.
+   *
+   * A pessoa confere tudo antes de registrar: a leitura só preenche os
+   * campos, ela nunca grava nada sozinha.
+   */
+  const handleLabelPhoto = async (file: File) => {
+    if (readingLabel) return;
+    if (aiAvailable === false) {
+      toast.error('A leitura por foto está indisponível neste ambiente.');
+      return;
+    }
+    setReadingLabel(true);
+    try {
+      const image = await prepareImage(file);
+      const { data, error } = await invokeWithToken('ai-assist', {
+        action: 'read_label',
+        image: image.base64,
+        mimeType: image.mimeType,
+      });
+      if (error || !data) {
+        toast.error(error?.message || 'Não foi possível ler a etiqueta.');
+        return;
+      }
+
+      const label = (data.label ?? {}) as {
+        ean?: string | null;
+        codigo?: string | null;
+        descricao?: string | null;
+        validade?: string | null;
+        quantidade?: number | null;
+        tipo?: string | null;
+      };
+      const produto = (data.produto ?? null) as {
+        ean?: string | null;
+        codigo?: string | null;
+        descricao?: string | null;
+        tipo?: string | null;
+      } | null;
+      const avisos = Array.isArray(data.avisos) ? (data.avisos as string[]) : [];
+
+      const fill = labelToForm(label, produto);
+      if (fill) {
+        setProduct({
+          ean: fill.ean,
+          codigo: fill.codigo,
+          descricao: fill.descricao,
+          tipo: fill.tipo,
+        });
+        setCode(fill.codigo);
+        setSearchStatus('found');
+        if (fill.validade) setValidade(fill.validade);
+        if (fill.quantidade) setQuantidade(fill.quantidade);
+        trackEvent('ler_etiqueta', { resultado: 'produto' });
+        toast.success('Etiqueta lida — confira a data antes de registrar.');
+      } else {
+        // Não está no catálogo: deixa o usuário consultar pelo código lido.
+        if (label.ean) setCode(String(label.ean));
+        setSearchStatus('idle');
+        trackEvent('ler_etiqueta', { resultado: 'sem_catalogo' });
+        toast.warning('Etiqueta lida, mas o produto não está no catálogo. Consulte o código.');
+      }
+
+      for (const aviso of avisos) toast.warning(aviso);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao ler a etiqueta');
+    } finally {
+      setReadingLabel(false);
     }
   };
 
@@ -817,6 +911,30 @@ const [filter, setFilter] = useState<FilterType>('todos');
           {searchStatus !== 'found' && (
             <BarcodeScanner onDetected={(scannedCode) => { setCode(scannedCode); setSearchStatus('idle'); setProduct(null); setTimeout(() => searchProduct(scannedCode), 100); }} />
           )}
+          {searchStatus !== 'found' && (
+            <Button
+              variant="outline"
+              onClick={() => labelInputRef.current?.click()}
+              disabled={readingLabel}
+              title="Ler a etiqueta pela foto"
+              aria-label="Ler a etiqueta pela foto"
+              className="shrink-0 px-3"
+            >
+              {readingLabel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            </Button>
+          )}
+          <input
+            ref={labelInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) void handleLabelPhoto(file);
+            }}
+          />
           <Input
             value={code}
             onChange={(e) => { if (searchStatus === 'found') return; setCode(e.target.value.replace(/\D/g, '')); if (searchStatus !== 'idle') { setSearchStatus('idle'); setProduct(null); } }}

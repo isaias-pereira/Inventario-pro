@@ -7,6 +7,9 @@
   "functions": {
     "api/send-rebaixa-email.ts": {
       "maxDuration": 60
+    },
+    "api/ai-assist.ts": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
