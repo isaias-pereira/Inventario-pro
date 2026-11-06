@@ -196,8 +196,11 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
   reter prompt/inputs por prazo definido (ex.: 90 dias) e limpar imagens após o uso.
 - **Limites**: payload da Vercel = **4,5 MB** → a foto é comprimida no cliente antes do
   base64 (alvo < 3 MB, lado maior 1600 px, JPEG); `maxDuration: 60` na função de IA e
-  timeout interno de **55 s** (a leitura em produção levou 43 s; com 25 s a chamada
-  voltava 504).
+  timeout interno de **55 s**. O plano da Vercel é *hobby* (teto de 60 s por função) e
+  a latência do provedor varia muito (4 s a 140 s conforme o modelo e a fila): em
+  latência do provedor varia muito (4 s a 140 s conforme o modelo e a fila): em
+  provider instável a função pode ser cortada pela Vercel com 504. Nesse caso a tela
+  avisa e o fluxo manual continua — a IA nunca é obrigatória.
 - **Custo**: modelo barato para classificar em lote, modelo maior só para o briefing.
   Registrar token/custo por chamada na tabela de auditoria (os valores por token mudam —
   confirmar a tabela vigente do provedor).
@@ -270,6 +273,15 @@ Conclusões que viraram regra no código:
 - O prompt passou a descartar as armadilhas de etiqueta de preço: data de emissão
   não é validade, preço/peso não são quantidade, "PREÇO POR KG" não é venda a peso.
 - Log por chamada: `[ai] <ação> model=… in=… out=… tokens em …ms`.
+
+**Validação em produção** (app publicado, chave na Vercel):
+
+| Chamada | Resultado |
+|---|---|
+| `config` | `{ enabled: true, model: "nvidia/nemotron-3.5-super-vl-120b-a12b" }` |
+| `read_label` (etiqueta real, 1600 px) | HTTP 200 em **28,5 s** — EAN, código, descrição e tipo corretos |
+| `import_review` (6 colunas, 2 linhas) | HTTP 200 em **8,8 s** — mapeamento correto (`codigo`, `descricao`, `estoque`, `preco`) |
+| Fluxo pela tela (botão da câmera → arquivo → formulário) | ✅ formulário preenchido; produto **não** cadastrado no catálogo → a tela deixa o código lido na busca em vez de apresentar "Produto Encontrado" |
 
 ### Métricas de acompanhamento
 
