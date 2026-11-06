@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import {
   AlertTriangle, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight,
   Download, FileSpreadsheet, History, Loader2, Lock, Mail, Package, Pencil,
-  Plus, RefreshCw, Scale, Search, Share2, Star, Tag, Trash2,
+  Plus, RefreshCw, Scale, Search, Share2, Star, Tag, Trash2, X,
 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -122,6 +122,30 @@ function dateInputToIso(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+/** Separa a lista de destinatários por vírgula/ponto e vírgula. */
+function splitEmailList(value: string): string[] {
+  return value
+    .split(/[,;]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/** Junta destinatários sem repetir (comparação sem diferenciar maiúsculas). */
+function mergeEmails(...lists: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const list of lists) {
+    if (!list) continue;
+    for (const email of splitEmailList(list)) {
+      const key = email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(email);
+    }
+  }
+  return result;
+}
+
 /** Resumo visual da validade de um item UN. */
 function validadeBadge(validade: string | null) {
   if (!validade) return { label: 'Sem validade', className: 'border-slate-200 bg-slate-100 text-slate-600' };
@@ -183,6 +207,8 @@ const RebaixaView = () => {
   const [sharing, setSharing] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [emailTo, setEmailTo] = useState('');
+  // Texto ainda não confirmado no campo "Para" (vira chip ao pressionar Enter).
+  const [emailInput, setEmailInput] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailText, setEmailText] = useState('');
   const [emailConfig, setEmailConfig] = useState<EmailConfig | null>(null);
@@ -231,7 +257,8 @@ const RebaixaView = () => {
     for (const item of items) {
       if (item.tipo === 'KG') kg += item.quantidade;
       else un += item.quantidade;
-      total += item.quantidade * (item.preco_final ?? 0);
+      // O resumo reflete o custo real do catálogo (PMZ), não o preço de venda.
+      total += item.quantidade * (item.pmz ?? 0);
     }
     return { un, kg, total, count: items.length };
   }, [items]);
@@ -714,6 +741,12 @@ const RebaixaView = () => {
       .join('; '),
   }), [items]);
 
+  /** E-mail marcado com estrela na aba E-mail: entra sempre e não pode ser removido. */
+  const fixedEmail = defaultEmail(emailsPadrao)?.email ?? null;
+
+  /** Chips visíveis no campo "Para" (o padrão fixo vem primeiro). */
+  const recipients = useMemo(() => mergeEmails(fixedEmail, emailTo), [fixedEmail, emailTo]);
+
   /** Carrega os e-mails padrão cadastrados na aba E-mail (atalhos do envio). */
   const loadEmailsPadrao = useCallback(async () => {
     try {
@@ -741,7 +774,12 @@ const RebaixaView = () => {
     if (!emailsLoaded || !emailConfig) return;
     const padrao = defaultEmail(emailsPadrao);
     if (padrao) {
-      setEmailTo(padrao.email);
+      // O padrão aparece como chip fixo; não duplica no campo de destinatários.
+      setEmailTo((current) =>
+        splitEmailList(current)
+          .filter((email) => email.toLowerCase() !== padrao.email.toLowerCase())
+          .join(', '),
+      );
       emailPrefilledRef.current = true;
     } else if (emailConfig.defaultTo) {
       setEmailTo(emailConfig.defaultTo);
@@ -754,21 +792,38 @@ const RebaixaView = () => {
     setEmailText(`Segue a planilha de rebaixa com ${items.length} produto(s)`);
     setEmailTouched(false);
     setEmailsLoaded(false);
+    setEmailInput('');
     emailPrefilledRef.current = false;
     setShowEmail(true);
     void loadEmailConfig();
     void loadEmailsPadrao();
   };
 
-  /** Escolhe um atalho: substitui o destinatário ou soma ao que já está no campo. */
-  const pickEmail = (address: string) => {
-    setEmailTo((current) => {
-      const value = current.trim();
-      if (!value) return address;
-      if (value.split(/[,;]/).some((part) => part.trim().toLowerCase() === address.toLowerCase())) return value;
-      return `${value}, ${address}`;
-    });
+  /** Soma um destinatário ao campo, sem repetir e sem duplicar o padrão fixo. */
+  const addRecipient = (address: string) => {
+    const clean = address.trim().replace(/[,;]+$/, '');
+    if (!clean) return;
+    if (fixedEmail && clean.toLowerCase() === fixedEmail.toLowerCase()) return;
+    setEmailTo((current) => mergeEmails(current, clean).join(', '));
   };
+
+  const removeRecipient = (address: string) => {
+    setEmailTo((current) =>
+      splitEmailList(current)
+        .filter((email) => email.toLowerCase() !== address.toLowerCase())
+        .join(', '),
+    );
+  };
+
+  /** Transforma o texto digitado (ou colado) em chip. */
+  const commitEmailInput = () => {
+    if (!emailInput.trim()) return;
+    addRecipient(emailInput);
+    setEmailInput('');
+  };
+
+  /** Atalho da aba E-mail: soma ao campo; o padrão fixo já está sempre presente. */
+  const pickEmail = (address: string) => addRecipient(address);
 
   const sendByEmail = async () => {
     if (emailSending) return;
@@ -776,7 +831,9 @@ const RebaixaView = () => {
       toast.error('Nenhum produto na rebaixa');
       return;
     }
-    if (!emailTo.trim()) {
+    // O texto ainda no input também conta como destinatário, e o padrão é sempre incluído.
+    const to = mergeEmails(fixedEmail, emailTo, emailInput);
+    if (to.length === 0) {
       toast.error('Informe o destinatário do e-mail');
       return;
     }
@@ -784,7 +841,7 @@ const RebaixaView = () => {
     setEmailSending(true);
     try {
       const result = await sendRebaixaEmail({
-        to: emailTo.trim(),
+        to: to.join(', '),
         subject: emailSubject.trim(),
         text: emailText.trim(),
         filename: spreadSheetFileName(),
@@ -927,7 +984,9 @@ const RebaixaView = () => {
             </p>
           </div>
           <div className="px-3 py-3 sm:px-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[11px]">Valor da oferta</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[11px]">
+              Valor da oferta <span className="font-normal normal-case tracking-normal text-slate-400">(PMZ)</span>
+            </p>
             <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600 sm:text-xl">{formatMoney(summary.total)}</p>
           </div>
         </div>
@@ -1137,52 +1196,50 @@ const RebaixaView = () => {
           </div>
         )}
 
-        {/* Rodapé de envio */}
-        <div className="mt-5 rounded-2xl border border-white/20 bg-white p-4 shadow-lg">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
-                <Mail className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-900">
-                  {items.length > 0 ? 'Pronto para enviar' : 'Rascunho vazio'}
-                </p>
-                <p className="text-xs leading-relaxed text-slate-500">
-                  {items.length > 0
-                    ? 'A planilha .ods sai com preços e quantidades preenchidos.'
-                    : 'Adicione produtos para montar a solicitação.'}
-                </p>
-              </div>
-            </div>
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <Button
-                variant="outline"
-                className="h-9 flex-1 gap-2 sm:flex-none"
-                onClick={downloadOds}
-                disabled={items.length === 0 || exporting}
-              >
-                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-                Baixar .ods
-              </Button>
-              {canSendEmail && (
-                <Button
-                  className="h-9 flex-1 gap-2 bg-sky-600 hover:bg-sky-700 sm:flex-none"
-                  onClick={openEmail}
-                  disabled={items.length === 0}
-                >
+        {/* Rodapé de envio: só aparece quando há produto no rascunho */}
+        {items.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-white/20 bg-white p-4 shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
                   <Mail className="h-4 w-4" />
-                  Enviar por e-mail
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">Pronto para enviar</p>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    A planilha .ods sai com preços e quantidades preenchidos.
+                  </p>
+                </div>
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                <Button
+                  variant="outline"
+                  className="h-9 flex-1 gap-2 sm:flex-none"
+                  onClick={downloadOds}
+                  disabled={items.length === 0 || exporting}
+                >
+                  {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                  Baixar .ods
                 </Button>
-              )}
+                {canSendEmail && (
+                  <Button
+                    className="h-9 flex-1 gap-2 bg-sky-600 hover:bg-sky-700 sm:flex-none"
+                    onClick={openEmail}
+                    disabled={items.length === 0}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Enviar por e-mail
+                  </Button>
+                )}
+              </div>
             </div>
+            {!canSendEmail && (
+              <p className="mt-2 text-[11px] text-slate-400">
+                O envio por e-mail é restrito a admin e encarregado. Baixe a planilha para enviar manualmente.
+              </p>
+            )}
           </div>
-          {!canSendEmail && (
-            <p className="mt-2 text-[11px] text-slate-400">
-              O envio por e-mail é restrito a admin e encarregado. Baixe a planilha para enviar manualmente.
-            </p>
-          )}
-        </div>
+        )}
 
         <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[11px] text-white/50">
           <Lock className="h-3.5 w-3.5" />
@@ -1820,36 +1877,89 @@ const RebaixaView = () => {
           <div className="space-y-3 py-1">
             <div>
               <label htmlFor="rebaixa-email-to" className="text-sm font-medium">Para</label>
-              <Input
-                id="rebaixa-email-to"
-                value={emailTo}
-                onChange={(event) => setEmailTo(event.target.value)}
-                placeholder="email@empresa.com"
-                className="mt-1"
-                inputMode="email"
-                autoComplete="off"
-                disabled={emailSending}
-              />
+              <div className="mt-1 flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                {recipients.map((address) => {
+                  const isFixed = fixedEmail !== null && address.toLowerCase() === fixedEmail.toLowerCase();
+                  return (
+                    <span
+                      key={address}
+                      title={isFixed ? `${address} — e-mail padrão (fixo)` : address}
+                      className={cn(
+                        'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+                        isFixed
+                          ? 'border-sky-300 bg-sky-50 text-sky-800'
+                          : 'border-slate-300 bg-slate-50 text-slate-700',
+                      )}
+                    >
+                      {isFixed && <Star className="h-3 w-3 shrink-0 text-amber-500" aria-hidden="true" />}
+                      <span className="truncate">{address}</span>
+                      {isFixed ? (
+                        <Lock className="h-3 w-3 shrink-0 text-sky-500" aria-hidden="true" />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => removeRecipient(address)}
+                          disabled={emailSending}
+                          className="shrink-0 rounded-full p-0.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50"
+                          aria-label={`Remover ${address}`}
+                          title={`Remover ${address}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+                <input
+                  id="rebaixa-email-to"
+                  value={emailInput}
+                  onChange={(event) => setEmailInput(event.target.value.replace(/[\r\n]/g, ''))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ',' || event.key === ';') {
+                      event.preventDefault();
+                      commitEmailInput();
+                    } else if (event.key === 'Backspace' && !emailInput) {
+                      const list = splitEmailList(emailTo);
+                      if (list.length > 0) removeRecipient(list[list.length - 1]);
+                    }
+                  }}
+                  onBlur={commitEmailInput}
+                  placeholder={recipients.length > 0 ? 'Adicionar e-mail' : 'email@empresa.com'}
+                  className="h-7 min-w-[140px] flex-1 border-0 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground focus:outline-none focus-visible:ring-0"
+                  inputMode="email"
+                  autoComplete="off"
+                  disabled={emailSending}
+                />
+              </div>
               {activeEmails(emailsPadrao).length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {activeEmails(emailsPadrao).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => pickEmail(item.email)}
-                      disabled={emailSending}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-800 transition-colors hover:bg-sky-100 disabled:opacity-50"
-                      title={`${item.nome} — ${item.email}`}
-                    >
-                      {item.padrao && <Star className="h-3 w-3 text-amber-500" />}
-                      {item.nome}
-                    </button>
-                  ))}
+                  {activeEmails(emailsPadrao).map((item) => {
+                    const isFixed = fixedEmail !== null && item.email.toLowerCase() === fixedEmail.toLowerCase();
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => pickEmail(item.email)}
+                        disabled={emailSending || isFixed}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
+                          isFixed
+                            ? 'border-sky-300 bg-sky-50 text-sky-800'
+                            : 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 disabled:opacity-50',
+                        )}
+                        title={isFixed ? `${item.nome} — ${item.email} (padrão fixo)` : `${item.nome} — ${item.email}`}
+                      >
+                        {item.padrao && <Star className="h-3 w-3 text-amber-500" />}
+                        {item.nome}
+                        {isFixed && <Lock className="h-3 w-3" />}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <p className="mt-1 text-xs text-muted-foreground">
                 {activeEmails(emailsPadrao).length > 0
-                  ? 'Toque em um atalho da aba E-mail ou separe vários destinatários por vírgula.'
+                  ? 'O contato com estrela fica fixo no envio; toque nos demais atalhos ou digite e pressione Enter.'
                   : 'Separe vários destinatários por vírgula.'}
               </p>
             </div>
@@ -1902,7 +2012,7 @@ const RebaixaView = () => {
             <Button
               className="flex-1 gap-2 bg-sky-600 hover:bg-sky-700 sm:flex-none"
               onClick={() => void sendByEmail()}
-              disabled={emailSending || emailLoading || !emailTo.trim() || items.length === 0}
+              disabled={emailSending || emailLoading || items.length === 0 || (recipients.length === 0 && !emailInput.trim())}
             >
               {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
               Enviar
@@ -1923,8 +2033,8 @@ const RebaixaView = () => {
             </DialogTitle>
             <DialogDescription>
               {historyBatch
-                ? `${formatDateTime(historyBatch.sent_at)} · ${historyBatch.itens} item(ns) · ${formatMoney(historyBatch.total)}`
-                : 'Cada envio fica registrado com data, destinatário e itens.'}
+                ? `${formatDateTime(historyBatch.sent_at)} · ${historyBatch.itens} item(ns)`
+                : 'Cada envio fica registrado com data, hora e quantidade de itens.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -2003,10 +2113,7 @@ const RebaixaView = () => {
                         {new Date(batch.sent_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </p>
-                    <p className="truncate text-[11px] text-slate-500">
-                      {batch.itens} item(ns) · {formatMoney(batch.total)}
-                      {batch.sent_to ? ` · ${batch.sent_to}` : ''}
-                    </p>
+                    <p className="text-[11px] text-slate-500">{batch.itens} item(ns)</p>
                   </div>
                   <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                 </button>

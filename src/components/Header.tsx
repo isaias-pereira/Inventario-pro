@@ -50,12 +50,12 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     <header className="border-b border-primary/20 bg-primary shadow-lg">
       <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="Estoque Pro — ir para a página inicial">Estoque Pro</button>
+          <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="SGS-PRO — ir para a página inicial">SGS-PRO</button>
           {user?.username && (
-            <span className="hidden min-w-0 items-center gap-2 sm:flex">
+            <span className="flex min-w-0 items-center gap-2">
               <span className="h-4 w-px shrink-0 bg-primary-foreground/30" aria-hidden="true" />
               <span
-                className="max-w-[180px] truncate text-sm text-primary-foreground/85"
+                className="max-w-[80px] truncate text-sm text-primary-foreground/85 sm:max-w-[180px]"
                 title={user.username}
               >
                 {user.username}

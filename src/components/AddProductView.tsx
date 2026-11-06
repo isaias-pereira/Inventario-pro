@@ -97,16 +97,19 @@ const AddProductView = () => {
     setLinkedEans(eans.filter(value => value !== primary));
     resetPackagingForm();
   };
-  const handleSearch = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!search.trim()) { toast.error('Informe o código ou EAN'); return; }
+  const searchProduct = async (value: string) => {
+    if (!value.trim()) { toast.error('Informe o código ou EAN'); return; }
     setLoading(true); clearFields();
     try {
-      const data = await productRequest({ action: 'edit_lookup', codigo: search.trim() });
+      const data = await productRequest({ action: 'edit_lookup', codigo: value.trim() });
       if (!data?.found) { toast.error('Produto não encontrado'); return; }
       loadProduct(data.product);
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao consultar produto'); }
     finally { setLoading(false); }
+  };
+  const handleSearch = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await searchProduct(search);
   };
 
   // Busca assíncrona do produto pelo EAN digitado no modo embalagem fechada.
@@ -282,6 +285,15 @@ const AddProductView = () => {
               <label htmlFor="product-search" className="block text-sm font-medium">Código ou EAN</label>
               <div className="flex gap-2">
                 <Input id="product-search" value={search} onChange={event => setSearch(digits(event.target.value))} inputMode="numeric" placeholder="Buscar produto" disabled={loading} className="min-w-0" />
+                <BarcodeScanner
+                  label="Escanear código do produto"
+                  disabled={loading}
+                  onDetected={(scannedCode) => {
+                    const clean = digits(scannedCode);
+                    setSearch(clean);
+                    void searchProduct(clean);
+                  }}
+                />
                 <Button type="submit" size="icon" variant="outline" disabled={loading} aria-label="Buscar produto" title="Buscar produto" className="shrink-0"><Search /></Button>
               </div>
             </form>

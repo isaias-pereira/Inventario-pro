@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check, Mail, Tag,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -105,6 +105,8 @@ const ValidadeView = () => {
   const [items, setItems] = useState<ValidadeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<ValidadeItem[]>([]);
+  // Lista de produtos que vencem hoje só aparece ao tocar na seta.
+  const [showTodayAlerts, setShowTodayAlerts] = useState(false);
 const [filter, setFilter] = useState<FilterType>('todos');
   const [quantidade, setQuantidade] = useState('');
   const [editingItem, setEditingItem] = useState<ValidadeItem | null>(null);
@@ -945,15 +947,27 @@ const [filter, setFilter] = useState<FilterType>('todos');
               </div>
               {expiringToday.length > 0 && (
                 <div className="mb-3">
-                  <p className="text-xs font-semibold text-red-700 mb-1.5">
-                    Vencem HOJE • {expiringToday.length} item{expiringToday.length > 1 ? 's' : ''}
-                  </p>
-                  <ul className="text-xs text-muted-foreground space-y-1 pl-4 list-disc">
-                    {expiringToday.slice(0, 5).map(i => (
-                      <li key={i.id}><span className="font-medium text-foreground">{i.descricao}</span> <span className="text-muted-foreground">• Qtd: {i.quantidade}</span></li>
-                    ))}
-                    {expiringToday.length > 5 && <li className="text-muted-foreground">e mais {expiringToday.length - 5}...</li>}
-                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setShowTodayAlerts((open) => !open)}
+                    aria-expanded={showTodayAlerts}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-red-50/70"
+                  >
+                    <span className="text-xs font-semibold text-red-700">
+                      Vencem HOJE • {expiringToday.length} item{expiringToday.length > 1 ? 's' : ''}
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-red-700 transition-transform ${showTodayAlerts ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {showTodayAlerts && (
+                    <ul className="mt-1.5 space-y-1 pl-4 text-xs text-muted-foreground list-disc">
+                      {expiringToday.map((i) => (
+                        <li key={i.id}><span className="font-medium text-foreground">{i.descricao}</span> <span className="text-muted-foreground">• Qtd: {i.quantidade}</span></li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
               {expiringSoon.length > 0 && (

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface ValidadeItem {
@@ -28,6 +29,7 @@ const ConsultaValidadeView = () => {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [selectedUser, setSelectedUser] = useState('todos');
+  const [incluirVencidos, setIncluirVencidos] = useState(false);
   const [users, setUsers] = useState<string[]>([]);
   const [items, setItems] = useState<ValidadeItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,8 +56,8 @@ const ConsultaValidadeView = () => {
     const isArrastao = selectedUser === '__arrastao__';
     const hasPartialDate = (dataInicio && !dataFim) || (!dataInicio && dataFim);
 
-    if (!hasDateRange && !hasUser) {
-      toast.error('Informe um período ou selecione um usuário');
+    if (!hasDateRange && !hasUser && !incluirVencidos) {
+      toast.error('Informe um período, selecione um usuário ou marque "Vencidos"');
       return;
     }
     if (hasPartialDate && !hasUser) {
@@ -69,7 +71,10 @@ const ConsultaValidadeView = () => {
       const token = getToken();
 
       if (isArrastao) {
-        const bodyPayload: Record<string, string> = { action: 'consulta_all_items' };
+        const bodyPayload: Record<string, unknown> = {
+          action: 'consulta_all_items',
+          incluir_vencidos: incluirVencidos,
+        };
         if (dataInicio) bodyPayload.data_inicio = dataInicio;
         if (dataFim) bodyPayload.data_fim = dataFim;
         const { data, error } = await invokeFunction('manage-arrastao', {
@@ -80,7 +85,10 @@ const ConsultaValidadeView = () => {
         else if (data?.error) { toast.error(data.error); setItems([]); }
         else { setItems(data?.items || []); }
       } else {
-        const bodyPayload: Record<string, string> = { action: 'consulta_periodo' };
+        const bodyPayload: Record<string, unknown> = {
+          action: 'consulta_periodo',
+          incluir_vencidos: incluirVencidos,
+        };
         if (dataInicio) bodyPayload.data_inicio = dataInicio;
         if (dataFim) bodyPayload.data_fim = dataFim;
         if (hasUser) bodyPayload.created_by = selectedUser;
@@ -129,10 +137,26 @@ const ConsultaValidadeView = () => {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={handleSearch} disabled={loading || (!dataInicio && !dataFim && selectedUser === 'todos')} className="gap-1.5 w-full mt-1">
+        <Button onClick={handleSearch} disabled={loading || (!dataInicio && !dataFim && selectedUser === 'todos' && !incluirVencidos)} className="gap-1.5 w-full mt-1">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           Consultar
         </Button>
+        <label
+          htmlFor="consulta-vencidos"
+          className="col-span-2 flex cursor-pointer select-none items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2"
+        >
+          <Checkbox
+            id="consulta-vencidos"
+            checked={incluirVencidos}
+            onCheckedChange={(checked) => setIncluirVencidos(checked === true)}
+          />
+          <span className="text-xs font-medium text-foreground">
+            Vencidos
+            <span className="ml-1 font-normal text-muted-foreground">
+              — incluir produtos que já venceram (status = vencido)
+            </span>
+          </span>
+        </label>
       </div>
 
       {loading && (
@@ -169,7 +193,7 @@ const ConsultaValidadeView = () => {
                   <p className="text-[11px] font-mono text-muted-foreground mt-0.5 truncate">EAN: {item.ean}</p>
                 </div>
                 <Badge variant={item.status ? 'outline' : 'destructive'} className="text-[10px] shrink-0">
-                  {item.status ? 'Ativo' : 'Inativo'}
+                  {item.status ? 'Ativo' : new Date(item.validade) < new Date() ? 'Vencido' : 'Inativo'}
                 </Badge>
               </div>
               <div className="flex items-center justify-between gap-2 mt-1.5 text-xs text-muted-foreground min-w-0">
@@ -230,7 +254,7 @@ const ConsultaValidadeView = () => {
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</p>
                   <Badge variant={detailItem.status ? 'outline' : 'destructive'} className="text-xs mt-0.5">
-                    {detailItem.status ? 'Ativo' : 'Inativo'}
+                    {detailItem.status ? 'Ativo' : new Date(detailItem.validade) < new Date() ? 'Vencido' : 'Inativo'}
                   </Badge>
                 </div>
                 <div>

@@ -165,20 +165,34 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'consulta_all_items') {
-      const { data_inicio, data_fim } = body;
+      const { data_inicio, data_fim, incluir_vencidos } = body;
+      const incluirVencidos = incluir_vencidos === true;
       const startDate = data_inicio ? new Date(data_inicio).toISOString() : null;
       const endDate = data_fim ? new Date(data_fim + 'T23:59:59').toISOString() : null;
-      // Apenas produtos com validade próxima (vencendo em até 7 dias e ainda ativos)
-      let data;
-      if (startDate && endDate) {
-        data = await sql`SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade, i.scanned_by AS created_by, i.created_at, (i.validade >= NOW()) AS status, s.corredor FROM arrastao_items i JOIN arrastao_sessions s ON s.id = i.session_id WHERE i.validade >= NOW() AND i.validade <= (NOW() + INTERVAL '7 days') AND i.created_at >= ${startDate} AND i.created_at <= ${endDate} ORDER BY i.validade ASC`;
-      } else if (startDate) {
-        data = await sql`SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade, i.scanned_by AS created_by, i.created_at, (i.validade >= NOW()) AS status, s.corredor FROM arrastao_items i JOIN arrastao_sessions s ON s.id = i.session_id WHERE i.validade >= NOW() AND i.validade <= (NOW() + INTERVAL '7 days') AND i.created_at >= ${startDate} ORDER BY i.validade ASC`;
-      } else if (endDate) {
-        data = await sql`SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade, i.scanned_by AS created_by, i.created_at, (i.validade >= NOW()) AS status, s.corredor FROM arrastao_items i JOIN arrastao_sessions s ON s.id = i.session_id WHERE i.validade >= NOW() AND i.validade <= (NOW() + INTERVAL '7 days') AND i.created_at <= ${endDate} ORDER BY i.validade ASC`;
-      } else {
-        data = await sql`SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade, i.scanned_by AS created_by, i.created_at, (i.validade >= NOW()) AS status, s.corredor FROM arrastao_items i JOIN arrastao_sessions s ON s.id = i.session_id WHERE i.validade >= NOW() AND i.validade <= (NOW() + INTERVAL '7 days') ORDER BY i.validade ASC LIMIT 500`;
+
+      const conditions: string[] = ['i.validade <= (NOW() + INTERVAL \'7 days\')'];
+      const params: unknown[] = [];
+      if (!incluirVencidos) conditions.push('i.validade >= NOW()');
+      if (startDate) {
+        params.push(startDate);
+        conditions.push(`i.created_at >= $${params.length}`);
       }
+      if (endDate) {
+        params.push(endDate);
+        conditions.push(`i.created_at <= $${params.length}`);
+      }
+
+      const limit = startDate || endDate ? '' : ' LIMIT 500';
+      const data = await sql(
+        `SELECT i.id, i.ean, i.codigo, i.descricao, i.validade, i.quantidade,
+                i.scanned_by AS created_by, i.created_at,
+                (i.validade >= NOW()) AS status, s.corredor
+           FROM arrastao_items i
+           JOIN arrastao_sessions s ON s.id = i.session_id
+          WHERE ${conditions.join(' AND ')}
+          ORDER BY i.validade ASC${limit}`,
+        params,
+      );
       sendJson(res, { items: data });
       return;
     }

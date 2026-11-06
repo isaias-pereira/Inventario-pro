@@ -65,7 +65,7 @@ const Index = () => {
     >
       <Header currentView={safeView} onNavigate={setView} />
       <h1 className="sr-only">
-        {`Estoque Pro — ${viewTitles[safeView]} | Painel de Controle de Estoque`}
+        {`SGS-PRO — ${viewTitles[safeView]} | Sistema de gerenciamento de Setor`}
       </h1>
       {safeView === 'consulta' && <ConsultaView />}
       {safeView === 'inventario' && <InventarioView />}

@@ -195,8 +195,9 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Acesso restrito a admin e encarregado' }, 403);
         return;
       }
-      const { data_inicio, data_fim, created_by } = body;
-      if (!data_inicio && !data_fim && !created_by) {
+      const { data_inicio, data_fim, created_by, incluir_vencidos } = body;
+      const incluirVencidos = incluir_vencidos === true;
+      if (!data_inicio && !data_fim && !created_by && !incluirVencidos) {
         sendJson(res, { error: 'Informe data ou usuário' }, 400);
         return;
       }
@@ -204,22 +205,34 @@ const handler: ApiHandler = async (req, res) => {
       const startDate = data_inicio ? new Date(data_inicio).toISOString() : null;
       const endDate = data_fim ? new Date(data_fim + 'T23:59:59').toISOString() : null;
 
-      let data;
-      if (startDate && endDate && created_by) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at >= ${startDate} AND created_at <= ${endDate} AND created_by = ${created_by} ORDER BY validade ASC`;
-      } else if (startDate && endDate) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at >= ${startDate} AND created_at <= ${endDate} ORDER BY validade ASC`;
-      } else if (startDate && created_by) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at >= ${startDate} AND created_by = ${created_by} ORDER BY validade ASC`;
-      } else if (endDate && created_by) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at <= ${endDate} AND created_by = ${created_by} ORDER BY validade ASC`;
-      } else if (startDate) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at >= ${startDate} ORDER BY validade ASC`;
-      } else if (endDate) {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_at <= ${endDate} ORDER BY validade ASC`;
-      } else {
-        data = await sql`SELECT * FROM validade_products WHERE status = true AND created_by = ${created_by} ORDER BY validade ASC`;
+      // Filtros montados com parâmetros: nada de interpolar valores na query.
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      if (startDate) {
+        params.push(startDate);
+        conditions.push(`created_at >= $${params.length}`);
       }
+      if (endDate) {
+        params.push(endDate);
+        conditions.push(`created_at <= $${params.length}`);
+      }
+      if (created_by) {
+        params.push(created_by);
+        conditions.push(`created_by = $${params.length}`);
+      }
+      if (incluirVencidos) {
+        // Vencidos ficam com status = false (auto-expiração); inclui-os na consulta.
+        const motivoClause = hasMotivoColumn ? 'motivo IS NULL AND ' : '';
+        conditions.push(`(status = true OR (status = false AND ${motivoClause}validade < NOW()))`);
+      } else {
+        conditions.push('status = true');
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const data = await sql(
+        `SELECT * FROM validade_products ${where} ORDER BY validade ASC`,
+        params,
+      );
       sendJson(res, { items: data });
       return;
     }

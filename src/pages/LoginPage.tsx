@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Package, Lock, User, Loader2 } from 'lucide-react';
+import { Lock, User, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,13 +31,13 @@ const LoginPage = () => {
       <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/50 to-primary/40 backdrop-blur-[2px]" />
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary shadow-lg">
-            <Package className="h-8 w-8 text-secondary-foreground" />
+          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg">
+            <img src="/sgs-icon.png" alt="SGS" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-primary-foreground text-center">
-            🛒 Estoque Pro
+            SGS-PRO
             <span className="mt-1 block text-sm font-normal text-primary-foreground/60">
-              Sistema de Gerenciamento de Estoque
+              Sistema de gerenciamento de Setor
             </span>
           </h1>
 

@@ -17,7 +17,7 @@ describe('Header', () => {
   it('shows the logged-in username next to the app name', () => {
     render(<Header currentView="inventario" onNavigate={() => {}} />);
 
-    expect(screen.getByText('Estoque Pro')).toBeInTheDocument();
+    expect(screen.getByText('SGS-PRO')).toBeInTheDocument();
     expect(screen.getByText('isaia')).toBeInTheDocument();
   });
 });
