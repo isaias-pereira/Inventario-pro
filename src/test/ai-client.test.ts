@@ -28,7 +28,7 @@ describe('Cliente da API da NVIDIA', () => {
     expect(aiConfigured()).toBe(true);
     expect(aiApiKey()).toBe('nvapi-teste');
     expect(aiModel()).toBe(DEFAULT_AI_MODEL);
-    expect(DEFAULT_AI_MODEL).toBe('mistralai/mistral-large-4-1t-a52b');
+    expect(DEFAULT_AI_MODEL).toBe('nvidia/nemotron-3.5-super-vl-120b-a12b');
   });
 
   it('aceita AI_API_KEY como apelido e AI_MODEL para trocar o modelo', () => {
@@ -48,7 +48,8 @@ describe('Cliente da API da NVIDIA', () => {
 
     expect(payload.model).toBe(DEFAULT_AI_MODEL);
     expect(payload.stream).toBe(false);
-    expect(payload.max_tokens).toBe(1024);
+    // Teto padrão folgado: os modelos raciocinam antes de responder.
+    expect(payload.max_tokens).toBe(2048);
     expect((payload.messages as { role: string }[])[0].role).toBe('system');
 
     const user = (payload.messages as { role: string; content: unknown }[])[1];

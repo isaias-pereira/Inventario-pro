@@ -14,8 +14,18 @@
 
 const AI_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-/** Modelo usado quando `AI_MODEL` não está configurada. */
-export const DEFAULT_AI_MODEL = 'mistralai/mistral-large-4-1t-a52b';
+/**
+ * Modelo usado quando `AI_MODEL` não está configurada.
+ *
+ * Medido com etiqueta real (foto 1600 px):
+ * - `nvidia/nemotron-3.5-super-vl-120b-a12b`: **15 s**, leu EAN/código/descrição/tipo
+ *   corretamente (e a revisão de planilha em **4 s**);
+ * - `mistralai/mistral-large-4-1t-a52b`: 35–43 s na etiqueta e **140 s** na revisão
+ *   de planilha (modelo de raciocínio, lento demais para a tela).
+ *
+ * O modelo antigo continua disponível pela env `AI_MODEL`.
+ */
+export const DEFAULT_AI_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 
 /**
  * Tempo máximo de espera pelo provedor.
@@ -27,8 +37,13 @@ export const DEFAULT_AI_MODEL = 'mistralai/mistral-large-4-1t-a52b';
  */
 const DEFAULT_TIMEOUT_MS = 55000;
 
-/** Tokens máximos da resposta (a tarefa é curta: extrair dados de uma imagem). */
-const DEFAULT_MAX_TOKENS = 1024;
+/**
+ * Tokens máximos da resposta (a tarefa é curta: extrair dados de uma imagem).
+ *
+ * Os modelos raciocinadores gastam tokens pensando antes de responder: com
+ * teto curto a resposta vem truncada (o modelo só raciocina e devolve vazio).
+ */
+const DEFAULT_MAX_TOKENS = 2048;
 
 /** Temperatura baixa: a tarefa é extração de dados, não conversa. */
 const DEFAULT_TEMPERATURE = 0.2;
@@ -201,7 +216,7 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
     });
   } catch (error) {
     const aborted = controller.signal.aborted || (error as { name?: string })?.name === 'AbortError';
-    if (aborted) throw aiError('A IA demorou demais para ler a foto. Tente uma foto mais próxima e mais nítida.', 504);
+    if (aborted) throw aiError('A IA demorou demais para responder. Tente novamente em instantes.', 504);
     throw aiError('Não foi possível falar com a IA agora.', 502);
   } finally {
     clearTimeout(timeout);
@@ -234,6 +249,12 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
 
   const text = extractChatText(payload);
   if (!text) {
+    // `finish_reason: length` = o modelo usou todos os tokens raciocinando e
+    // não chegou a responder: é truncamento, não resposta vazia.
+    const finish = (payload as { choices?: { finish_reason?: string }[] })?.choices?.[0]?.finish_reason;
+    if (finish === 'length') {
+      throw aiError('A IA esgotou o limite de tokens antes de responder. Tente novamente.', 502);
+    }
     throw aiError('A IA devolveu uma resposta vazia.', 502);
   }
 

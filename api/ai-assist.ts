@@ -145,10 +145,11 @@ const handler: ApiHandler = async (req, res) => {
         system: LABEL_SYSTEM_PROMPT,
         prompt: LABEL_PROMPT,
         image: { base64: image, mimeType },
-        // Extração de dados: raciocínio baixo e temperatura mínima (medido:
-        // `low` usa ~55% menos tokens que o padrão, com a mesma leitura).
+        // Extração de dados: raciocínio baixo e temperatura mínima.
         reasoningEffort: 'low',
-        maxTokens: 2048,
+        // O modelo raciocina antes de responder: o teto precisa sobrar para a
+        // resposta (com 1024 tokens ele só raciocinava e devolvia vazio).
+        maxTokens: 4096,
         temperature: 0.1,
       });
       logAiUsage('read_label', result, Date.now() - startedAt);
@@ -232,7 +233,9 @@ const handler: ApiHandler = async (req, res) => {
         system,
         prompt,
         reasoningEffort: 'low',
-        maxTokens: 1200,
+        // O modelo raciocina antes de responder: o teto precisa sobrar para a
+        // resposta (com 1200 tokens ele só raciocinava e devolvia vazio).
+        maxTokens: 2048,
         temperature: 0.1,
       });
       logAiUsage('import_review', result, Date.now() - startedAt);

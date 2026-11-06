@@ -141,6 +141,14 @@ const BaseView = ({ onBack }: BaseViewProps) => {
           mapping = { ...mapping, ...data.mapping };
           aiAvisos = Array.isArray(data.avisos) ? data.avisos : [];
           usadoIA = true;
+        } else if (error) {
+          // A revisão da IA falhou (ou demorou): o mapeamento automático segue
+          // valendo — mas o usuário precisa saber que ela não entrou.
+          toast.warning(
+            error.context?.status === 504
+              ? 'A IA demorou demais para revisar a planilha. O mapeamento automático foi mantido.'
+              : 'Não foi possível revisar a planilha com a IA. O mapeamento automático foi mantido.',
+          );
         }
       } catch {
         // Sem revisão da IA: o mapeamento automático continua valendo.

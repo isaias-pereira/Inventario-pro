@@ -289,7 +289,14 @@ const [filter, setFilter] = useState<FilterType>('todos');
         mimeType: image.mimeType,
       });
       if (error || !data) {
-        toast.error(error?.message || 'Não foi possível ler a etiqueta.');
+        // 504 = o modelo não respondeu a tempo: na leitura por foto, a dica
+        // mais útil é refazer a foto de mais perto.
+        const status = (error as { context?: { status?: number } } | null)?.context?.status;
+        const mensagem =
+          status === 504
+            ? 'A IA demorou demais para ler a foto. Tente uma foto mais próxima e mais nítida.'
+            : error?.message || 'Não foi possível ler a etiqueta.';
+        toast.error(mensagem);
         return;
       }
 

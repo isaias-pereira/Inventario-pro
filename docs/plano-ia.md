@@ -224,7 +224,7 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
 | Variável | Onde | Obrigatória |
 |---|---|---|
 | `NVIDIA_API_KEY` | Vercel (env) | para as funções de IA |
-| `AI_MODEL` | Vercel (env) | opcional — padrão `mistralai/mistral-large-4-1t-a52b` |
+| `AI_MODEL` | Vercel (env) | opcional — padrão `nvidia/nemotron-3.5-super-vl-120b-a12b` |
 
 Sem essas variáveis, `ai-assist` responde **503** e o app funciona normalmente sem IA.
 
@@ -233,7 +233,7 @@ Sem essas variáveis, `ai-assist` responde **503** e o app funciona normalmente 
 `api/_lib/ai.ts` e enviada no header `Authorization: Bearer`. Trocar de provedor ou
 modelo é mexer só nesse arquivo (ou na env `AI_MODEL`).
 
-### Validação com etiqueta real (NVIDIA, modelo `mistralai/mistral-large-4-1t-a52b`)
+### Validação com etiqueta real (NVIDIA Integrate API)
 
 Teste da ação `read_label` com uma etiqueta de preço de supermercado recriada
 (fundo amarelo, EAN `7509546707761`, código interno `3265420`, preço 8,99,
@@ -245,12 +245,28 @@ Teste da ação `read_label` com uma etiqueta de preço de supermercado recriada
 | "Foto de celular" (JPEG 1024 px, ruído + perspectiva + sombra) | 37,6 s | 1443 / 1182 | ✅ idêntico |
 | "Foto de celular" (JPEG 1600 px — o que o app envia) | 24,5 s | 2621 / 304 | ✅ idêntico |
 
+### Escolha do modelo (benchmark com a etiqueta real)
+
+| Modelo | Leitura da etiqueta | Revisão de planilha | Qualidade |
+|---|---|---|---|
+| `nvidia/nemotron-3.5-super-vl-120b-a12b` | **15 s** | **4 s** | ✅ ean, código, descrição, tipo UN |
+| `mistralai/mistral-large-4-1t-a52b` | 35–43 s | **140 s** | ✅ igual |
+| `meta/llama-3.2-90b-vision-instruct` | 66 s | 60 s | ❌ não leu EAN nem código |
+| `nvidia/nemotron-3.5-lightning-30b-a3b` | — | 23 s | ✅ (não testado na visão) |
+
+**Decisão**: padrão `nvidia/nemotron-3.5-super-vl-120b-a12b` (2–9× mais rápido,
+mesma leitura). O modelo antigo continua disponível pela env `AI_MODEL`.
+
 Conclusões que viraram regra no código:
 
-- `reasoning_effort: 'low'` (o provedor recusa `minimal` com HTTP 400) — mesma
-  leitura com ~55% menos tokens que o padrão.
-- `temperature: 0.1` e `max_tokens: 2048` na leitura; `1200` na revisão de importação.
-- Timeout do cliente de **55 s** (antes 25 s → 504 em produção; leitura real em produção: 43,3 s).
+- `reasoning_effort: 'low'` (o provedor recusa `minimal` com HTTP 400) — no
+  modelo antigo economiza ~55% dos tokens; no novo é neutro (aceito, sem efeito).
+- `temperature: 0.1` e `max_tokens: 4096` na leitura; `2048` na revisão de importação.
+  **O teto precisa sobrar para a resposta**: com 1024–1200 tokens os modelos
+  raciocinadores gastam tudo pensando e devolvem `content: null` (a API responde
+  200 com resposta vazia → o `ai-assist` responde 502).
+- Timeout do cliente de **55 s** (antes 25 s → 504 em produção; leitura real em
+  produção: 43,3 s com o modelo antigo).
 - O prompt passou a descartar as armadilhas de etiqueta de preço: data de emissão
   não é validade, preço/peso não são quantidade, "PREÇO POR KG" não é venda a peso.
 - Log por chamada: `[ai] <ação> model=… in=… out=… tokens em …ms`.
