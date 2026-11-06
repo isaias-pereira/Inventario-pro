@@ -41,10 +41,12 @@ async function call(body: Record<string, unknown>, role = 'admin') {
 
 beforeEach(() => {
   process.env.JWT_SECRET = SECRET;
+  delete process.env.NVIDIA_API_KEY;
   delete process.env.AI_API_KEY;
 });
 
 afterEach(() => {
+  delete process.env.NVIDIA_API_KEY;
   delete process.env.AI_API_KEY;
 });
 
@@ -62,13 +64,13 @@ describe('Function de IA', () => {
   });
 
   it('recusa a revisão de importação para quem não é admin', async () => {
-    process.env.AI_API_KEY = 'chave-de-teste';
+    process.env.NVIDIA_API_KEY = 'chave-de-teste';
     const state = await call({ action: 'import_review', target: 'consulta', headers: ['Código'] }, 'encarregado');
     expect(state.status).toBe(403);
   });
 
   it('recusa imagem em formato não suportado', async () => {
-    process.env.AI_API_KEY = 'chave-de-teste';
+    process.env.NVIDIA_API_KEY = 'chave-de-teste';
     const state = await call({ action: 'read_label', image: 'AAAA', mimeType: 'application/pdf' });
     expect(state.status).toBe(400);
   });

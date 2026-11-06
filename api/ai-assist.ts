@@ -1,8 +1,8 @@
 /**
  * Ponto de entrada da IA no SGS-PRO (Fase 1).
  *
- * Tudo server-side: a chave (`AI_API_KEY`) vive nas variáveis de ambiente da
- * Vercel e nunca chega ao navegador. O frontend chama por `invokeFunction`,
+ * Tudo server-side: a chave (`NVIDIA_API_KEY`) vive nas variáveis de ambiente
+ * da Vercel e nunca chega ao navegador. O frontend chama por `invokeFunction`,
  * como nas demais rotas.
  *
  * Ações (POST):
@@ -106,7 +106,6 @@ const handler: ApiHandler = async (req, res) => {
       sendJson(res, { enabled: aiConfigured(), model: aiModel() });
       return;
     }
-
     if (action === 'read_label') {
       if (!aiConfigured()) {
         sendJson(res, { error: 'Leitura por foto indisponível: a IA não está configurada neste ambiente.' }, 503);

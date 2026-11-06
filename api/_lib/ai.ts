@@ -1,26 +1,30 @@
 /**
  * Cliente da API de IA — sempre server-side.
  *
- * A chave (`AI_API_KEY`) vive somente nas variáveis de ambiente da Vercel: ela
- * nunca chega ao navegador. O frontend chama a Function `ai-assist` pelo
+ * Provedor: **NVIDIA Integrate API** (endpoint compatível com OpenAI Chat
+ * Completions) — `https://integrate.api.nvidia.com/v1/chat/completions`.
+ *
+ * A chave (`NVIDIA_API_KEY`) vive somente nas variáveis de ambiente da Vercel:
+ * ela nunca chega ao navegador. O frontend chama a Function `ai-assist` pelo
  * `invokeFunction`, como nas demais rotas.
  *
- * O provedor usado é a API Messages da Anthropic (visão + texto), chamada por
- * `fetch` — sem dependência nova no `package.json`. Para trocar de provedor,
- * mexer só neste arquivo.
+ * A chamada é feita por `fetch` — sem dependência nova no `package.json`. Para
+ * trocar de provedor ou de modelo, mexer só neste arquivo (ou na env `AI_MODEL`).
  */
 
-const AI_API_URL = 'https://api.anthropic.com/v1/messages';
-const AI_API_VERSION = '2023-06-01';
+const AI_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 /** Modelo usado quando `AI_MODEL` não está configurada. */
-export const DEFAULT_AI_MODEL = 'claude-sonnet-4-5';
+export const DEFAULT_AI_MODEL = 'mistralai/mistral-large-4-1t-a52b';
 
 /** Tempo máximo de espera pelo provedor (a Function tem `maxDuration` próprio). */
 const DEFAULT_TIMEOUT_MS = 25000;
 
 /** Tokens máximos da resposta (a tarefa é curta: extrair dados de uma imagem). */
 const DEFAULT_MAX_TOKENS = 1024;
+
+/** Temperatura baixa: a tarefa é extração de dados, não conversa. */
+const DEFAULT_TEMPERATURE = 0.2;
 
 /** Imagens acima disso são recusadas antes de qualquer chamada externa. */
 export const MAX_IMAGE_BASE64_CHARS = 4_500_000;
@@ -40,6 +44,7 @@ export interface AiRequest {
   /** Imagem opcional (visão). */
   image?: AiImage;
   maxTokens?: number;
+  temperature?: number;
   timeoutMs?: number;
 }
 
@@ -62,9 +67,14 @@ function aiError(message: string, status: number): AiError {
   return Object.assign(new Error(message), { status });
 }
 
-/** Chave da API de IA (null quando não configurada). */
+/**
+ * Chave da API de IA.
+ *
+ * `NVIDIA_API_KEY` é o nome oficial; `AI_API_KEY` continua aceito como
+ * apelido para não quebrar ambientes já configurados.
+ */
 export function aiApiKey(): string | null {
-  const key = process.env.AI_API_KEY?.trim();
+  const key = (process.env.NVIDIA_API_KEY || process.env.AI_API_KEY || '').trim();
   return key ? key : null;
 }
 
@@ -84,16 +94,55 @@ export function isSupportedImageMime(mimeType: unknown): boolean {
   return typeof mimeType === 'string' && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mimeType);
 }
 
-function extractText(payload: unknown): string {
+/** Data URL da imagem (é o formato que a API da NVIDIA espera no vision). */
+export function imageDataUrl(image: AiImage): string {
+  return `data:${image.mimeType};base64,${image.base64}`;
+}
+
+/**
+ * Monta o corpo da requisição no formato Chat Completions.
+ *
+ * A imagem vai como `image_url` com data URL (é o formato do exemplo da NVIDIA).
+ */
+export function buildChatPayload(request: AiRequest): Record<string, unknown> {
+  const content: Record<string, unknown>[] = [{ type: 'text', text: request.prompt }];
+  if (request.image) {
+    content.unshift({
+      type: 'image_url',
+      image_url: { url: imageDataUrl(request.image) },
+    });
+  }
+
+  return {
+    model: aiModel(),
+    messages: [
+      { role: 'system', content: request.system },
+      { role: 'user', content },
+    ],
+    max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
+    temperature: request.temperature ?? DEFAULT_TEMPERATURE,
+    top_p: 1,
+    stream: false,
+  };
+}
+
+/** Extrai o texto da resposta no formato Chat Completions. */
+export function extractChatText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '';
-  const content = (payload as { content?: unknown }).content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part): part is { type: string; text?: string } => !!part && typeof part === 'object')
-    .filter((part) => part.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text as string)
-    .join('\n')
-    .trim();
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return '';
+  const message = (choices[0] as { message?: { content?: unknown } })?.message;
+  const content = message?.content;
+  if (typeof content === 'string') return content.trim();
+  // Alguns modelos devolvem o conteúdo como lista de partes.
+  if (Array.isArray(content)) {
+    return content
+      .filter((part): part is { type?: string; text?: string } => !!part && typeof part === 'object')
+      .map((part) => (typeof part.text === 'string' ? part.text : ''))
+      .join('\n')
+      .trim();
+  }
+  return '';
 }
 
 /**
@@ -104,10 +153,9 @@ function extractText(payload: unknown): string {
 export async function callAi(request: AiRequest): Promise<AiResult> {
   const apiKey = aiApiKey();
   if (!apiKey) {
-    throw aiError('IA não configurada (AI_API_KEY ausente).', 503);
+    throw aiError('IA não configurada (NVIDIA_API_KEY ausente).', 503);
   }
 
-  const userContent: Record<string, unknown>[] = [{ type: 'text', text: request.prompt }];
   if (request.image) {
     if (!isSupportedImageMime(request.image.mimeType)) {
       throw aiError('Formato de imagem não suportado.', 400);
@@ -115,14 +163,6 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
     if (!request.image.base64 || request.image.base64.length > MAX_IMAGE_BASE64_CHARS) {
       throw aiError('Imagem muito grande ou vazia.', 413);
     }
-    userContent.unshift({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: request.image.mimeType,
-        data: request.image.base64,
-      },
-    });
   }
 
   const controller = new AbortController();
@@ -133,16 +173,11 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
     response = await fetch(AI_API_URL, {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': AI_API_VERSION,
-        'content-type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: aiModel(),
-        max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
-        system: request.system,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+      body: JSON.stringify(buildChatPayload(request)),
       signal: controller.signal,
     });
   } catch (error) {
@@ -162,23 +197,34 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
   }
 
   if (!response.ok) {
-    const known = payload as { error?: { message?: string } } | null;
-    console.error('AI provider error', response.status, known?.error?.message ?? raw.slice(0, 200));
+    const known = payload as { error?: { message?: string }; detail?: string } | null;
+    const detail = known?.error?.message || known?.detail || raw.slice(0, 200);
+    console.error('AI provider error', response.status, detail);
+    // 400 costuma ser "este modelo não aceita imagem" ou parâmetro inválido.
+    if (response.status === 400) {
+      throw aiError('A IA recusou o pedido (o modelo pode não aceitar imagem ou o texto).', 502);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw aiError('A chave da IA foi recusada. Verifique a configuração no servidor.', 502);
+    }
+    if (response.status === 429) {
+      throw aiError('A IA está ocupada no momento. Tente novamente em instantes.', 429);
+    }
     throw aiError('A IA recusou a solicitação. Tente novamente.', 502);
   }
 
-  const text = extractText(payload);
+  const text = extractChatText(payload);
   if (!text) {
     throw aiError('A IA devolveu uma resposta vazia.', 502);
   }
 
-  const usage = (payload as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
+  const usage = (payload as { usage?: { prompt_tokens?: number; completion_tokens?: number } })?.usage;
   return {
     text,
     model: typeof (payload as { model?: string })?.model === 'string' ? (payload as { model: string }).model : aiModel(),
     usage: {
-      inputTokens: Number(usage?.input_tokens ?? 0),
-      outputTokens: Number(usage?.output_tokens ?? 0),
+      inputTokens: Number(usage?.prompt_tokens ?? 0),
+      outputTokens: Number(usage?.completion_tokens ?? 0),
     },
   };
 }

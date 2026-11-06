@@ -221,10 +221,15 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
 
 | Variável | Onde | Obrigatória |
 |---|---|---|
-| `AI_API_KEY` | Vercel (env) | para as funções de IA |
-| `AI_MODEL` | Vercel (env) | opcional — há um padrão no código |
+| `NVIDIA_API_KEY` | Vercel (env) | para as funções de IA |
+| `AI_MODEL` | Vercel (env) | opcional — padrão `mistralai/mistral-large-4-1t-a52b` |
 
 Sem essas variáveis, `ai-assist` responde **503** e o app funciona normalmente sem IA.
+
+**Provedor**: NVIDIA Integrate API (compatível com Chat Completions) —
+`https://integrate.api.nvidia.com/v1/chat/completions`. A chave é lida em
+`api/_lib/ai.ts` e enviada no header `Authorization: Bearer`. Trocar de provedor ou
+modelo é mexer só nesse arquivo (ou na env `AI_MODEL`).
 
 ### Métricas de acompanhamento
 
