@@ -18,6 +18,8 @@ export interface EmailConfig {
   provider: 'resend' | 'smtp' | null;
   /** Destinatário padrão configurado no servidor. */
   defaultTo: string | null;
+  /** Endereço que recebe cópia (Cc) de todos os envios. */
+  copyTo: string | null;
 }
 
 export interface SendRebaixaEmailInput {
@@ -36,6 +38,8 @@ export interface SendRebaixaEmailInput {
 export interface SendRebaixaEmailResult {
   ok: boolean;
   to: string;
+  /** Cópia em Cc adicionada pelo servidor (quando difere dos destinatários). */
+  cc: string | null;
   filename: string;
   itens: number;
 }
@@ -63,6 +67,7 @@ export async function fetchEmailConfig(): Promise<EmailConfig> {
     enabled: Boolean(data?.enabled),
     provider: data?.provider ?? null,
     defaultTo: data?.defaultTo ?? null,
+    copyTo: data?.copyTo ?? null,
   };
 }
 
@@ -88,6 +93,7 @@ export async function sendRebaixaEmail(
   return {
     ok: Boolean(data?.ok),
     to: data?.to ?? input.to,
+    cc: data?.cc ?? null,
     filename: data?.filename ?? input.filename,
     itens: data?.itens ?? input.itens,
   };

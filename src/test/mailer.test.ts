@@ -5,6 +5,7 @@ const { createTransportMock, sendMailMock } = vi.hoisted(() => ({
   sendMailMock: vi.fn(async (_message: {
     from: string;
     to: string;
+    cc?: string;
     subject: string;
     text: string;
     attachments?: { filename: string; content: Buffer; contentType: string }[];
@@ -16,7 +17,10 @@ vi.mock('nodemailer', () => ({
 }));
 
 import {
+  addressOf,
   buildResendPayload,
+  copyNotInTo,
+  DEFAULT_COPY_TO,
   mailerConfig,
   sendMail,
   sendViaResend,
@@ -30,6 +34,7 @@ const config: MailConfig = {
   provider: 'resend',
   from: 'rebaixa@empresa.com',
   defaultTo: 'comercial@empresa.com',
+  copyTo: 'copia@empresa.com',
 };
 
 const message: MailMessage = {
@@ -47,6 +52,7 @@ const envKeys = [
   'SMTP_PASS',
   'REBAIXA_EMAIL_FROM',
   'REBAIXA_EMAIL_TO',
+  'REBAIXA_EMAIL_COPY',
 ];
 
 /** Limpa as variáveis de e-mail do ambiente (e devolve o estado anterior). */
@@ -67,6 +73,7 @@ describe('configuração do e-mail', () => {
       provider: 'resend',
       from: null,
       defaultTo: null,
+      copyTo: DEFAULT_COPY_TO,
     });
   });
 
@@ -94,7 +101,40 @@ describe('configuração do e-mail', () => {
       provider: 'resend',
       from: 'rebaixa@empresa.com',
       defaultTo: 'comercial@empresa.com',
+      copyTo: DEFAULT_COPY_TO,
     });
+  });
+
+  it('usa a cópia padrão quando não há REBAIXA_EMAIL_COPY', () => {
+    expect(DEFAULT_COPY_TO).toBe('isaiassilva@comper.com.br');
+    expect(mailerConfig({ SMTP_HOST: 'smtp.empresa.com' }).copyTo).toBe(DEFAULT_COPY_TO);
+  });
+
+  it('aceita trocar a cópia pelo ambiente', () => {
+    expect(
+      mailerConfig({ SMTP_HOST: 'smtp.empresa.com', REBAIXA_EMAIL_COPY: 'copia@empresa.com' }).copyTo,
+    ).toBe('copia@empresa.com');
+  });
+});
+
+describe('cópia em Cc', () => {
+  it('normaliza o endereço com nome', () => {
+    expect(addressOf('Isaias <isaiassilva@comper.com.br>')).toBe('isaiassilva@comper.com.br');
+    expect(addressOf('ISAIASSILVA@COMPER.COM.BR')).toBe('isaiassilva@comper.com.br');
+  });
+
+  it('mantém a cópia que ainda não está entre os destinatários', () => {
+    expect(copyNotInTo('copia@empresa.com', ['comercial@empresa.com'])).toBe('copia@empresa.com');
+  });
+
+  it('não duplica a cópia que já está na lista', () => {
+    expect(copyNotInTo('copia@empresa.com', ['COPIA@empresa.com'])).toBeNull();
+    expect(copyNotInTo('copia@empresa.com', ['Cópia <copia@empresa.com>'])).toBeNull();
+  });
+
+  it('ignora cópia vazia', () => {
+    expect(copyNotInTo(null, ['comercial@empresa.com'])).toBeNull();
+    expect(copyNotInTo('', ['comercial@empresa.com'])).toBeNull();
   });
 });
 
@@ -161,6 +201,21 @@ describe('payload do Resend', () => {
     ) as { to: string[] };
 
     expect(payload.to).toEqual(['a@empresa.com', 'b@empresa.com']);
+  });
+
+  it('manda a cópia em Cc', () => {
+    const payload = buildResendPayload(
+      { ...message, cc: 'copia@empresa.com' },
+      config,
+    ) as { cc: string[] };
+
+    expect(payload.cc).toEqual(['copia@empresa.com']);
+  });
+
+  it('omite o Cc quando não há cópia', () => {
+    const payload = buildResendPayload(message, config) as { cc?: string[] };
+
+    expect(payload.cc).toBeUndefined();
   });
 });
 
@@ -293,6 +348,15 @@ describe('envio por SMTP', () => {
     expect(createTransportMock).toHaveBeenCalledWith(
       expect.objectContaining({ port: 465, secure: true }),
     );
+  });
+
+  it('manda a cópia em Cc no SMTP', async () => {
+    process.env.SMTP_HOST = 'mail.empresa.com.br';
+    createTransportMock.mockReturnValue({ sendMail: sendMailMock });
+
+    await sendViaSmtp({ ...message, cc: 'copia@empresa.com' }, config);
+
+    expect(sendMailMock.mock.calls[0][0].cc).toBe('copia@empresa.com');
   });
 
   it('exige o host do SMTP', async () => {

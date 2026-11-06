@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AlertTriangle, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight,
-  Download, FileSpreadsheet, History, Loader2, Lock, Mail, Package, Pencil,
+  Copy, Download, FileSpreadsheet, History, Loader2, Lock, Mail, Package, Pencil,
   Plus, RefreshCw, Scale, Search, Share2, Star, Tag, Trash2, X,
 } from 'lucide-react';
 
@@ -726,7 +726,7 @@ const RebaixaView = () => {
       setEmailConfig(config);
       setEmailTo((current) => current || config.defaultTo || '');
     } catch {
-      setEmailConfig({ enabled: false, provider: null, defaultTo: null });
+      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null });
     } finally {
       setEmailLoading(false);
     }
@@ -744,8 +744,19 @@ const RebaixaView = () => {
   /** E-mail marcado com estrela na aba E-mail: entra sempre e não pode ser removido. */
   const fixedEmail = defaultEmail(emailsPadrao)?.email ?? null;
 
+  /**
+   * Cópia fixa do servidor: quem configurou recebe uma cópia (Cc) de todas as
+   * rebaixas. Fica sempre no envio e não pode ser removida.
+   */
+  const copyEmail = emailConfig?.copyTo ?? null;
+
   /** Chips visíveis no campo "Para" (o padrão fixo vem primeiro). */
-  const recipients = useMemo(() => mergeEmails(fixedEmail, emailTo), [fixedEmail, emailTo]);
+  const recipients = useMemo(
+    () => mergeEmails(fixedEmail, emailTo).filter(
+      (email) => !copyEmail || email.toLowerCase() !== copyEmail.toLowerCase(),
+    ),
+    [copyEmail, fixedEmail, emailTo],
+  );
 
   /** Carrega os e-mails padrão cadastrados na aba E-mail (atalhos do envio). */
   const loadEmailsPadrao = useCallback(async () => {
@@ -804,6 +815,8 @@ const RebaixaView = () => {
     const clean = address.trim().replace(/[,;]+$/, '');
     if (!clean) return;
     if (fixedEmail && clean.toLowerCase() === fixedEmail.toLowerCase()) return;
+    // A cópia fixa entra sozinha (em Cc) no envio do servidor.
+    if (copyEmail && clean.toLowerCase() === copyEmail.toLowerCase()) return;
     setEmailTo((current) => mergeEmails(current, clean).join(', '));
   };
 
@@ -832,8 +845,11 @@ const RebaixaView = () => {
       return;
     }
     // O texto ainda no input também conta como destinatário, e o padrão é sempre incluído.
-    const to = mergeEmails(fixedEmail, emailTo, emailInput);
-    if (to.length === 0) {
+    // A cópia fixa vai em Cc: o servidor garante que ela receba todos os envios.
+    const to = mergeEmails(fixedEmail, emailTo, emailInput).filter(
+      (email) => !copyEmail || email.toLowerCase() !== copyEmail.toLowerCase(),
+    );
+    if (to.length === 0 && !copyEmail) {
       toast.error('Informe o destinatário do e-mail');
       return;
     }
@@ -857,7 +873,11 @@ const RebaixaView = () => {
       }
 
       trackEvent('enviar_email_planilha', { formato: 'ods', tela: 'rebaixa', itens: result.itens });
-      toast.success(`E-mail enviado para ${result.to}`);
+      toast.success(
+        result.cc
+          ? `E-mail enviado para ${result.to} (cópia para ${result.cc})`
+          : `E-mail enviado para ${result.to}`,
+      );
       setShowEmail(false);
       setShowExport(false);
       await fetchItems();
@@ -1878,6 +1898,17 @@ const RebaixaView = () => {
             <div>
               <label htmlFor="rebaixa-email-to" className="text-sm font-medium">Para</label>
               <div className="mt-1 flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                {copyEmail && (
+                  <span
+                    title={`${copyEmail} — cópia automática de todas as rebaixas (Cc)`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-dashed border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800"
+                  >
+                    <Copy className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{copyEmail}</span>
+                    <Lock className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" />
+                    <span className="sr-only">cópia fixa</span>
+                  </span>
+                )}
                 {recipients.map((address) => {
                   const isFixed = fixedEmail !== null && address.toLowerCase() === fixedEmail.toLowerCase();
                   return (
@@ -1958,9 +1989,11 @@ const RebaixaView = () => {
                 </div>
               )}
               <p className="mt-1 text-xs text-muted-foreground">
-                {activeEmails(emailsPadrao).length > 0
-                  ? 'O contato com estrela fica fixo no envio; toque nos demais atalhos ou digite e pressione Enter.'
-                  : 'Separe vários destinatários por vírgula.'}
+                {copyEmail
+                  ? `A cópia é enviada em Cc para ${copyEmail}; o contato com estrela fica fixo no envio.`
+                  : activeEmails(emailsPadrao).length > 0
+                    ? 'O contato com estrela fica fixo no envio; toque nos demais atalhos ou digite e pressione Enter.'
+                    : 'Separe vários destinatários por vírgula.'}
               </p>
             </div>
             <div>
@@ -2012,7 +2045,7 @@ const RebaixaView = () => {
             <Button
               className="flex-1 gap-2 bg-sky-600 hover:bg-sky-700 sm:flex-none"
               onClick={() => void sendByEmail()}
-              disabled={emailSending || emailLoading || items.length === 0 || (recipients.length === 0 && !emailInput.trim())}
+              disabled={emailSending || emailLoading || items.length === 0 || (recipients.length === 0 && !emailInput.trim() && !copyEmail)}
             >
               {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
               Enviar

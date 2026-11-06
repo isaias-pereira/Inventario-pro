@@ -701,7 +701,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
       // Só preenche quando o campo está vazio: não sobrescreve o que o usuário digitou.
       setEmailTo((current) => current || config.defaultTo || '');
     } catch {
-      setEmailConfig({ enabled: false, provider: null, defaultTo: null });
+      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null });
     }
     setEmailLoading(false);
   }, []);
@@ -1281,7 +1281,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
                   disabled={emailSending}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Separe vários destinatários por vírgula.
+                  {emailConfig?.copyTo
+                    ? `Uma cópia é enviada em Cc para ${emailConfig.copyTo}. Separe vários destinatários por vírgula.`
+                    : 'Separe vários destinatários por vírgula.'}
                 </p>
               </div>
               <div>

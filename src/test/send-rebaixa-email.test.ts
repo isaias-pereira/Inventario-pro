@@ -8,6 +8,7 @@ const { authenticateMock, sendMailMock, mailerConfigMock } = vi.hoisted(() => ({
     provider: 'resend' as 'resend' | 'smtp' | null,
     from: 'rebaixa@empresa.com',
     defaultTo: 'comercial@empresa.com',
+    copyTo: 'copia@empresa.com',
   })),
 }));
 
@@ -59,6 +60,7 @@ beforeEach(() => {
     provider: 'resend',
     from: 'rebaixa@empresa.com',
     defaultTo: 'comercial@empresa.com',
+    copyTo: 'copia@empresa.com',
   });
 });
 
@@ -106,11 +108,12 @@ describe('endpoint de envio por e-mail', () => {
       enabled: true,
       provider: 'resend',
       defaultTo: 'comercial@empresa.com',
+      copyTo: 'copia@empresa.com',
     });
   });
 
   it('avisa quando o servidor não tem provedor configurado', async () => {
-    mailerConfigMock.mockReturnValue({ provider: null, from: null, defaultTo: null });
+    mailerConfigMock.mockReturnValue({ provider: null, from: null, defaultTo: null, copyTo: null });
     const { res, state } = fakeResponse();
     await handler(request({ action: 'config' }), res);
 
@@ -180,6 +183,7 @@ describe('endpoint de envio por e-mail', () => {
     expect(state.body).toEqual({
       ok: true,
       to: 'comercial@empresa.com',
+      cc: 'copia@empresa.com',
       filename: 'solicitacao-rebaixa-2026-11-04.ods',
       itens: 12,
     });
@@ -187,11 +191,48 @@ describe('endpoint de envio por e-mail', () => {
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const sent = sendMailMock.mock.calls[0][0];
     expect(sent.to).toBe('comercial@empresa.com');
+    expect(sent.cc).toBe('copia@empresa.com');
     expect(sent.subject).toBe('Solicitação de rebaixa / perecíveis — 04/11/2026');
     expect(sent.text).toBe('Segue a planilha de rebaixa com 12 produto(s)');
     expect(sent.attachment.filename).toBe('solicitacao-rebaixa-2026-11-04.ods');
     expect(sent.attachment.contentType).toBe('application/vnd.oasis.opendocument.spreadsheet');
     expect(Buffer.from(sent.attachment.content).toString('utf8')).toBe('conteudo-da-planilha');
+  });
+
+  it('envia a cópia em Cc de todas as rebaixas', async () => {
+    const { res, state } = fakeResponse();
+    await handler(
+      request({
+        action: 'send',
+        to: 'comercial@empresa.com, outro@empresa.com',
+        filename: 'rebaixa.ods',
+        contentBase64: odsBase64,
+        itens: 1,
+      }),
+      res,
+    );
+
+    expect(state.status).toBe(200);
+    expect(sendMailMock.mock.calls[0][0].cc).toBe('copia@empresa.com');
+    expect(state.body).toMatchObject({ cc: 'copia@empresa.com' });
+  });
+
+  it('não duplica a cópia quando ela já está na lista', async () => {
+    const { res, state } = fakeResponse();
+    await handler(
+      request({
+        action: 'send',
+        to: 'comercial@empresa.com, Copia <copia@empresa.com>',
+        filename: 'rebaixa.ods',
+        contentBase64: odsBase64,
+        itens: 1,
+      }),
+      res,
+    );
+
+    expect(state.status).toBe(200);
+    expect(sendMailMock.mock.calls[0][0].cc).toBeUndefined();
+    expect(state.body).toMatchObject({ cc: null });
   });
 
   it('usa o destinatário padrão do servidor quando o cliente não informa', async () => {
@@ -244,7 +285,7 @@ describe('endpoint de envio por e-mail', () => {
   });
 
   it('responde 503 quando o envio não está configurado', async () => {
-    mailerConfigMock.mockReturnValue({ provider: null, from: null, defaultTo: null });
+    mailerConfigMock.mockReturnValue({ provider: null, from: null, defaultTo: null, copyTo: null });
     const { res, state } = fakeResponse();
     await handler(
       request({ action: 'send', filename: 'rebaixa.ods', contentBase64: odsBase64 }),

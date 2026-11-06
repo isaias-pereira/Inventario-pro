@@ -34,7 +34,12 @@ describe('conversão para base64', () => {
 describe('configuração de e-mail', () => {
   it('devolve a configuração do servidor', async () => {
     invokeFunction.mockResolvedValue({
-      data: { enabled: true, provider: 'resend', defaultTo: 'comercial@empresa.com' },
+      data: {
+        enabled: true,
+        provider: 'resend',
+        defaultTo: 'comercial@empresa.com',
+        copyTo: 'isaiassilva@comper.com.br',
+      },
       error: null,
     });
 
@@ -42,6 +47,7 @@ describe('configuração de e-mail', () => {
       enabled: true,
       provider: 'resend',
       defaultTo: 'comercial@empresa.com',
+      copyTo: 'isaiassilva@comper.com.br',
     });
     expect(invokeFunction).toHaveBeenCalledWith('send-rebaixa-email', {
       body: { action: 'config' },
@@ -55,6 +61,7 @@ describe('configuração de e-mail', () => {
       enabled: false,
       provider: null,
       defaultTo: null,
+      copyTo: null,
     });
   });
 
@@ -74,6 +81,7 @@ describe('envio da planilha por e-mail', () => {
       data: {
         ok: true,
         to: 'comercial@empresa.com',
+        cc: 'isaiassilva@comper.com.br',
         filename: 'solicitacao-rebaixa-2026-11-04.ods',
         itens: 12,
       },
@@ -92,6 +100,7 @@ describe('envio da planilha por e-mail', () => {
     expect(result).toEqual({
       ok: true,
       to: 'comercial@empresa.com',
+      cc: 'isaiassilva@comper.com.br',
       filename: 'solicitacao-rebaixa-2026-11-04.ods',
       itens: 12,
     });

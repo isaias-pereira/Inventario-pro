@@ -16,7 +16,7 @@
 
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
-import { mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
+import { copyNotInTo, mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
 
 /** Papéis que podem disparar a planilha por e-mail. */
 export const EMAIL_ROLES = ['admin', 'encarregado'] as const;
@@ -110,6 +110,7 @@ const handler: ApiHandler = async (req, res) => {
         enabled: Boolean(config.provider),
         provider: config.provider,
         defaultTo: config.defaultTo,
+        copyTo: config.copyTo ?? null,
       });
       return;
     }
@@ -125,15 +126,18 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     // Destinatário: usa o informado ou, na falta, o padrão do servidor.
+    const copyTo = config.copyTo ?? null;
     const rawTo = typeof body.to === 'string' && body.to.trim()
       ? body.to
-      : (config.defaultTo ?? '');
+      : (config.defaultTo ?? copyTo ?? '');
     const recipients = validateRecipients(rawTo);
     if (!recipients) {
       sendJson(res, { error: 'Destinatário inválido' }, 400);
       return;
     }
     const to = recipients.join(', ');
+    // Cópia fixa: quem configurou recebe uma cópia de todas as rebaixas.
+    const cc = copyNotInTo(copyTo, recipients);
 
     const filename = attachmentName(body.filename);
     if (!filename) {
@@ -164,6 +168,7 @@ const handler: ApiHandler = async (req, res) => {
 
     await sendMail({
       to,
+      cc: cc ?? undefined,
       subject,
       text,
       attachment: {
@@ -173,7 +178,7 @@ const handler: ApiHandler = async (req, res) => {
       },
     });
 
-    sendJson(res, { ok: true, to, filename, itens });
+    sendJson(res, { ok: true, to, cc: cc ?? null, filename, itens });
   } catch (error) {
     console.error('Send rebaixa email error:', error);
     const message = error instanceof Error ? error.message : 'Erro interno do servidor';

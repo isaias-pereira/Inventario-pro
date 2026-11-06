@@ -9,12 +9,21 @@
  * - **SMTP** genérico: defina `SMTP_HOST` (e `SMTP_USER`/`SMTP_PASS`,
  *   `SMTP_PORT`, `SMTP_SECURE`).
  *
- * Em ambos os casos, `REBAIXA_EMAIL_TO` define o destinatário padrão.
+ * Em ambos os casos, `REBAIXA_EMAIL_TO` define o destinatário padrão e
+ * `REBAIXA_EMAIL_COPY` define quem recebe cópia (Cc) de todos os envios.
  */
 
 import { createTransport } from 'nodemailer';
 
 export type MailProvider = 'resend' | 'smtp';
+
+/**
+ * Cópia fixa de todas as rebaixas.
+ *
+ * O encarregado usa esse endereço para guardar uma cópia de cada planilha
+ * enviada (no Thunderbird). É o padrão quando `REBAIXA_EMAIL_COPY` não existe.
+ */
+export const DEFAULT_COPY_TO = 'isaiassilva@comper.com.br';
 
 export interface MailConfig {
   /** Provedor configurado; `null` quando o envio está indisponível. */
@@ -23,6 +32,8 @@ export interface MailConfig {
   from: string | null;
   /** Destinatário padrão (`REBAIXA_EMAIL_TO`). */
   defaultTo: string | null;
+  /** Cópia em Cc de todos os envios (`REBAIXA_EMAIL_COPY`). */
+  copyTo?: string | null;
 }
 
 export interface MailAttachment {
@@ -34,6 +45,8 @@ export interface MailAttachment {
 export interface MailMessage {
   /** Um ou mais destinatários separados por vírgula. */
   to: string;
+  /** Cópia em Cc (um ou mais separados por vírgula). */
+  cc?: string;
   subject: string;
   text: string;
   attachment?: MailAttachment;
@@ -47,10 +60,11 @@ export function mailerConfig(env: MailEnv = process.env): MailConfig {
   const smtpHost = (env.SMTP_HOST ?? '').trim();
   const from = (env.REBAIXA_EMAIL_FROM ?? env.SMTP_FROM ?? '').trim() || null;
   const defaultTo = (env.REBAIXA_EMAIL_TO ?? '').trim() || null;
+  const copyTo = (env.REBAIXA_EMAIL_COPY ?? '').trim() || DEFAULT_COPY_TO;
 
-  if (resendKey) return { provider: 'resend', from, defaultTo };
-  if (smtpHost) return { provider: 'smtp', from, defaultTo };
-  return { provider: null, from, defaultTo };
+  if (resendKey) return { provider: 'resend', from, defaultTo, copyTo };
+  if (smtpHost) return { provider: 'smtp', from, defaultTo, copyTo };
+  return { provider: null, from, defaultTo, copyTo };
 }
 
 /**
@@ -73,6 +87,28 @@ export function validateRecipients(value: unknown): string[] | null {
   return parts;
 }
 
+/** Extrai o endereço puro de `nome@dominio.com` ou `Nome <nome@dominio.com>`. */
+export function addressOf(value: string): string {
+  return (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+}
+
+/**
+ * Endereços de cópia que ainda não estão na lista de destinatários.
+ * Devolve `null` quando não sobra ninguém para receber a cópia.
+ */
+export function copyNotInTo(copy: string | null | undefined, recipients: string[]): string | null {
+  if (!copy) return null;
+  const seen = new Set(recipients.map(addressOf));
+  const unique: string[] = [];
+  for (const part of copy.split(/[,;]/).map((item) => item.trim()).filter(Boolean)) {
+    const address = addressOf(part);
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    unique.push(part);
+  }
+  return unique.length ? unique.join(', ') : null;
+}
+
 /** Monta o corpo da requisição da Resend (com o anexo em base64). */
 export function buildResendPayload(message: MailMessage, config: MailConfig): Record<string, unknown> {
   const payload: Record<string, unknown> = {
@@ -84,6 +120,12 @@ export function buildResendPayload(message: MailMessage, config: MailConfig): Re
     subject: message.subject,
     text: message.text,
   };
+  if (message.cc) {
+    payload.cc = message.cc
+      .split(/[,;]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
   if (message.attachment) {
     payload.attachments = [
       {
@@ -155,6 +197,7 @@ export async function sendViaSmtp(message: MailMessage, config: MailConfig): Pro
   await transporter.sendMail({
     from,
     to: message.to,
+    cc: message.cc,
     subject: message.subject,
     text: message.text,
     attachments: message.attachment
