@@ -316,8 +316,11 @@ const [filter, setFilter] = useState<FilterType>('todos');
       } | null;
       const avisos = Array.isArray(data.avisos) ? (data.avisos as string[]) : [];
 
+      // Só preenche o produto quando ele existe no catálogo: a IA lê a
+      // etiqueta, mas quem manda no cadastro é o catálogo — sem produto
+      // cadastrado não dá para registrar validade.
       const fill = labelToForm(label, produto);
-      if (fill) {
+      if (fill && produto) {
         setProduct({
           ean: fill.ean,
           codigo: fill.codigo,
@@ -332,7 +335,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
         toast.success('Etiqueta lida — confira a data antes de registrar.');
       } else {
         // Não está no catálogo: deixa o usuário consultar pelo código lido.
-        if (label.ean) setCode(String(label.ean));
+        if (label.codigo) setCode(String(label.codigo));
+        else if (label.ean) setCode(String(label.ean));
         setSearchStatus('idle');
         trackEvent('ler_etiqueta', { resultado: 'sem_catalogo' });
         toast.warning('Etiqueta lida, mas o produto não está no catálogo. Consulte o código.');
