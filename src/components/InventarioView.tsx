@@ -280,7 +280,7 @@ const InventarioView = () => {
     doc.rect(0, 0, 210, 35, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
-    doc.text('Estoque Pro', 14, 16);
+    doc.text('SGS-PRO', 14, 16);
     doc.setFontSize(10);
     doc.text('Relatório de Inventário', 14, 24);
     const now = new Date();
@@ -313,7 +313,7 @@ const InventarioView = () => {
     const pageHeight = doc.internal.pageSize.height;
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text('Estoque Pro - Sistema de Inventário', 14, pageHeight - 10);
+    doc.text('SGS-PRO - Sistema de Inventário', 14, pageHeight - 10);
     doc.text(`Página 1`, 196, pageHeight - 10, { align: 'right' });
     
     doc.save('inventario.pdf');

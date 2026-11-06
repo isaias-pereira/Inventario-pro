@@ -416,7 +416,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
     doc.text('Controle de Validade', marginX, 14);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Estoque Pro', pageW - marginX, 14, { align: 'right' });
+    doc.text('SGS-PRO', pageW - marginX, 14, { align: 'right' });
 
     // ===== Metadados =====
     doc.setTextColor(0, 0, 0);

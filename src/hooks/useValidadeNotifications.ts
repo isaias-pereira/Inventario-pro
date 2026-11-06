@@ -43,7 +43,7 @@ export function getPushPermissionStatus(): NotificationPermission | 'unsupported
 async function showValidadeNotification(alerts: ValidadeAlert[], hour: number, alertDays: number) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return false;
 
-  const title = `⚠️ ${alerts.length} produto(s) vencendo - Estoque Pro`;
+  const title = `⚠️ ${alerts.length} produto(s) vencendo - SGS-PRO`;
   const options: NotificationOptions = {
     body: buildNotificationBody(alerts, alertDays),
     icon: '/pwa-192x192.png',
@@ -85,7 +85,7 @@ async function sendZapierWebhook(alerts: ValidadeAlert[]) {
   const hoje = alerts.filter(i => i.status === 'hoje');
   const proximo = alerts.filter(i => i.status === 'proximo');
 
-  let message = '⚠️ *Alerta de Validade - Estoque Pro*\n\n';
+  let message = '⚠️ *Alerta de Validade - SGS-PRO*\n\n';
 
   if (vencidos.length > 0) {
     message += '🔴 *VENCIDOS:*\n';

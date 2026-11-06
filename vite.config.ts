@@ -33,9 +33,10 @@ export default defineConfig(({ mode }) => ({
         importScripts: ['notification-sw.js'],
       },
       manifest: {
-        name: "Estoque Pro",
-        short_name: "Estoque Pro",
-        description: "Gestão Inteligente de Estoque",
+        name: "SGS-PRO — Sistema de gerenciamento de Setor",
+        short_name: "SGS-PRO",
+        description: "Sistema de gerenciamento de Setor",
+        lang: "pt-BR",
         theme_color: "#0284c7",
         background_color: "#e8eff5",
         display: "standalone",
