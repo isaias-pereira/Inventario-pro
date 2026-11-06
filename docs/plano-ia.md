@@ -195,7 +195,9 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
 - **LGPD**: dados são de produto/estoque. **Não enviar `created_by`/username ao modelo**;
   reter prompt/inputs por prazo definido (ex.: 90 dias) e limpar imagens após o uso.
 - **Limites**: payload da Vercel = **4,5 MB** → a foto é comprimida no cliente antes do
-  base64 (alvo < 3 MB); `maxDuration` de 30–60 s na função de IA; timeout interno ~25 s.
+  base64 (alvo < 3 MB, lado maior 1600 px, JPEG); `maxDuration: 60` na função de IA e
+  timeout interno de **55 s** (a leitura em produção levou 43 s; com 25 s a chamada
+  voltava 504).
 - **Custo**: modelo barato para classificar em lote, modelo maior só para o briefing.
   Registrar token/custo por chamada na tabela de auditoria (os valores por token mudam —
   confirmar a tabela vigente do provedor).
@@ -230,6 +232,28 @@ Sem essas variáveis, `ai-assist` responde **503** e o app funciona normalmente 
 `https://integrate.api.nvidia.com/v1/chat/completions`. A chave é lida em
 `api/_lib/ai.ts` e enviada no header `Authorization: Bearer`. Trocar de provedor ou
 modelo é mexer só nesse arquivo (ou na env `AI_MODEL`).
+
+### Validação com etiqueta real (NVIDIA, modelo `mistralai/mistral-large-4-1t-a52b`)
+
+Teste da ação `read_label` com uma etiqueta de preço de supermercado recriada
+(fundo amarelo, EAN `7509546707761`, código interno `3265420`, preço 8,99,
+"PREÇO POR KG", `Data: 20/11/2026`, loja 160, código 2D), em duas versões:
+
+| Cenário | Tempo | Tokens (entrada/saída) | Leitura |
+|---|---|---|---|
+| Etiqueta limpa (PNG 1024 px) | — | 856 / 534 | ✅ ean, código, descrição, tipo UN, validade `null` |
+| "Foto de celular" (JPEG 1024 px, ruído + perspectiva + sombra) | 37,6 s | 1443 / 1182 | ✅ idêntico |
+| "Foto de celular" (JPEG 1600 px — o que o app envia) | 24,5 s | 2621 / 304 | ✅ idêntico |
+
+Conclusões que viraram regra no código:
+
+- `reasoning_effort: 'low'` (o provedor recusa `minimal` com HTTP 400) — mesma
+  leitura com ~55% menos tokens que o padrão.
+- `temperature: 0.1` e `max_tokens: 2048` na leitura; `1200` na revisão de importação.
+- Timeout do cliente de **55 s** (antes 25 s → 504 em produção; leitura real em produção: 43,3 s).
+- O prompt passou a descartar as armadilhas de etiqueta de preço: data de emissão
+  não é validade, preço/peso não são quantidade, "PREÇO POR KG" não é venda a peso.
+- Log por chamada: `[ai] <ação> model=… in=… out=… tokens em …ms`.
 
 ### Métricas de acompanhamento
 

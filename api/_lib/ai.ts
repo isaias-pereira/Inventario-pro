@@ -20,12 +20,12 @@ export const DEFAULT_AI_MODEL = 'mistralai/mistral-large-4-1t-a52b';
 /**
  * Tempo máximo de espera pelo provedor.
  *
- * A Function `ai-assist` tem `maxDuration: 60` na Vercel: 45 s aqui deixa
+ * A Function `ai-assist` tem `maxDuration: 60` na Vercel: 55 s aqui deixa
  * margem para a resposta e para a consulta ao catálogo. Foto de etiqueta
- * real (com ruído, perspectiva e printing) pode passar de 25 s — o modelo
- * raciocina antes de responder.
+ * real (com ruído, perspectiva e impressão) leva de 25 s a 45 s no modelo de
+ * raciocínio — 25 s cortava a chamada com 504.
  */
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 55000;
 
 /** Tokens máximos da resposta (a tarefa é curta: extrair dados de uma imagem). */
 const DEFAULT_MAX_TOKENS = 1024;
@@ -201,7 +201,7 @@ export async function callAi(request: AiRequest): Promise<AiResult> {
     });
   } catch (error) {
     const aborted = controller.signal.aborted || (error as { name?: string })?.name === 'AbortError';
-    if (aborted) throw aiError('A IA demorou demais para responder. Tente novamente.', 504);
+    if (aborted) throw aiError('A IA demorou demais para ler a foto. Tente uma foto mais próxima e mais nítida.', 504);
     throw aiError('Não foi possível falar com a IA agora.', 502);
   } finally {
     clearTimeout(timeout);

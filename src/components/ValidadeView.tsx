@@ -278,6 +278,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
       return;
     }
     setReadingLabel(true);
+    // A leitura pode demorar ~30 s: o modelo de raciocínio leva tempo para
+    // ler a foto e o app continua funcionando enquanto espera.
+    toast.info('Lendo a etiqueta… isso pode levar até 40 segundos.');
     try {
       const image = await prepareImage(file);
       const { data, error } = await invokeWithToken('ai-assist', {
