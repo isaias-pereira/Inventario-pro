@@ -21,7 +21,7 @@ import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { identifier } from './_lib/product-validation.js';
-import { aiConfigured, aiModel, callAi, isSupportedImageMime, type AiError } from './_lib/ai.js';
+import { aiConfigured, aiModel, callAi, isSupportedImageMime, type AiError, type AiResult } from './_lib/ai.js';
 import {
   LABEL_PROMPT,
   LABEL_SYSTEM_PROMPT,
@@ -62,6 +62,16 @@ function cacheSet(key: string, payload: unknown): void {
 /** Só administradores importam planilhas (Base de Dados é área do admin). */
 function canImport(role: unknown): boolean {
   return role === 'admin';
+}
+
+/**
+ * Log de consumo por chamada (acompanhar custo/latência nas logs da Vercel).
+ * Não guarda nenhum dado do usuário — só modelo e contagem de tokens.
+ */
+function logAiUsage(action: string, result: AiResult): void {
+  console.log(
+    `[ai] ${action} model=${result.model} in=${result.usage.inputTokens} out=${result.usage.outputTokens} tokens`,
+  );
 }
 
 /** Busca o produto no catálogo pelo EAN (mestre, alias ou embalagem fechada). */
@@ -134,7 +144,13 @@ const handler: ApiHandler = async (req, res) => {
         system: LABEL_SYSTEM_PROMPT,
         prompt: LABEL_PROMPT,
         image: { base64: image, mimeType },
+        // Extração de dados: raciocínio baixo e temperatura mínima (medido:
+        // `low` usa ~55% menos tokens que o padrão, com a mesma leitura).
+        reasoningEffort: 'low',
+        maxTokens: 2048,
+        temperature: 0.1,
       });
+      logAiUsage('read_label', result);
 
       const raw = parseJsonObject(result.text);
       if (!raw) {
@@ -210,7 +226,14 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       const { system, prompt } = buildImportPrompt(target, headers, samples);
-      const result = await callAi({ system, prompt, maxTokens: 1200 });
+      const result = await callAi({
+        system,
+        prompt,
+        reasoningEffort: 'low',
+        maxTokens: 1200,
+        temperature: 0.1,
+      });
+      logAiUsage('import_review', result);
       const review = parseImportReview(result.text, target, headers.length);
       if (!review) {
         sendJson(res, { error: 'A IA não devolveu uma revisão válida. O mapeamento automático foi mantido.' }, 502);

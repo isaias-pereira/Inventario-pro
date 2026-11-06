@@ -67,6 +67,31 @@ describe('Cliente da API da NVIDIA', () => {
     expect(parts[0].type).toBe('text');
   });
 
+  it('envia reasoning_effort quando informado', () => {
+    const payload = buildChatPayload({
+      system: 'S',
+      prompt: 'P',
+      reasoningEffort: 'low',
+    });
+    expect(payload.reasoning_effort).toBe('low');
+  });
+
+  it('omite reasoning_effort quando não informado (o provedor recusa valores fora de low/medium/high)', () => {
+    const payload = buildChatPayload({ system: 'S', prompt: 'P' });
+    expect('reasoning_effort' in payload).toBe(false);
+  });
+
+  it('usa os tokens e a temperatura informados', () => {
+    const payload = buildChatPayload({
+      system: 'S',
+      prompt: 'P',
+      maxTokens: 2048,
+      temperature: 0.1,
+    });
+    expect(payload.max_tokens).toBe(2048);
+    expect(payload.temperature).toBe(0.1);
+  });
+
   it('gera a data URL da imagem', () => {
     expect(imageDataUrl({ base64: 'Zm9v', mimeType: 'image/png' })).toBe('data:image/png;base64,Zm9v');
   });
