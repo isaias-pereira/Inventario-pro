@@ -363,7 +363,8 @@ const AddProductView = () => {
                     {mode === 'add' && closedMode ? 'EAN do produto' : mode === 'edit' ? 'EAN principal' : 'EAN'}
                   </label>
                   {mode === 'add' && (
-                    <label htmlFor="product-closed-mode" className="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    // Só o checkbox + a sigla: o texto poluía a linha do EAN.
+                    <label htmlFor="product-closed-mode" className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-muted-foreground">
                       <Checkbox
                         id="product-closed-mode"
                         checked={closedMode}
@@ -372,8 +373,9 @@ const AddProductView = () => {
                           setExisting(null); setConfirmOpen(false); resetPackagingForm();
                         }}
                         disabled={loading}
+                        aria-label="Embalagem fechada (CX/FD/SC)"
+                        title="Embalagem fechada (CX/FD/SC)"
                       />
-                      Embalagem fechada
                       <span className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">CX/FD/SC</span>
                     </label>
                   )}
