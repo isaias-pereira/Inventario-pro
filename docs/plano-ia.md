@@ -22,7 +22,7 @@ previsão seria ficção. O ganho real é:
 
 | # | Onde | O que a IA faria | Ganho | Viabilidade hoje | Esforço |
 |---|------|------------------|-------|------------------|---------|
-| 1 | **Validade** (foto da etiqueta) | Lê EAN, validade, quantidade, descrição e tipo (KG/UN) a partir da foto | Alto | ✅ Total | 1–2 dias |
+| 1 | **Catálogo / Adicionar Produto** (foto da etiqueta) | Lê EAN, código, descrição e tipo (KG/UN) a partir da foto e preenche o cadastro | Alto | ✅ Total | 1–2 dias |
 | 2 | **Base de Dados** (importação) | Mapeia colunas de planilha real, valida linhas, sugere correções antes de gravar | Alto | ✅ Total | 2–3 dias |
 | 3 | **Catálogo** (normalização em lote) | Descrição → tipo KG/UN, categoria, limpeza de duplicatas | Médio | ✅ Total | 2–3 dias |
 | 4 | **Rebaixa / Validade** (briefing) | Prioriza por risco (prazo × quantidade × valor), explica o porquê | Médio | ✅ Boa | 3–5 dias |
@@ -71,18 +71,25 @@ E-mail, Base de Dados, Usuários, Adicionar Produto.
 
 ## 3. Onde a IA se encaixa (detalhamento)
 
-### 3.1 Validade — melhor encaixe (P0) ✅ Implementado
+### 3.1 Cadastro de produto — ler a etiqueta pela foto (P0) ✅ Implementado
 
-Hoje o `ValidadeView` exige: buscar código/EAN → digitar data → digitar quantidade →
-escolher motivo. Em piso de loja, com celular na mão, isso é o gargalo.
+O cadastro de produto (`Adicionar Produto`) exige: EAN → código interno → descrição →
+tipo. Em piso de loja, com celular na mão, datilhar isso é o gargalo — e a etiqueta
+da prateleira já tem tudo isso impresso.
 
-A IA lê a **foto da etiqueta** (visão) e devolve `{ean, validade, quantidade, descricao,
-tipo}`; o backend ainda resolve o produto no catálogo e a **pessoa confirma antes de
-salvar** → alucinação é contida pelos olhos humanos.
+A IA lê a **foto da etiqueta** (visão) e devolve `{ean, codigo, descricao, tipo}`; o
+backend ainda cruza com o catálogo e a **pessoa confirma antes de salvar** → alucinação
+é contida pelos olhos humanos.
 
 - **Desenho**: `api/ai-assist.ts` (ação `read_label`) + `api/_lib/ai-label.ts`
-  (parse/validação puros) + `src/lib/ai-image.ts` (compressão no cliente).
-- **Fallback**: sem `AI_API_KEY`, a função responde **503** e o fluxo manual continua.
+  (parse/validação puros) + `src/lib/ai-image.ts` (compressão no cliente) +
+  `src/lib/ai-label.ts` (`labelToProductFields`, puro).
+- **Tela**: botão **"Scanear Etiqueta"** ao lado de **"Adicionar Produto"**
+  (`src/components/AddProductView.tsx`); ele abre a câmera e preenche EAN, código,
+  descrição e tipo. A leitura da etiqueta **não** fica na tela de Validade — lá ela
+  nada tinha a ver (a validade do produto continua digitada).
+- **Fallback**: sem `NVIDIA_API_KEY`, a função responde **503** e o cadastro manual
+  continua.
 
 ### 3.2 Base de Dados — importação assistida (P0) ✅ Implementado
 
@@ -215,7 +222,7 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
 | 0 | Correções de dados (bugs §5) | ⏳ Pendente |
 | 0 | `vendas_diarias` (SKU × dia × qtd × valor) | ⏳ Pendente — destrava previsão |
 | 0 | Popular a aba Perdas a partir de `rebaixa_products` | ⏳ Pendente |
-| 1 | **Leitura de etiqueta por foto (Validade)** | ✅ Implementado |
+| 1 | **Leitura de etiqueta por foto (cadastro de produto)** | ✅ Implementado |
 | 1 | **Importação assistida (Base de Dados)** | ✅ Implementado |
 | 1 | Normalização do catálogo em lote | ⏳ Pendente |
 | 2 | Briefing do encarregado + retrospectiva de perda | ⏳ Pendente |
@@ -286,7 +293,7 @@ Conclusões que viraram regra no código:
 ### Métricas de acompanhamento
 
 1. **Taxa de aceite das sugestões** por ação (KPI mais importante)
-2. Tempo médio de cadastro na Validade (antes × depois) e % de itens via foto
+2. Tempo médio de cadastro de produto (antes × depois) e % de cadastros via foto
 3. % de linhas de importação aceitas sem correção manual
 4. % do catálogo com `tipo` preenchido e padronizado
 5. **R$ de perda evitada** (precisa de baseline antes da Fase 1)

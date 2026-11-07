@@ -25,8 +25,20 @@ vi.mock('html5-qrcode', () => ({
 
 vi.mock('@/lib/api', () => ({ invokeFunction: vi.fn() }));
 
+// O jsdom não decodifica imagem: a compressão da foto é testada à parte
+// (src/test/ai-image.test.ts). Aqui só importa o resultado.
+vi.mock('@/lib/ai-image', () => ({
+  prepareImage: vi.fn(async () => ({
+    base64: 'QUFB',
+    mimeType: 'image/jpeg',
+    width: 100,
+    height: 100,
+    bytes: 3,
+  })),
+}));
+
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
 const invokeMock = vi.mocked(invokeFunction);
@@ -138,5 +150,39 @@ describe('AddProductView', () => {
 
     await waitFor(() => expect(screen.getByLabelText('EAN fechado')).toHaveValue('7895555555555'));
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('fills the product fields from a scanned label without saving', async () => {
+    invokeMock.mockResolvedValueOnce({
+      data: {
+        label: { ean: '7509546707761', codigo: '3265420', descricao: 'SH DARLING 315ML', tipo: 'UN' },
+        produto: null,
+        avisos: ['Produto não encontrado no catálogo: confira o código e consulte manualmente.'],
+      },
+      error: null,
+    } as never);
+
+    const user = userEvent.setup();
+    render(<AddProductView />);
+
+    await user.click(screen.getByRole('button', { name: 'Scanear Etiqueta' }));
+
+    const input = document.querySelector('input[type=file]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    const arquivo = new File(['fake'], 'etiqueta.jpg', { type: 'image/jpeg' });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [arquivo] } });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText('EAN')).toHaveValue('7509546707761'));
+    expect(screen.getByLabelText('Código')).toHaveValue('3265420');
+    expect(screen.getByLabelText('Descrição')).toHaveValue('SH DARLING 315ML');
+
+    // O botão é type="button": a leitura não envia o formulário.
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith(
+      'ai-assist',
+      expect.objectContaining({ body: expect.objectContaining({ action: 'read_label' }) }),
+    );
   });
 });

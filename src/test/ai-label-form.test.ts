@@ -1,39 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { labelToForm } from '@/lib/ai-label';
+import { labelToProductFields } from '@/lib/ai-label';
 
-describe('Preenchimento do formulário pela leitura da etiqueta', () => {
+describe('Preenchimento do cadastro de produto pela leitura da etiqueta', () => {
   it('preenche os campos com o produto do catálogo', () => {
-    const fill = labelToForm(
+    const fields = labelToProductFields(
       { ean: '789', validade: '2027-03-12', quantidade: 6, tipo: 'UN' },
       { ean: '111', codigo: '631612', descricao: 'BANANA NANICA', tipo: 'KG' },
     );
-    expect(fill).toEqual({
+    expect(fields).toEqual({
       ean: '111',
       codigo: '631612',
       descricao: 'BANANA NANICA',
       tipo: 'KG',
-      validade: '2027-03-12',
-      quantidade: '6',
     });
   });
 
   it('usa a leitura da IA quando o catálogo não devolve nada', () => {
-    const fill = labelToForm(
-      { ean: '789', codigo: '999', descricao: 'BANANA', validade: '2027-03-12', quantidade: 2, tipo: 'KG' },
+    const fields = labelToProductFields(
+      { ean: '789', codigo: '999', descricao: 'banana nanica', tipo: 'KG' },
       null,
     );
-    expect(fill?.codigo).toBe('999');
-    expect(fill?.descricao).toBe('BANANA');
+    expect(fields.ean).toBe('789');
+    expect(fields.codigo).toBe('999');
+    expect(fields.descricao).toBe('BANANA NANICA');
+    expect(fields.tipo).toBe('KG');
   });
 
-  it('devolve null quando não há código para consultar', () => {
-    expect(labelToForm({ ean: '789' }, null)).toBeNull();
-    expect(labelToForm(null, null)).toBeNull();
+  it('deixa vazio o que não foi lido', () => {
+    const fields = labelToProductFields({ ean: '789' }, null);
+    expect(fields.ean).toBe('789');
+    expect(fields.codigo).toBe('');
+    expect(fields.descricao).toBe('');
+    expect(fields.tipo).toBeNull();
   });
 
-  it('deixa vazio o que não foi lido com segurança', () => {
-    const fill = labelToForm({ codigo: '1', validade: null, quantidade: null }, null);
-    expect(fill?.validade).toBe('');
-    expect(fill?.quantidade).toBe('');
+  it('aceita apenas KG e UN como tipo (o formulário tem essas duas opções)', () => {
+    expect(labelToProductFields({ tipo: 'kg' }, null).tipo).toBe('KG');
+    expect(labelToProductFields({ tipo: 'UN' }, null).tipo).toBe('UN');
+    expect(labelToProductFields({ tipo: 'balança' }, null).tipo).toBeNull();
+    expect(labelToProductFields({}, null).tipo).toBeNull();
+  });
+
+  it('limita a descrição ao tamanho do campo', () => {
+    const fields = labelToProductFields({ descricao: 'x'.repeat(200) }, null);
+    expect(fields.descricao).toHaveLength(100);
   });
 });

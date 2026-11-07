@@ -9,7 +9,10 @@ import { invokeFunction } from '@/lib/api';
 import { formatQuantity, packagingLabel } from '@/lib/packaging';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { toast } from 'sonner';
-import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes, Loader2 } from 'lucide-react';
+import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes, Loader2, Camera } from 'lucide-react';
+import { prepareImage } from '@/lib/ai-image';
+import { labelToProductFields } from '@/lib/ai-label';
+import { trackEvent } from '@/lib/analytics';
 
 interface PackagingInfo {
   ean_fechado: string;
@@ -60,6 +63,9 @@ const AddProductView = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [existing, setExisting] = useState<ExistingProduct | null>(null);
   const [editing, setEditing] = useState<ExistingProduct | null>(null);
+  /** Leitura da etiqueta por foto (IA): carregando e campo de arquivo. */
+  const [scanningLabel, setScanningLabel] = useState(false);
+  const labelInputRef = useRef<HTMLInputElement>(null);
 
   // Modo embalagem fechada (CX/FD/SC)
   const [closedMode, setClosedMode] = useState(false);
@@ -141,6 +147,57 @@ const AddProductView = () => {
     }, 400);
     return () => window.clearTimeout(timer);
   }, [ean, mode, closedMode]);
+
+  /**
+   * Lê a etiqueta pela foto (IA) e preenche o formulário de produto.
+   *
+   * A IA só preenche: a pessoa confere EAN, código, descrição e tipo antes
+   * de salvar. Sem IA configurada, o cadastro continua manual.
+   */
+  const handleLabelPhoto = async (file: File) => {
+    if (scanningLabel) return;
+    setScanningLabel(true);
+    // A leitura leva de 15 s a ~40 s (o modelo raciocina antes de responder).
+    toast.info('Lendo a etiqueta… isso pode levar até 40 segundos.');
+    try {
+      const image = await prepareImage(file);
+      const token = localStorage.getItem('estoque_pro_token');
+      const { data, error } = await invokeFunction('ai-assist', {
+        body: { action: 'read_label', image: image.base64, mimeType: image.mimeType },
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+      });
+      if (error || !data) {
+        const status = (error as { context?: { status?: number } } | null)?.context?.status;
+        toast.error(
+          status === 504
+            ? 'A IA demorou demais para ler a foto. Tente uma foto mais próxima e mais nítida.'
+            : error?.message || 'Não foi possível ler a etiqueta.',
+        );
+        return;
+      }
+
+      const fields = labelToProductFields(data.label, data.produto);
+      if (fields.ean) setEan(fields.ean);
+      if (fields.codigo) setCodigo(fields.codigo);
+      if (fields.descricao) setDescricao(fields.descricao);
+      if (fields.tipo) setTipo(fields.tipo);
+      setExisting(null);
+      setConfirmOpen(false);
+      trackEvent('scanear_etiqueta', { resultado: 'preenchido' });
+      toast.success('Etiqueta lida — confira os dados antes de salvar.');
+
+      // Avisos da leitura (o "produto não está no catálogo" é o caso normal
+      // aqui: está-se cadastrando um produto novo).
+      const avisos = Array.isArray(data.avisos) ? (data.avisos as string[]) : [];
+      for (const aviso of avisos) {
+        if (!/não encontrado no catálogo/i.test(aviso)) toast.warning(aviso);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao ler a etiqueta');
+    } finally {
+      setScanningLabel(false);
+    }
+  };
 
   const performInsert = async () => {
     setLoading(true);
@@ -435,10 +492,38 @@ const AddProductView = () => {
                 </>
               )}
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {mode === 'edit' ? <Save /> : <PackagePlus />}
-                {loading ? 'Aguarde...' : mode === 'edit' ? 'Salvar alterações' : closedMode ? 'Vincular embalagem' : 'Adicionar Produto'}
-              </Button>
+              <div className="flex gap-2">
+                <Button type="submit" className="min-w-0 flex-1" disabled={loading}>
+                  {mode === 'edit' ? <Save /> : <PackagePlus />}
+                  {loading ? 'Aguarde...' : mode === 'edit' ? 'Salvar alterações' : closedMode ? 'Vincular embalagem' : 'Adicionar Produto'}
+                </Button>
+                {mode === 'add' && !closedMode && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => labelInputRef.current?.click()}
+                    disabled={loading || scanningLabel}
+                    title="Ler a etiqueta pela foto e preencher o cadastro"
+                    aria-label="Scanear Etiqueta"
+                    className="shrink-0 gap-2 px-3 text-xs sm:text-sm"
+                  >
+                    {scanningLabel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                    Scanear Etiqueta
+                  </Button>
+                )}
+              </div>
+              <input
+                ref={labelInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void handleLabelPhoto(file);
+                }}
+              />
             </form>
           )}
         </CardContent>

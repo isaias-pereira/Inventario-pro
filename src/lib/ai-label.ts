@@ -1,8 +1,11 @@
 /**
- * Aplicação da leitura da etiqueta no formulário da Validade (cliente).
+ * Aplicação da leitura da etiqueta no formulário de produto (cliente).
  *
  * A leitura vem do servidor já cruzada com o catálogo. Aqui só transformamos
- * isso nos campos do formulário — de forma pura, para poder ser testada.
+ * isso nos campos do formulário de cadastro — de forma pura, para poder ser
+ * testada.
+ *
+ * Regra do projeto: a IA **preenche** a tela, a pessoa confere e salva.
  */
 
 export interface LabelData {
@@ -14,40 +17,46 @@ export interface LabelData {
   tipo?: string | null;
 }
 
-export interface LabelFormFill {
+export interface LabelProductFields {
+  /** EAN lido (string vazia quando não veio). */
   ean: string;
+  /** Código interno lido (string vazia quando não veio). */
   codigo: string;
+  /** Descrição lida, em maiúsculas (string vazia quando não veio). */
   descricao: string;
+  /** `KG`, `UN` ou `null` quando a IA não identificou o tipo. */
   tipo: string | null;
-  /** Data no formato `AAAA-MM-DD` (vazio quando não lida). */
-  validade: string;
-  /** Quantidade como texto (vazio quando não lida). */
-  quantidade: string;
 }
 
 function text(value: unknown): string {
   return value == null ? '' : String(value).trim();
 }
 
+/** O formulário de produto só aceita `KG` ou `UN`. */
+function normalizeTipo(value: unknown): string | null {
+  const raw = text(value).toUpperCase();
+  if (raw === 'KG') return 'KG';
+  if (raw === 'UN') return 'UN';
+  return null;
+}
+
 /**
- * Monta o preenchimento do formulário.
+ * Monta o preenchimento do formulário de produto.
  *
- * Devolve `null` quando o produto não está no catálogo: nesse caso a tela
- * mantém o código lido para a consulta manual.
+ * O catálogo manda quando existe (descrição e tipo limpos); a leitura da IA
+ * entra no que o catálogo não tem. Campos que não vieram ficam vazios — a
+ * pessoa preenche na mão.
  */
-export function labelToForm(label: LabelData | null | undefined, produto: LabelData | null | undefined): LabelFormFill | null {
+export function labelToProductFields(
+  label: LabelData | null | undefined,
+  produto: LabelData | null | undefined,
+): LabelProductFields {
   const source = label ?? {};
   const found = produto ?? null;
-  const codigo = text(found?.codigo) || text(source.codigo);
-  if (!codigo) return null;
-
-  const quantidade = Number(source.quantidade);
   return {
     ean: text(found?.ean) || text(source.ean),
-    codigo,
-    descricao: text(found?.descricao) || text(source.descricao),
-    tipo: text(found?.tipo) || text(source.tipo) || null,
-    validade: text(source.validade),
-    quantidade: Number.isFinite(quantidade) && quantidade > 0 ? String(Math.trunc(quantidade)) : '',
+    codigo: text(found?.codigo) || text(source.codigo),
+    descricao: (text(found?.descricao) || text(source.descricao)).toUpperCase().slice(0, 100),
+    tipo: normalizeTipo(found?.tipo ?? source.tipo),
   };
 }
