@@ -8,9 +8,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import arrastaoBg from '@/assets/arrastao-bg.webp';
+import { convertPackagingQuantity, formatQuantity, packagingBadge, packagingLabel, productUnit } from '@/lib/packaging';
 
 interface ArrastaoSession {
   id: string;
@@ -36,7 +37,21 @@ interface ArrastaoItem {
   created_at: string;
 }
 
-interface ProductResult { ean: string; codigo: string; descricao: string }
+/** Embalagem fechada (CX/FD/SC) vinculada a um produto do catálogo. */
+interface PackagingInfo {
+  ean_fechado: string;
+  tipo_embalagem: string;
+  quantidade_fechada: number;
+}
+
+interface ProductResult {
+  ean: string;
+  codigo: string;
+  descricao: string;
+  tipo?: string | null;
+  /** Preenchido quando o código buscado é a EAN de uma caixa/fardo/saco. */
+  embalagem?: PackagingInfo | null;
+}
 
 function getToken(): string | null {
   try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
@@ -192,6 +207,15 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
 
   const handleAddItem = async () => {
     if (!activeSession || !product || !validade || submitting) return;
+    // Embalagem fechada: a quantidade digitada é em caixas/fardos/sacos e
+    // vira unidades do produto base (2 CX × 15 = 30 un).
+    const fator = product.embalagem ? Number(product.embalagem.quantidade_fechada) : 1;
+    const digitada = quantidade.trim() === '' ? 1 : parseInt(quantidade) || 0;
+    const total = convertPackagingQuantity(digitada, fator);
+    if (total < 1) {
+      toast.error('Informe a quantidade');
+      return;
+    }
     setSubmitting(true);
     const { data, error } = await invoke('add_item', {
       session_id: activeSession.id,
@@ -200,12 +224,19 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
         codigo: Number(product.codigo),
         descricao: product.descricao,
         validade: new Date(validade + 'T23:59:59').toISOString(),
-        quantidade: parseInt(quantidade) || 1,
+        quantidade: total,
       },
     });
     setSubmitting(false);
     if (error || data?.error) { toast.error(data?.error || 'Erro'); return; }
-    toast.success('Item coletado');
+    toast.success(
+      'Item coletado',
+      product.embalagem
+        ? {
+            description: `${digitada} ${packagingLabel(product.embalagem.tipo_embalagem).singular} × ${formatQuantity(fator)} = ${formatQuantity(total)} ${productUnit(product.tipo)}`,
+          }
+        : undefined,
+    );
     setCode(''); setValidade(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
     fetchItems(activeSession.id);
   };
@@ -348,6 +379,15 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
     return `${h}h${m.toString().padStart(2,'0')} restantes`;
   };
 
+  // Embalagem fechada do produto buscado (CX/FD/SC): a quantidade digitada
+  // é em caixas e vira unidades do produto base.
+  const packaging = product?.embalagem ?? null;
+  const packagingQuantity = packaging ? Number(packaging.quantidade_fechada) : 1;
+  const packagingName = packaging ? packagingLabel(packaging.tipo_embalagem) : null;
+  const foundUnit = productUnit(product?.tipo);
+  const convertedPreview =
+    packaging && quantidade.trim() !== '' ? convertPackagingQuantity(Number(quantidade), packagingQuantity) : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -366,6 +406,9 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
               <Badge variant="outline" className="ml-2">Corredor: {activeSession.corredor}</Badge>
             )}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Coleta os produtos do corredor com validade e quantidade.
+          </DialogDescription>
         </DialogHeader>
 
         {/* TABS */}
@@ -511,7 +554,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
                 inputMode="numeric"
                 disabled={searchStatus === 'found' || searchStatus === 'loading' || finalizing || sessionEnded}
               />
-              <Button onClick={() => searchProduct(code.trim())} disabled={!code.trim() || searchStatus === 'loading' || searchStatus === 'found' || finalizing || sessionEnded} className="gap-1">
+              <Button onClick={() => searchProduct(code.trim())} disabled={!code.trim() || searchStatus === 'loading' || searchStatus === 'found' || finalizing || sessionEnded} className="gap-1" aria-label="Buscar produto" title="Buscar produto">
                 {searchStatus === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanBarcode className="h-4 w-4" />}
               </Button>
             </div>
@@ -533,16 +576,50 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
                 <div className="flex items-center gap-2 mb-2">
                   <ShoppingBasket className="h-4 w-4 text-primary" />
                   <span className="text-sm font-semibold">{product.descricao}</span>
+                  {packaging && (
+                    <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+                      {packagingBadge(packaging.tipo_embalagem, packagingQuantity)}
+                    </span>
+                  )}
                 </div>
-                <p className="text-[11px] font-mono text-muted-foreground mb-2">EAN: {product.ean}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Input type="date" value={validade} onChange={(e) => setValidade(e.target.value)} className="max-w-[180px]" disabled={finalizing || sessionEnded} />
-                  <Input type="number" min="0" value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/\D/g,''))} placeholder="Qtd" className="max-w-[80px]" inputMode="numeric" disabled={finalizing || sessionEnded} />
+                <p className="text-[11px] font-mono text-muted-foreground mb-2">
+                  {packaging ? `EAN fechado: ${packaging.ean_fechado}` : `EAN: ${product.ean}`}
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Input type="date" aria-label="Data de validade" value={validade} onChange={(e) => setValidade(e.target.value)} className="max-w-[180px]" disabled={finalizing || sessionEnded} />
+                  <div>
+                    <label htmlFor="arrastao-quantidade" className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      {packagingName ? `Qtd de ${packagingName.plural}` : 'Qtd'}
+                    </label>
+                    <Input
+                      id="arrastao-quantidade"
+                      type="number"
+                      min="0"
+                      aria-label={packagingName ? `Qtd de ${packagingName.plural}` : 'Qtd'}
+                      value={quantidade}
+                      onChange={(e) => setQuantidade(e.target.value.replace(/\D/g,''))}
+                      placeholder="Qtd"
+                      className="max-w-[80px]"
+                      inputMode="numeric"
+                      disabled={finalizing || sessionEnded}
+                    />
+                  </div>
+                  {packaging && convertedPreview !== null && convertedPreview > 0 && (
+                    <p className="pb-2 text-sm font-semibold text-primary" aria-live="polite">
+                      = {formatQuantity(convertedPreview)} {foundUnit}
+                    </p>
+                  )}
                   <Button onClick={handleAddItem} disabled={submitting || !validade || finalizing || sessionEnded} className="gap-1">
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Coletar
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); setQuantidade(''); }}>Cancelar</Button>
                 </div>
+                {packaging && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    1 {packagingName?.singular} = {formatQuantity(packagingQuantity)} {foundUnit}. Ao coletar, o total
+                    convertido é o que vale.
+                  </p>
+                )}
               </div>
             )}
 
