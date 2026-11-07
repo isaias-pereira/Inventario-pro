@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatQuantity, packagingBadge, packagingLabel, productUnit, toQuantity } from '../lib/packaging';
+import { convertPackagingQuantity, formatQuantity, packagingBadge, packagingLabel, productUnit, toQuantity } from '../lib/packaging';
 
 describe('packaging helpers', () => {
   it('converts numeric strings returned by the database', () => {
@@ -45,5 +45,28 @@ describe('packaging helpers', () => {
   it('builds the short package badge', () => {
     expect(packagingBadge('CX', 10)).toBe('CX ×10');
     expect(packagingBadge('FD', 10.5)).toBe('FD ×10,5');
+  });
+
+  it('converts the counted packages into units of the base product', () => {
+    expect(convertPackagingQuantity(2, 15)).toBe(30);
+    expect(convertPackagingQuantity(1, 15)).toBe(15);
+    expect(convertPackagingQuantity(3, 6)).toBe(18);
+  });
+
+  it('keeps the quantity as is when there is no package', () => {
+    expect(convertPackagingQuantity(4, null)).toBe(4);
+    expect(convertPackagingQuantity(4, undefined)).toBe(4);
+    expect(convertPackagingQuantity(4, 0)).toBe(4);
+  });
+
+  it('rounds the total because the validade stores whole units', () => {
+    expect(convertPackagingQuantity(1, 12.5)).toBe(13);
+    expect(convertPackagingQuantity(3, 2.4)).toBe(7);
+  });
+
+  it('never returns a negative or broken total', () => {
+    expect(convertPackagingQuantity(0, 15)).toBe(0);
+    expect(convertPackagingQuantity(-2, 15)).toBe(-30);
+    expect(convertPackagingQuantity(2, Number.NaN)).toBe(2);
   });
 });

@@ -40,17 +40,27 @@ import { browserBlocksFileShare, fileFromBytes, shareFileWithSystem } from '@/li
 import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib/validade-csv';
 import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
 import { addRebaixaItems, motivoFromValidade, tipoFromMotivo } from '@/lib/rebaixa';
+import { convertPackagingQuantity, formatQuantity, packagingBadge, packagingLabel, productUnit } from '@/lib/packaging';
 import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
 const PDF_MIME = 'application/pdf';
 
 
+/** Embalagem fechada (CX/FD/SC) vinculada a um produto do catálogo. */
+interface PackagingInfo {
+  ean_fechado: string;
+  tipo_embalagem: string;
+  quantidade_fechada: number;
+}
+
 interface ProductResult {
   ean: string;
   codigo: string;
   descricao: string;
   tipo?: string | null;
+  /** Preenchido quando o código buscado é a EAN de uma caixa/fardo/saco. */
+  embalagem?: PackagingInfo | null;
 }
 
 interface ValidadeItem {
@@ -247,6 +257,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
     // Produto de balança (KG) não tem vencimento: registra-se o motivo do rebaixa.
     const peso = isWeightProduct(product.tipo);
     if (peso ? !motivo : !validade) return;
+    // Embalagem fechada: a quantidade digitada é em caixas/fardos/sacos e
+    // vira unidades do produto base (2 CX × 15 = 30 un).
+    const fator = product.embalagem ? Number(product.embalagem.quantidade_fechada) : 1;
+    const digitada = parseInt(quantidade) || 0;
+    const total = convertPackagingQuantity(digitada, fator);
+    if (total < 1) {
+      toast.error('Informe a quantidade');
+      return;
+    }
     setSubmitting(true);
     try {
       const { error } = await invokeWithToken('manage-validade', {
@@ -258,12 +277,19 @@ const [filter, setFilter] = useState<FilterType>('todos');
           validade: peso
             ? new Date(new Date().setHours(23, 59, 59, 0)).toISOString()
             : new Date(validade + 'T23:59:59').toISOString(),
-          quantidade: parseInt(quantidade) || 0,
+          quantidade: total,
           motivo: peso ? motivo : null,
         },
       });
       if (!error) {
-        toast.success('Validade registrada com sucesso');
+        toast.success(
+          'Validade registrada com sucesso',
+          product.embalagem
+            ? {
+                description: `${digitada} ${packagingLabel(product.embalagem.tipo_embalagem).singular} × ${formatQuantity(fator)} = ${formatQuantity(total)} ${productUnit(product.tipo)}`,
+              }
+            : undefined,
+        );
         setCode(''); setValidade(''); setMotivo(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
         await fetchItems();
       } else {
@@ -755,6 +781,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
     setEmailSending(false);
   };
 
+  // Embalagem fechada do produto buscado (CX/FD/SC): a quantidade digitada
+  // é em caixas e vira unidades do produto base.
+  const packaging = product?.embalagem ?? null;
+  const packagingQuantity = packaging ? Number(packaging.quantidade_fechada) : 1;
+  const packagingName = packaging ? packagingLabel(packaging.tipo_embalagem) : null;
+  const foundUnit = productUnit(product?.tipo);
+  const convertedPreview =
+    packaging && quantidade.trim() !== '' ? convertPackagingQuantity(Number(quantidade), packagingQuantity) : null;
+
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-3xl">
@@ -860,10 +895,17 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-4 sm:px-6 py-3 sm:py-4">
                 <ShoppingBasket className="h-5 w-5 text-primary" />
                 <span className="font-semibold text-foreground">Produto Encontrado</span>
+                {packaging && (
+                  <span className="ml-auto rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+                    {packagingBadge(packaging.tipo_embalagem, packagingQuantity)}
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border">
                 {[
-                  { label: 'EAN', value: product.ean },
+                  packaging
+                    ? { label: 'EAN fechado', value: packaging.ean_fechado }
+                    : { label: 'EAN', value: product.ean },
                   { label: 'Código', value: product.codigo },
                   { label: 'Descrição', value: product.descricao },
                   { label: 'Tipo', value: (product.tipo || '').trim().toUpperCase() || '—' },
@@ -897,16 +939,27 @@ const [filter, setFilter] = useState<FilterType>('todos');
                     className="max-w-[180px]"
                   />
                 )}
-                <Input
-                  type="number"
-                  min="0"
-                  aria-label="Quantidade"
-                  value={quantidade}
-                  onChange={(e) => setQuantidade(e.target.value.replace(/\D/g, ''))}
-                  placeholder="0"
-                  className="max-w-[80px]"
-                  inputMode="numeric"
-                />
+                <div>
+                  <label htmlFor="validade-quantidade" className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {packagingName ? `Qtd de ${packagingName.plural}` : 'Quantidade'}
+                  </label>
+                  <Input
+                    id="validade-quantidade"
+                    type="number"
+                    min="0"
+                    aria-label={packagingName ? `Qtd de ${packagingName.plural}` : 'Quantidade'}
+                    value={quantidade}
+                    onChange={(e) => setQuantidade(e.target.value.replace(/\D/g, ''))}
+                    placeholder="0"
+                    className="max-w-[80px]"
+                    inputMode="numeric"
+                  />
+                </div>
+                {packaging && convertedPreview !== null && convertedPreview > 0 && (
+                  <p className="text-sm font-semibold text-primary" aria-live="polite">
+                    = {formatQuantity(convertedPreview)} {foundUnit}
+                  </p>
+                )}
                 <Button
                   onClick={handleAdd}
                   disabled={submitting || (isWeightProduct(product.tipo) ? !motivo : !validade)}
@@ -919,6 +972,12 @@ const [filter, setFilter] = useState<FilterType>('todos');
                   Cancelar
                 </Button>
               </div>
+              {packaging && (
+                <p className="border-t border-border bg-muted/30 px-4 sm:px-6 py-2 text-xs text-muted-foreground">
+                  1 {packagingName?.singular} = {formatQuantity(packagingQuantity)} {foundUnit}. Ao registrar, o total
+                  convertido é o que vale.
+                </p>
+              )}
             </div>
           )}
         </div>

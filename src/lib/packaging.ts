@@ -49,3 +49,20 @@ export function productUnit(tipo: string | null | undefined): string {
 export function packagingBadge(type: string, quantidade: number): string {
   return `${String(type).toUpperCase()} ×${formatQuantity(quantidade)}`;
 }
+
+/**
+ * Converte a quantidade contada em unidades do produto base.
+ *
+ * Uma caixa com 15 unidades e quantidade 2 vira 30 un. Sem embalagem
+ * (`fator` ausente ou inválido) a quantidade vai como está.
+ *
+ * A Validade guarda a quantidade em inteiro, então o total é arredondado —
+ * o mesmo valor que a tela mostra antes de registrar.
+ */
+export function convertPackagingQuantity(quantidade: number, fator?: number | null): number {
+  const f = Number(fator);
+  const fatorValido = Number.isFinite(f) && f > 0 ? f : 1;
+  const total = Number(quantidade) * fatorValido;
+  if (!Number.isFinite(total)) return 0;
+  return Math.round(total);
+}
