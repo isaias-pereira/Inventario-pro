@@ -11,7 +11,10 @@
  * - `read_label`: lê a foto de uma etiqueta e devolve EAN, validade,
  *   quantidade, descrição e tipo, já cruzados com o catálogo;
  * - `import_review`: propõe o mapeamento de colunas de uma planilha e aponta
- *   os problemas (admin only).
+ *   os problemas (admin only);
+ * - `review_categorias`: propõe a seção de produtos mal classificados (admin
+ *   only). A proposta é validada contra a taxonomia e **nada é gravado** aqui:
+ *   a pessoa confere e a gravação usa a action `set_categoria`.
  *
  * Regra do projeto: **sem IA, o app continua funcionando**. Se a chave faltar
  * ou o provedor cair, a função responde 503 e a tela segue no fluxo manual.
@@ -35,6 +38,16 @@ import {
   IMPORT_TARGETS,
   type ImportTarget,
 } from './_lib/ai-import.js';
+import {
+  buildCategoriaPrompt,
+  parseCategoriaReview,
+  CANDIDATOS_PADRAO,
+  CATEGORIA_MAX_TOKENS,
+  MAX_CANDIDATOS,
+  SECAO_OUTROS,
+  type CandidatoSecao,
+  type SecaoTaxonomia,
+} from './_lib/ai-categoria.js';
 
 /** Cache em memória (por instância quente): evita pagar a mesma foto duas vezes. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -246,6 +259,73 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       sendJson(res, { ...review, model: result.model });
+      return;
+    }
+
+    if (action === 'review_categorias') {
+      if (!canImport(payload.role)) {
+        sendJson(res, { error: 'Apenas administradores podem revisar a classificação dos produtos.' }, 403);
+        return;
+      }
+      if (!aiConfigured()) {
+        sendJson(res, { error: 'Revisão por IA indisponível: a IA não está configurada neste ambiente.' }, 503);
+        return;
+      }
+
+      const limite = Math.min(
+        Math.max(Number(body.limite) || CANDIDATOS_PADRAO, 1),
+        MAX_CANDIDATOS,
+      );
+
+      const sql = createSql();
+      const rawSecoes = await sql('SELECT codigo::text, secao FROM public.categoria ORDER BY codigo');
+      const secoes: SecaoTaxonomia[] = rawSecoes.map((row) => ({
+        codigo: String(row.codigo),
+        secao: String(row.secao ?? ''),
+      }));
+
+      // Candidatos: produtos na seção genérica ("Outros") ou sem seção.
+      // A ordem aleatória evita revisar sempre os mesmos códigos.
+      const rawCandidatos = await sql(
+        `SELECT p.codigo::text, p.descricao, c.secao
+           FROM public.produto p
+           LEFT JOIN public.categoria c ON c.codigo = p.categoria_codigo
+          WHERE c.secao = $1 OR p.categoria_codigo IS NULL
+          ORDER BY random()
+          LIMIT $2`,
+        [SECAO_OUTROS, limite],
+      );
+      const candidatos: CandidatoSecao[] = rawCandidatos.map((row) => ({
+        codigo: String(row.codigo),
+        descricao: String(row.descricao ?? ''),
+        secaoAtual: row.secao == null ? null : String(row.secao),
+      }));
+
+      if (candidatos.length === 0) {
+        sendJson(res, { candidatos: [], propostas: [], avisos: [], model: aiModel() });
+        return;
+      }
+
+      const { system, prompt } = buildCategoriaPrompt(candidatos, secoes);
+      const startedAt = Date.now();
+      const result = await callAi({
+        system,
+        prompt,
+        reasoningEffort: 'low',
+        // O modelo raciocina muito: com 4096 tokens ele só pensava e devolvia
+        // vazio a partir de 20 produtos (medido).
+        maxTokens: CATEGORIA_MAX_TOKENS,
+        temperature: 0.1,
+      });
+      logAiUsage('review_categorias', result, Date.now() - startedAt);
+
+      const review = parseCategoriaReview(result.text, candidatos, secoes);
+      if (!review) {
+        sendJson(res, { error: 'A IA não devolveu uma revisão válida. Nenhuma seção foi alterada.' }, 502);
+        return;
+      }
+
+      sendJson(res, { ...review, candidatos, model: result.model });
       return;
     }
 

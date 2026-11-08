@@ -10,6 +10,7 @@ import MetasView from '@/components/MetasView';
 import ValidadeView from '@/components/ValidadeView';
 import RebaixaView from '@/components/RebaixaView';
 import EmailView from '@/components/EmailView';
+import RevisaoSecoesView from '@/components/RevisaoSecoesView';
 import LoginPage from '@/pages/LoginPage';
 import { trackView } from '@/lib/analytics';
 
@@ -56,6 +57,7 @@ const Index = () => {
     base: 'Base de Dados',
     usuarios: 'Gerenciamento de Usuários',
     'add-produto': 'Adicionar Produto',
+    'revisao-secoes': 'Revisão de Seções',
   };
 
   return (
@@ -76,6 +78,7 @@ const Index = () => {
       {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
       {safeView === 'usuarios' && isAdmin && <UserManagementView />}
       {safeView === 'add-produto' && isAdmin && <AddProductView />}
+      {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
 
     </div>
   );

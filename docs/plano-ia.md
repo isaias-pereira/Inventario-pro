@@ -1,7 +1,8 @@
 # Plano de IA (SGS-PRO)
 
-> Documento de referência para decisões futuras. **Atualizado:** 06/11/2026.
-> Status do código: Fase 1 (itens 1 e 2) implementada — ver [§7](#7-status-atual).
+> Documento de referência para decisões futuras. **Atualizado:** 08/11/2026.
+> Status do código: Fase 1 (itens 1 e 2) implementada + item 3 **parcial** (seção/categoria)
+> — ver [§7](#7-status-atual).
 
 Este documento responde: **onde uma API de IA traria valor real neste projeto**, o que
 **não** vale a pena, o que falta nos dados e por onde começar. Ele foi escrito a partir
@@ -102,11 +103,26 @@ Meta: dia/meta; Realizado: dia/venda). Planilha real de loja quase nunca vem ass
 - **Fallback**: `guessMapping` (heurística por nome de cabeçalho, sem accents/caixa)
   funciona sem IA; a IA só refina o mapeamento e acrescenta avisos.
 
-### 3.3 Catálogo / Adicionar Produto (P1) — não iniciado
+### 3.3 Catálogo — normalização em lote (P1) — 🟡 parcial: **seção (categoria) ✅ Implementado**
 
-Descrição → tipo KG/UN + categoria + descrição normalizada, em lote (chunk de 500, como
-`fetchProductCustos`). O endpoint de edição já é transacional e atômico → encaixa
-perfeito com revisão antes de gravar.
+O catálogo passou a ter uma taxonomia de **19 seções de mercearia** (tabela `categoria`,
+FK `produto.categoria_codigo`). A cobertura já é de 12.172/12.173 produtos — mas
+**1.248 (~10%) estão em "Outros"**, a seção genérica: é aí que a IA entra.
+
+- **Desenho**: a action `review_categorias` (`api/ai-assist.ts` + `api/_lib/ai-categoria.ts`)
+  sorteia um lote de produtos em "Outros" (ou sem seção), manda o **nome + descrição** para
+  o modelo e recebe propostas de seção. A resposta é **validada contra a taxonomia**
+  (seção inexistente ou "Outros" é descartada) e a **pessoa confere antes de gravar**:
+  a gravação usa a action `set_categoria` do `query-product`, que revalida o código.
+- **Tela**: **Revisão de Seções** (`src/components/RevisaoSecoesView.tsx`), no menu do
+  usuário (**admin only**). Cada proposta vem com checkbox, seletor de seção (a pessoa
+  pode trocar a sugestão) e a confiança declarada pelo modelo.
+- **Regra que não muda**: a IA **proíbe**, a pessoa **decide**. Nada é gravado no banco
+  pela chamada de IA.
+- **Fallback**: sem `NVIDIA_API_KEY` → 503 e a seção continua se ajustando manualmente
+  no cadastro de produto (campo **Seção**).
+- **Ainda falta** (o resto do item 3): normalização de **tipo KG/UN** e limpeza de
+  **descrição** em lote.
 
 ### 3.4 Rebaixa + Validade: briefing do encarregado (P1) — não iniciado
 
@@ -189,7 +205,8 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
                                                        Neon (cache + auditoria)
 ```
 
-- **Functions**: `api/ai-assist.ts` com ações `config`, `read_label`, `import_review`.
+- **Functions**: `api/ai-assist.ts` com ações `config`, `read_label`, `import_review` e
+  `review_categorias` (admin only).
   Padrão de `send-rebaixa-email.ts`: `requirePost` → `authenticate` → `readJsonBody` →
   `sendJson`; permissões por `payload.role`.
 - **Chave só no servidor**: `AI_API_KEY` (+ `AI_MODEL`) nas **env vars da Vercel**. O
@@ -224,7 +241,8 @@ Navegador ──invokeFunction('ai-assist', {action, ...})──▶ Vercel Funct
 | 0 | Popular a aba Perdas a partir de `rebaixa_products` | ⏳ Pendente |
 | 1 | **Leitura de etiqueta por foto (cadastro de produto)** | ✅ Implementado |
 | 1 | **Importação assistida (Base de Dados)** | ✅ Implementado |
-| 1 | Normalização do catálogo em lote | ⏳ Pendente |
+| 1 | **Seção (categoria) do catálogo revisada por IA** | ✅ Implementado — falta tipo KG/UN + descrição |
+| 1 | Normalização do catálogo em lote (tipo/descrição) | ⏳ Pendente |
 | 2 | Briefing do encarregado + retrospectiva de perda | ⏳ Pendente |
 | 2 | Explicador de divergência de inventário | ⏳ Pendente |
 | 3 | Previsão / NL→SQL (depende da Fase 0) | ⏳ Pendente |
@@ -289,6 +307,29 @@ Conclusões que viraram regra no código:
 | `read_label` (etiqueta real, 1600 px) | HTTP 200 em **28,5 s** — EAN, código, descrição e tipo corretos |
 | `import_review` (6 colunas, 2 linhas) | HTTP 200 em **8,8 s** — mapeamento correto (`codigo`, `descricao`, `estoque`, `preco`) |
 | Fluxo pela tela (botão da câmera → arquivo → formulário) | ✅ formulário preenchido; produto **não** cadastrado no catálogo → a tela deixa o código lido na busca em vez de apresentar "Produto Encontrado" |
+
+### Validação da revisão de seções (catálogo)
+
+Ação `review_categorias` medida contra o banco real (produtos de "Outros", taxonomia
+completa de 19 seções), modelo padrão `nvidia/nemotron-3.5-super-vl-120b-a12b`,
+`reasoning_effort: 'low'`, `temperature: 0.1`:
+
+| Lote | `max_tokens` | Tempo | Resultado |
+|---|---|---|---|
+| 12 | 4096 | 28,5 s | ✅ 12/12 propostas válidas |
+| 20 | 4096 | — | ❌ `finish_reason: length` — o modelo gasta tudo no raciocínio e devolve vazio |
+| 20 | **8192** | **22,5 s** | ✅ 20/20 propostas válidas |
+| 30 | 8192 | 44,7 s | ✅ (no limite do timeout) |
+| 50 | 8192 | — | ❌ não cabe no teto de tokens |
+
+Regras que viraram código (`api/_lib/ai-categoria.ts`):
+
+- Lote padrão **20** produtos (`CANDIDATOS_PADRAO`), máximo **30** (`MAX_CANDIDATOS`).
+- `max_tokens: 8192` (`CATEGORIA_MAX_TOKENS`) — o teto precisa sobrar para a resposta.
+- A proposta é validada contra a taxonomia: seção que não existe é descartada e
+  **"Outros" nunca é aceito** (é justamente o que a revisão quer corrigir).
+- A gravação é sempre pela action `set_categoria` (admin only), que revalida o código
+  da seção no banco — **a IA nunca escreve**.
 
 ### Métricas de acompanhamento
 

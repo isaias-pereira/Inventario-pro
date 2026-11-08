@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
-export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email';
+export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email' | 'revisao-secoes';
 
 interface HeaderProps {
   currentView: ViewType;
@@ -36,6 +36,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     { key: 'base' as const, label: 'Base de Dados', icon: Database },
     { key: 'usuarios' as const, label: 'Usuários', icon: Users },
     { key: 'add-produto' as const, label: 'Adicionar Produto', icon: PackagePlus },
+    { key: 'revisao-secoes' as const, label: 'Revisão de Seções', icon: Tags },
   ];
 
   // E-mail padrão das rebaixas: admin cadastra, encarregado consulta.
