@@ -28,16 +28,26 @@ async function selectOption(user: ReturnType<typeof userEvent.setup>, label: str
   await user.click(await screen.findByRole('option', { name: option }));
 }
 
+/** Respostas enfileiradas para as chamadas do produto (fora a taxonomia). */
+const respostas: Array<{ data: unknown; error?: unknown }> = [];
+const enfileirar = (resposta: { data: unknown; error?: unknown }) => respostas.push(resposta);
+
 beforeEach(() => {
   cleanup();
   invoke.mockReset();
+  respostas.length = 0;
   localStorage.setItem('estoque_pro_token', 'test-token');
+  invoke.mockImplementation(async (_name: string, options?: { body?: { action?: string } }) => {
+    // A taxonomia de seções é carregada ao abrir o cadastro.
+    if (options?.body?.action === 'categorias') return { data: { categorias: [] } };
+    return respostas.shift() ?? { data: {} };
+  });
 });
 
 describe('AddProductView — embalagem fechada', () => {
   it('switches the add form to closed packaging mode and submits the package', async () => {
     const user = userEvent.setup();
-    invoke.mockResolvedValueOnce({
+    enfileirar({
       data: {
         success: true,
         action: 'packaging_added',
@@ -78,21 +88,20 @@ describe('AddProductView — embalagem fechada', () => {
 
   it('lists, removes and adds packages while editing a product', async () => {
     const user = userEvent.setup();
-    invoke
-      .mockResolvedValueOnce({ data: { found: true, product: productWithPackaging } })
-      .mockResolvedValueOnce({ data: { success: true, action: 'packaging_removed' } })
-      .mockResolvedValueOnce({
-        data: {
-          success: true,
-          action: 'packaging_added',
-          product: {
-            ...productWithPackaging,
-            embalagens: [
-              { ean_fechado: '7890000000000', tipo_embalagem: 'FD', quantidade_fechada: 60, descricao: null },
-            ],
-          },
+    enfileirar({ data: { found: true, product: productWithPackaging } });
+    enfileirar({ data: { success: true, action: 'packaging_removed' } });
+    enfileirar({
+      data: {
+        success: true,
+        action: 'packaging_added',
+        product: {
+          ...productWithPackaging,
+          embalagens: [
+            { ean_fechado: '7890000000000', tipo_embalagem: 'FD', quantidade_fechada: 60, descricao: null },
+          ],
         },
-      });
+      },
+    });
 
     render(<AddProductView />);
     fireEvent.click(screen.getByRole('button', { name: /^Editar$/ }));
@@ -104,8 +113,7 @@ describe('AddProductView — embalagem fechada', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remover embalagem 7891234567890' }));
     await waitFor(() =>
-      expect(invoke).toHaveBeenNthCalledWith(
-        2,
+      expect(invoke).toHaveBeenCalledWith(
         'query-product',
         expect.objectContaining({ body: { action: 'remove_packaging', eanFechado: '7891234567890' } }),
       ),
@@ -119,8 +127,7 @@ describe('AddProductView — embalagem fechada', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Vincular embalagem' }));
 
     await waitFor(() =>
-      expect(invoke).toHaveBeenNthCalledWith(
-        3,
+      expect(invoke).toHaveBeenCalledWith(
         'query-product',
         expect.objectContaining({
           body: {
@@ -138,6 +145,7 @@ describe('AddProductView — embalagem fechada', () => {
 
   it('shows the product description below the EAN field while typing', async () => {
     invoke.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.action === 'categorias') return { data: { categorias: [] } };
       if (options.body.codigo === '210') {
         return { data: { found: true, product: productWithPackaging } };
       }

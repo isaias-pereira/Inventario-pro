@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { invokeFunction } from '@/lib/api';
 import { formatQuantity, packagingLabel } from '@/lib/packaging';
+import { fetchCategorias, SEM_SECAO, type Categoria } from '@/lib/categorias';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { toast } from 'sonner';
 import { PackagePlus, Pencil, Search, Plus, Trash2, Save, Boxes, Loader2, Camera } from 'lucide-react';
@@ -29,6 +30,9 @@ interface ExistingProduct {
   codigos?: string[];
   eans?: string[];
   embalagens?: PackagingInfo[];
+  /** Código da seção (categoria) no catálogo; null = sem seção. */
+  categoria_codigo?: string | null;
+  secao?: string | null;
 }
 const digits = (value: string) => value.replace(/\D/g, '').slice(0, 14);
 
@@ -63,6 +67,14 @@ const AddProductView = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [existing, setExisting] = useState<ExistingProduct | null>(null);
   const [editing, setEditing] = useState<ExistingProduct | null>(null);
+  /** Seções da taxonomia do catálogo (action `categorias`). */
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  /**
+   * Seção escolhida no formulário.
+   * `undefined` = a pessoa não mexeu no campo (edição mantém a atual);
+   * `SEM_SECAO` = sem seção (limpa a classificação); outro valor = código.
+   */
+  const [categoria, setCategoria] = useState<string | undefined>(undefined);
   /** Leitura da etiqueta por foto (IA): carregando e campo de arquivo. */
   const [scanningLabel, setScanningLabel] = useState(false);
   const labelInputRef = useRef<HTMLInputElement>(null);
@@ -88,7 +100,7 @@ const AddProductView = () => {
 
   const clearFields = () => {
     setEan(''); setCodigo(''); setDescricao(''); setTipo(''); setLinkedEans([]);
-    setExisting(null); setEditing(null); setClosedMode(false); resetPackagingForm();
+    setExisting(null); setEditing(null); setClosedMode(false); setCategoria(undefined); resetPackagingForm();
   };
   const changeMode = (next: 'add' | 'edit') => {
     clearFields(); setSearch(''); setMode(next); setConfirmOpen(false);
@@ -101,8 +113,18 @@ const AddProductView = () => {
     const primary = product.ean ? String(product.ean) : eans[0] || '';
     setEan(primary);
     setLinkedEans(eans.filter(value => value !== primary));
+    setCategoria(product.categoria_codigo ? String(product.categoria_codigo) : undefined);
     resetPackagingForm();
   };
+
+  // Taxonomia de seções: só falha silenciosa — sem ela o cadastro segue manual.
+  useEffect(() => {
+    let cancelled = false;
+    fetchCategorias()
+      .then(list => { if (!cancelled) setCategorias(list); })
+      .catch(() => { if (!cancelled) setCategorias([]); });
+    return () => { cancelled = true; };
+  }, []);
   const searchProduct = async (value: string) => {
     if (!value.trim()) { toast.error('Informe o código ou EAN'); return; }
     setLoading(true); clearFields();
@@ -199,10 +221,20 @@ const AddProductView = () => {
     }
   };
 
+  /**
+   * Valor enviado no cadastro.
+   * `undefined` = o campo não foi tocado (a edição mantém a seção atual);
+   * `''` = "Sem seção" (limpa a classificação).
+   */
+  const categoriaPayload = (): string | undefined => {
+    if (categoria === undefined) return undefined;
+    return categoria === SEM_SECAO ? '' : categoria;
+  };
+
   const performInsert = async () => {
     setLoading(true);
     try {
-      const data = await productRequest({ action: 'insert', ean: ean.trim(), codigo: codigo.trim(), descricao: descricao.trim(), tipo: tipo.trim() });
+      const data = await productRequest({ action: 'insert', ean: ean.trim(), codigo: codigo.trim(), descricao: descricao.trim(), tipo: tipo.trim(), categoriaCodigo: categoriaPayload() });
       if (data?.action === 'ean_linked') {
         toast.success(data.alreadyLinked ? 'EAN já estava vinculado' : 'EAN vinculado com sucesso!', { description: `EAN ${ean.trim()} → código ${data.product?.codigo} (${data.product?.descricao ?? ''}).` });
       } else if (data?.action === 'linked') {
@@ -264,7 +296,7 @@ const AddProductView = () => {
       if (new Set(eans).size !== eans.length) { toast.error('Não repita EANs vinculados'); return; }
       setLoading(true);
       try {
-        const data = await productRequest({ action: 'update', originalCodigo: String(editing.codigo), codigo, ean, eans, descricao, tipo });
+        const data = await productRequest({ action: 'update', originalCodigo: String(editing.codigo), codigo, ean, eans, descricao, tipo, categoriaCodigo: categoriaPayload() });
         loadProduct(data.product); setSearch(String(data.product.codigo));
         toast.success('Produto atualizado com sucesso!');
       } catch (error) { toast.error(error instanceof Error ? error.message : 'Erro ao editar produto'); }
@@ -452,6 +484,31 @@ const AddProductView = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div>
+                    <label htmlFor="product-secao" className="mb-1 block text-sm font-medium">Seção</label>
+                    <Select
+                      value={categoria ?? ''}
+                      onValueChange={value => setCategoria(value === SEM_SECAO ? SEM_SECAO : value)}
+                      disabled={loading || categorias.length === 0}
+                    >
+                      <SelectTrigger id="product-secao" aria-label="Seção do produto">
+                        <SelectValue placeholder={categorias.length === 0 ? 'Seções indisponíveis' : 'Selecione a seção'}>
+                          {categoria === SEM_SECAO
+                            ? 'Sem seção'
+                            : categorias.find(item => item.codigo === categoria)?.secao ?? ''}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SEM_SECAO}>Sem seção</SelectItem>
+                        {categorias.map(item => (
+                          <SelectItem key={item.codigo} value={item.codigo}>{item.secao}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Seção do catálogo usada nos filtros de validade, inventário e rebaixa.
+                    </p>
+                  </div>
 
                   {mode === 'edit' && editing && (
                     <div className="space-y-3 rounded-lg border p-3">
@@ -542,9 +599,16 @@ const AddProductView = () => {
                   <div><span className="font-medium">Novo EAN:</span> {ean.trim()}</div>
                   <div><span className="font-medium">Descrição atual:</span> {existing.descricao}</div>
                   <div><span className="font-medium">Tipo:</span> {existing.tipo || '—'}</div>
+                  <div><span className="font-medium">Seção atual:</span> {existing.secao || '—'}</div>
+                  {categoria !== undefined && (
+                    <div>
+                      <span className="font-medium">Nova seção:</span>{' '}
+                      {categoria === SEM_SECAO ? 'Sem seção' : categorias.find(item => item.codigo === categoria)?.secao ?? categoria}
+                    </div>
+                  )}
                   {existing.codigos && existing.codigos.length > 1 && <div><span className="font-medium">Códigos vinculados:</span> {existing.codigos.join(', ')}</div>}
                 </div>}
-                <p>O código, a descrição e o tipo serão mantidos. Deseja vincular o novo EAN a este produto?</p>
+                <p>O código, a descrição e o tipo serão mantidos{categoria !== undefined ? ' e a seção será atualizada' : ''}. Deseja vincular o novo EAN a este produto?</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

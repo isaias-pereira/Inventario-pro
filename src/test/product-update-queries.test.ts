@@ -8,6 +8,8 @@ const input: ProductUpdateInput = {
   descricao: 'BANANA NANICA KG 300044334',
   tipo: 'KG',
   eans: ['210', '123456789'],
+  categoriaCodigo: '8',
+  categoriaInformada: true,
 };
 
 /** Maior placeholder posicional usado pela query ($1, $2...). */
@@ -29,7 +31,42 @@ describe('buildProductUpdateQueries', () => {
     );
 
     expect(master?.query).toContain('ean=$2::bigint,descricao=$3,tipo=$4');
-    expect(master?.params).toEqual(['631613', '210', 'BANANA NANICA KG 300044334', 'KG']);
+    expect(master?.params).toEqual([
+      '631613',
+      '210',
+      'BANANA NANICA KG 300044334',
+      'KG',
+      true,
+      '8',
+    ]);
+  });
+
+  it('copies the category when the master code changes', () => {
+    const copy = buildProductUpdateQueries(input).find((statement) =>
+      statement.query.startsWith('INSERT INTO public.produto (codigo'),
+    );
+
+    // A categoria (categoria_codigo) precisa viajar com o novo mestre:
+    // sem isso a troca de código apagava a classificação do produto.
+    expect(copy?.query).toContain('categoria_codigo');
+    expect(copy?.query).toContain('SELECT $2::bigint,$3::bigint,$4,$5,categoria_codigo FROM public.produto');
+  });
+
+  it('keeps the current category when the form did not inform one', () => {
+    const master = buildProductUpdateQueries({ ...input, categoriaInformada: false }).find((statement) =>
+      statement.query.startsWith('UPDATE public.produto SET'),
+    );
+
+    expect(master?.query).toContain('CASE WHEN $5::boolean THEN $6::bigint ELSE categoria_codigo END');
+    expect(master?.params?.slice(4)).toEqual([false, '8']);
+  });
+
+  it('clears the category when the form informs "sem seção"', () => {
+    const master = buildProductUpdateQueries({ ...input, categoriaCodigo: null }).find((statement) =>
+      statement.query.startsWith('UPDATE public.produto SET'),
+    );
+
+    expect(master?.params?.slice(4)).toEqual([true, null]);
   });
 
   it('deletes the old master only when the code actually changes', () => {
