@@ -45,6 +45,8 @@ export interface RebaixaItem {
   validade_id: string | null;
   created_by: string | null;
   created_at: string;
+  /** Seção (categoria) do produto no catálogo. */
+  secao?: string | null;
 }
 
 export interface NewRebaixaItem {

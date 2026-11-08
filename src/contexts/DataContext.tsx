@@ -7,6 +7,9 @@ export interface Product {
   descricao: string;
   estoque: number;
   preco: number;
+  /** Seção (categoria) do produto no catálogo. */
+  categoria_codigo?: string | null;
+  secao?: string | null;
 }
 
 export interface InventoryItem {
@@ -16,6 +19,9 @@ export interface InventoryItem {
   descricao: string;
   quantidade: number;
   created_by?: string;
+  /** Seção (categoria) do produto no catálogo. */
+  categoria_codigo?: string | null;
+  secao?: string | null;
 }
 
 interface LoteInfo {
@@ -55,6 +61,27 @@ interface DataContextType {
 }
 
 const DataContext = createContext<DataContextType | null>(null);
+
+/** Item do inventário como vem do backend (com a seção do catálogo). */
+interface InventoryItemRow {
+  id?: string;
+  ean: string;
+  codigo: string;
+  descricao: string;
+  quantidade: number | string;
+  created_by?: string | null;
+  categoria_codigo?: string | null;
+  secao?: string | null;
+}
+
+/** Item do inventário com a seção do catálogo (vem no join do backend). */
+function mapInventoryItem(d: InventoryItemRow): InventoryItem {
+  return {
+    id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
+    quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
+    categoria_codigo: d.categoria_codigo ?? null, secao: d.secao ?? null,
+  };
+}
 
 /** Intervalo de sincronização do inventário compartilhado (sem realtime). */
 const INVENTORY_POLL_MS = 15_000;
@@ -136,6 +163,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           descricao: p.descricao,
           estoque: Number(p.estoque) || 0,
           preco: Number(p.preco) || 0,
+          categoria_codigo: p.categoria_codigo ?? null,
+          secao: p.secao ?? null,
         })));
       }
     } catch (e) {
@@ -169,18 +198,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (viewing) {
         const { data, error } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: viewing.numero });
         if (!error && data?.items) {
-          setInventoryItemsState(data.items.map((d: any) => ({
-            id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-            quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
-          })));
+          setInventoryItemsState(data.items.map(mapInventoryItem));
         }
       } else {
         const { data, error } = await invokeWithToken('manage-inventory', { action: 'list' });
         if (!error && data?.items) {
-          setInventoryItemsState(data.items.map((d: any) => ({
-            id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-            quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
-          })));
+          setInventoryItemsState(data.items.map(mapInventoryItem));
           if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
           setCurrentLoteNome(data.lote_nome ?? null);
         }
@@ -201,10 +224,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data, error } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: numero });
     if (error || !data) return;
     setViewingLote(data.lote || { numero, status: 'finalizado', created_by: null, created_at: '', finalized_at: null });
-    setInventoryItemsState((data.items || []).map((d: any) => ({
-      id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-      quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
-    })));
+    setInventoryItemsState((data.items || []).map(mapInventoryItem));
   }, []);
 
   const exitViewLote = useCallback(async () => {
@@ -255,17 +275,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const viewing = viewingRef.current;
     if (viewing) {
       const { data } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: viewing.numero });
-      if (data?.items) setInventoryItemsState(data.items.map((d: any) => ({
-        id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-        quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
-      })));
+      if (data?.items) setInventoryItemsState(data.items.map(mapInventoryItem));
     } else {
       const { data } = await invokeWithToken('manage-inventory', { action: 'list' });
       if (data?.items) {
-        setInventoryItemsState(data.items.map((d: any) => ({
-          id: d.id, ean: d.ean, codigo: d.codigo, descricao: d.descricao,
-          quantidade: toQuantity(d.quantidade), created_by: d.created_by || undefined,
-        })));
+        setInventoryItemsState(data.items.map(mapInventoryItem));
         if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
         setCurrentLoteNome(data.lote_nome ?? null);
       }

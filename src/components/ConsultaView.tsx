@@ -6,6 +6,7 @@ import { ScanBarcode, PackageX, AlertCircle, ShoppingBasket, AlertTriangle, Pack
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import SecaoBadge from '@/components/SecaoBadge';
 
 interface ConsultaResult {
   codigo: string;
@@ -13,6 +14,8 @@ interface ConsultaResult {
   /** Estoque e preço só existem quando o produto está na base de consulta. */
   estoque: number | null;
   preco: number | null;
+  /** Seção (categoria) do produto no catálogo. */
+  secao?: string | null;
 }
 
 const ConsultaView = () => {
@@ -28,7 +31,13 @@ const ConsultaView = () => {
 
     const local = findByCode(clean);
     if (local) {
-      setResult({ ...local });
+      setResult({
+        codigo: local.codigo,
+        descricao: local.descricao,
+        estoque: local.estoque,
+        preco: local.preco,
+        secao: local.secao ?? null,
+      });
       return;
     }
 
@@ -36,7 +45,7 @@ const ConsultaView = () => {
     try {
       const { data, error } = await invokeFunction<{
         found?: boolean;
-        product?: { codigo?: string | number; descricao?: string } | null;
+        product?: { codigo?: string | number; descricao?: string; secao?: string | null } | null;
       }>('query-product', { body: { codigo: clean } });
       if (error) throw new Error(error.message);
       if (data?.found && data.product) {
@@ -45,6 +54,7 @@ const ConsultaView = () => {
           descricao: data.product.descricao ?? 'Produto sem descrição',
           estoque: null,
           preco: null,
+          secao: data.product.secao ?? null,
         });
       } else {
         setResult(null);
@@ -181,6 +191,11 @@ const ConsultaView = () => {
                   <div className="flex-1">
                     <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição</p>
                     <p className="text-base sm:text-lg font-semibold text-foreground">{result.descricao}</p>
+                    {result.secao && (
+                      <div className="mt-1.5">
+                        <SecaoBadge secao={result.secao} />
+                      </div>
+                    )}
                   </div>
                 </div>
 

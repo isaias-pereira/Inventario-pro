@@ -1,6 +1,7 @@
 import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { SECAO_COLUNAS, secaoJoinTexto } from './_lib/categoria.js';
 
 let schemaEnsured = false;
 
@@ -87,7 +88,13 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { items: [], lote_numero: null });
         return;
       }
-      const data = await sql`SELECT * FROM shared_inventory WHERE lote_numero = ${lote} ORDER BY updated_at ASC`;
+      const data = await sql(
+        `SELECT i.*, ${SECAO_COLUNAS}
+           FROM shared_inventory i ${secaoJoinTexto('i')}
+          WHERE i.lote_numero = $1
+          ORDER BY i.updated_at ASC`,
+        [lote],
+      );
       const info = await sql`SELECT nome FROM inventory_lotes WHERE numero = ${lote} LIMIT 1`;
       sendJson(res, { items: data, lote_numero: lote, lote_nome: info[0]?.nome ?? null });
       return;
@@ -168,7 +175,13 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'lote_numero obrigatório' }, 400);
         return;
       }
-      const data = await sql`SELECT * FROM shared_inventory WHERE lote_numero = ${lote_numero} ORDER BY updated_at ASC`;
+      const data = await sql(
+        `SELECT i.*, ${SECAO_COLUNAS}
+           FROM shared_inventory i ${secaoJoinTexto('i')}
+          WHERE i.lote_numero = $1
+          ORDER BY i.updated_at ASC`,
+        [lote_numero],
+      );
       const loteInfo = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE numero = ${lote_numero} LIMIT 1`;
       sendJson(res, { items: data, lote: loteInfo[0] || null });
       return;

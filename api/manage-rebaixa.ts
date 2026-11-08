@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 
 export type RebaixaTipo = 'KG' | 'UN';
 
@@ -281,20 +282,24 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
 }
 
 const LIST_SQL = `
-  SELECT id::text, ean::text, codigo::text, descricao, tipo, validade, motivo,
-         quantidade::float8, pmz::float8, preco_sugerido::float8, preco_final::float8,
-         validade_id::text, created_by, created_at
-    FROM public.rebaixa_products
-   WHERE status = 'rascunho'
-   ORDER BY created_at ASC`;
+  SELECT r.id::text, r.ean::text, r.codigo::text, r.descricao, r.tipo, r.validade, r.motivo,
+         r.quantidade::float8, r.pmz::float8, r.preco_sugerido::float8, r.preco_final::float8,
+         r.validade_id::text, r.created_by, r.created_at,
+         ${SECAO_COLUNAS}
+    FROM public.rebaixa_products r
+   ${secaoJoin('r')}
+   WHERE r.status = 'rascunho'
+   ORDER BY r.created_at ASC`;
 
 const HISTORY_ITEM_SQL = `
-  SELECT id::text, ean::text, codigo::text, descricao, tipo, validade, motivo,
-         quantidade::float8, pmz::float8, preco_sugerido::float8, preco_final::float8,
-         validade_id::text, created_by, created_at, sent_at, sent_to
-    FROM public.rebaixa_products
-   WHERE batch_id = $1::uuid
-   ORDER BY created_at ASC`;
+  SELECT r.id::text, r.ean::text, r.codigo::text, r.descricao, r.tipo, r.validade, r.motivo,
+         r.quantidade::float8, r.pmz::float8, r.preco_sugerido::float8, r.preco_final::float8,
+         r.validade_id::text, r.created_by, r.created_at, r.sent_at, r.sent_to,
+         ${SECAO_COLUNAS}
+    FROM public.rebaixa_products r
+   ${secaoJoin('r')}
+   WHERE r.batch_id = $1::uuid
+   ORDER BY r.created_at ASC`;
 
 const INSERT_SQL = `
   INSERT INTO public.rebaixa_products

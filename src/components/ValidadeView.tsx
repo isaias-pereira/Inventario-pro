@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { Badge } from '@/components/ui/badge';
+import SecaoBadge from '@/components/SecaoBadge';
+import SecaoFilter from '@/components/SecaoFilter';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
@@ -73,6 +75,9 @@ interface ValidadeItem {
   created_by: string | null;
   quantidade: number;
   motivo?: string | null;
+  /** Seção (categoria) do produto no catálogo. */
+  categoria_codigo?: string | null;
+  secao?: string | null;
 }
 
 /** Motivos de rebaixa para produtos de balança (KG). */
@@ -118,6 +123,8 @@ const ValidadeView = () => {
   // Lista de produtos que vencem hoje só aparece ao tocar na seta.
   const [showTodayAlerts, setShowTodayAlerts] = useState(false);
 const [filter, setFilter] = useState<FilterType>('todos');
+  /** Filtro por seção do catálogo (vazio = todas). */
+  const [secaoFiltro, setSecaoFiltro] = useState('');
   const [quantidade, setQuantidade] = useState('');
   const [editingItem, setEditingItem] = useState<ValidadeItem | null>(null);
   const [editValidade, setEditValidade] = useState<Date | undefined>(undefined);
@@ -380,12 +387,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
     const diffDays = daysUntil(item.validade);
 
     switch (filter) {
-      case 'hoje': return diffDays <= 0;
-      case '7dias': return diffDays <= 7;
-      case '30dias': return diffDays <= 30;
-      default: return true;
+      case 'hoje': if (diffDays > 0) return false; break;
+      case '7dias': if (diffDays > 7) return false; break;
+      case '30dias': if (diffDays > 30) return false; break;
+      default: break;
     }
-  }), [items, filter]);
+    // Filtro por seção do catálogo.
+    if (secaoFiltro && item.secao !== secaoFiltro) return false;
+    return true;
+  }), [items, filter, secaoFiltro]);
 
   /** Identifica a lista atual: se os códigos mudam, o cache de tipos/custos é refeito. */
   const spreadsheetCodesKey = useMemo(
@@ -1042,7 +1052,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
         })()}
 
         {/* Filter buttons */}
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="mt-6 flex flex-wrap items-center gap-2">
           {filterOptions.map((opt) => (
             <Button
               key={opt.key}
@@ -1054,6 +1064,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               {opt.label}
             </Button>
           ))}
+          <SecaoFilter value={secaoFiltro} onChange={setSecaoFiltro} className="ml-auto" />
         </div>
 
         {/* Items list */}
@@ -1071,13 +1082,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
               <div className="space-y-1">
                 <p className="font-medium text-foreground">Nenhum produto por aqui</p>
                 <p className="text-sm text-muted-foreground">
-                  {filter === 'todos'
-                    ? 'Adicione um produto pela busca acima para começar.'
-                    : `Nenhum produto no filtro "${FILTER_LABELS[filter]}".`}
+                  {secaoFiltro
+                    ? `Nenhum produto na seção "${secaoFiltro}"${filter !== 'todos' ? ` no filtro "${FILTER_LABELS[filter]}"` : ''}.`
+                    : filter === 'todos'
+                      ? 'Adicione um produto pela busca acima para começar.'
+                      : `Nenhum produto no filtro "${FILTER_LABELS[filter]}".`}
                 </p>
               </div>
-              {filter !== 'todos' && (
-                <Button variant="outline" size="sm" onClick={() => setFilter('todos')}>
+              {(filter !== 'todos' || secaoFiltro) && (
+                <Button variant="outline" size="sm" onClick={() => { setFilter('todos'); setSecaoFiltro(''); }}>
                   Ver todos os produtos
                 </Button>
               )}
@@ -1131,6 +1144,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
                               {new Date(item.validade).toLocaleDateString('pt-BR')}
                             </span>
                           )}
+                          <SecaoBadge secao={item.secao} />
                         </div>
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
@@ -1509,6 +1523,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
                       <StatusIcon className="h-3 w-3" />
                       {status.label}
                     </Badge>
+                    <SecaoBadge secao={detailItem.secao} />
                   </div>
                 </div>
 

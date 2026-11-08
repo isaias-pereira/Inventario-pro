@@ -1,6 +1,7 @@
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { SECAO_COLUNAS, secaoJoinTexto } from './_lib/categoria.js';
 
 /**
  * Limite de produtos por importação.
@@ -22,7 +23,13 @@ const handler: ApiHandler = async (req, res) => {
     const sql = createSql();
 
     if (action === 'list') {
-      const data = await sql`SELECT codigo, descricao, estoque, preco FROM consulta_products ORDER BY created_at ASC`;
+      // A seção do catálogo vem junto para o card da Consulta mostrar a
+      // classificação sem uma segunda consulta ao produto.
+      const data = await sql(
+        `SELECT cp.codigo, cp.descricao, cp.estoque, cp.preco, ${SECAO_COLUNAS}
+           FROM consulta_products cp ${secaoJoinTexto('cp')}
+          ORDER BY cp.created_at ASC`,
+      );
       sendJson(res, { items: data });
       return;
     }

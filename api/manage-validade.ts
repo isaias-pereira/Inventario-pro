@@ -1,6 +1,7 @@
 import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
@@ -63,10 +64,12 @@ const handler: ApiHandler = async (req, res) => {
 
     // LIST - items expiring within 2 days
     if (action === 'list') {
-      const data = await sql`
-        SELECT * FROM validade_products
-        WHERE status = true AND validade <= (NOW() + INTERVAL '2 days')
-        ORDER BY validade ASC`;
+      const data = await sql(
+        `SELECT v.*, ${SECAO_COLUNAS}
+           FROM validade_products v ${secaoJoin('v')}
+          WHERE v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+          ORDER BY v.validade ASC`,
+      );
       sendJson(res, { items: data });
       return;
     }
@@ -76,33 +79,48 @@ const handler: ApiHandler = async (req, res) => {
       const userRole = payload.role;
 
       if (userRole === 'col_validade') {
-        const data = await sql`SELECT * FROM validade_products WHERE status = true AND created_by = ${username} ORDER BY validade ASC`;
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+            WHERE v.status = true AND v.created_by = $1
+            ORDER BY v.validade ASC`,
+          [username],
+        );
         sendJson(res, { items: data });
         return;
       }
 
       if (userRole === 'promotor') {
-        const data = await sql`
-          SELECT v.* FROM validade_products v
-          INNER JOIN app_users u ON v.created_by = u.username
-          WHERE v.status = true AND u.role = 'promotor'
-          ORDER BY v.validade ASC`;
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+             INNER JOIN app_users u ON v.created_by = u.username
+            WHERE v.status = true AND u.role = 'promotor'
+            ORDER BY v.validade ASC`,
+        );
         sendJson(res, { items: data });
         return;
       }
 
       if (userRole === 'user' || userRole === 'encarregado' || userRole === 'enc_flv') {
-        const data = await sql`
-          SELECT v.* FROM validade_products v
-          INNER JOIN app_users u ON v.created_by = u.username
-          WHERE v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'enc_flv', 'col_validade')
-          ORDER BY v.validade ASC`;
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+             INNER JOIN app_users u ON v.created_by = u.username
+            WHERE v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'enc_flv', 'col_validade')
+            ORDER BY v.validade ASC`,
+        );
         sendJson(res, { items: data });
         return;
       }
 
       // admin sees all
-      const data = await sql`SELECT * FROM validade_products WHERE status = true ORDER BY validade ASC`;
+      const data = await sql(
+        `SELECT v.*, ${SECAO_COLUNAS}
+           FROM validade_products v ${secaoJoin('v')}
+          WHERE v.status = true
+          ORDER BY v.validade ASC`,
+      );
       sendJson(res, { items: data });
       return;
     }
@@ -210,27 +228,30 @@ const handler: ApiHandler = async (req, res) => {
       const params: unknown[] = [];
       if (startDate) {
         params.push(startDate);
-        conditions.push(`created_at >= $${params.length}`);
+        conditions.push(`v.created_at >= $${params.length}`);
       }
       if (endDate) {
         params.push(endDate);
-        conditions.push(`created_at <= $${params.length}`);
+        conditions.push(`v.created_at <= $${params.length}`);
       }
       if (created_by) {
         params.push(created_by);
-        conditions.push(`created_by = $${params.length}`);
+        conditions.push(`v.created_by = $${params.length}`);
       }
       if (incluirVencidos) {
         // Vencidos ficam com status = false (auto-expiração); inclui-os na consulta.
-        const motivoClause = hasMotivoColumn ? 'motivo IS NULL AND ' : '';
-        conditions.push(`(status = true OR (status = false AND ${motivoClause}validade < NOW()))`);
+        const motivoClause = hasMotivoColumn ? 'v.motivo IS NULL AND ' : '';
+        conditions.push(`(v.status = true OR (v.status = false AND ${motivoClause}v.validade < NOW()))`);
       } else {
-        conditions.push('status = true');
+        conditions.push('v.status = true');
       }
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const data = await sql(
-        `SELECT * FROM validade_products ${where} ORDER BY validade ASC`,
+        `SELECT v.*, ${SECAO_COLUNAS}
+           FROM validade_products v ${secaoJoin('v')}
+           ${where}
+          ORDER BY v.validade ASC`,
         params,
       );
       sendJson(res, { items: data });
@@ -251,10 +272,12 @@ const handler: ApiHandler = async (req, res) => {
 
     // NOTIFICATIONS
     if (action === 'notifications') {
-      const data = await sql`
-        SELECT * FROM validade_products
-        WHERE status = true AND validade <= (NOW() + INTERVAL '2 days')
-        ORDER BY validade ASC`;
+      const data = await sql(
+        `SELECT v.*, ${SECAO_COLUNAS}
+           FROM validade_products v ${secaoJoin('v')}
+          WHERE v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+          ORDER BY v.validade ASC`,
+      );
       sendJson(res, { items: data });
       return;
     }

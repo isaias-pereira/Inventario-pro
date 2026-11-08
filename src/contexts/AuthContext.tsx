@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { invokeFunction, parseJwtPayload } from '@/lib/api';
+import { limparCacheCategorias } from '@/lib/categorias';
 
 interface User {
   username: string;
@@ -98,6 +99,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(TOKEN_KEY);
+    // A taxonomia de seções fica em memória: a próxima sessão recarrega.
+    limparCacheCategorias();
   }, []);
 
   const getToken = useCallback((): string | null => {

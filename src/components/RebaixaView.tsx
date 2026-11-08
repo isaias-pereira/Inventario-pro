@@ -82,6 +82,8 @@ import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/vali
 import { activeEmails, applyTemplate, defaultEmail, fetchEmails, type EmailPadrao } from '@/lib/emails';
 import { daysUntil } from '@/lib/validade-notifications';
 import { trackEvent } from '@/lib/analytics';
+import SecaoBadge from '@/components/SecaoBadge';
+import SecaoFilter from '@/components/SecaoFilter';
 
 type ListFilter = 'todos' | 'UN' | 'KG';
 type ValidadePeriod = '7dias' | '30dias' | 'todos';
@@ -165,6 +167,8 @@ const RebaixaView = () => {
   const [items, setItems] = useState<RebaixaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<ListFilter>('todos');
+  /** Filtro por seção do catálogo (vazio = todas). */
+  const [secaoFiltro, setSecaoFiltro] = useState('');
 
   // ── Adicionar produto ──────────────────────────────────────────────
   const [showAdd, setShowAdd] = useState(false);
@@ -246,8 +250,10 @@ const RebaixaView = () => {
   }, [fetchItems]);
 
   const filteredItems = useMemo(
-    () => (filter === 'todos' ? items : items.filter((item) => item.tipo === filter)),
-    [items, filter],
+    () => items
+      .filter((item) => filter === 'todos' || item.tipo === filter)
+      .filter((item) => !secaoFiltro || item.secao === secaoFiltro),
+    [items, filter, secaoFiltro],
   );
 
   const summary = useMemo(() => {
@@ -1019,7 +1025,7 @@ const RebaixaView = () => {
               salvo automaticamente
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {(['todos', 'UN', 'KG'] as ListFilter[]).map((option) => (
               <button
                 key={option}
@@ -1035,6 +1041,7 @@ const RebaixaView = () => {
                 {option === 'todos' ? 'Todos' : option} ({filterCounts[option]})
               </button>
             ))}
+            <SecaoFilter value={secaoFiltro} onChange={setSecaoFiltro} id="filtro-secao-rebaixa" />
           </div>
         </div>
 
@@ -1052,7 +1059,11 @@ const RebaixaView = () => {
               </div>
               <div className="space-y-1">
                 <p className="font-medium text-slate-900">
-                  {items.length === 0 ? 'Nenhum produto na rebaixa' : `Nenhum produto ${filter}`}
+                  {items.length === 0
+                    ? 'Nenhum produto na rebaixa'
+                    : secaoFiltro
+                      ? `Nenhum produto na seção "${secaoFiltro}"`
+                      : `Nenhum produto ${filter}`}
                 </p>
                 <p className="text-sm text-slate-500">
                   {items.length === 0
@@ -1114,6 +1125,7 @@ const RebaixaView = () => {
                             {validade.label}
                           </span>
                         )}
+                        <SecaoBadge secao={item.secao} />
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-slate-500">
                         <span className="font-mono">{item.ean}</span>
@@ -2101,6 +2113,7 @@ const RebaixaView = () => {
                           )}>
                             {item.tipo}
                           </span>
+                          <SecaoBadge secao={item.secao} />
                         </div>
                         <p className="text-[11px] tabular-nums text-slate-500">
                           Qtd {formatQuantity(item.quantidade, item.tipo)}{item.tipo === 'KG' ? ' kg' : ''}

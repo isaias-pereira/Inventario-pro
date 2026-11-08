@@ -27,6 +27,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import SecaoBadge from '@/components/SecaoBadge';
+import SecaoFilter from '@/components/SecaoFilter';
 
 interface PackagingInfo {
   ean_fechado: string;
@@ -54,6 +56,8 @@ const InventarioView = () => {
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [loteNameInput, setLoteNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
+  /** Filtro por seção do catálogo (vazio = todas). */
+  const [secaoFiltro, setSecaoFiltro] = useState('');
   const isViewing = !!viewingLote;
   const readOnly = isViewing;
 
@@ -380,14 +384,16 @@ const InventarioView = () => {
     setEditValue('');
   };
 
-  const sortedItems = [...inventoryItems].sort((a, b) => {
-    switch (sortOrder) {
-      case 'alpha': return a.descricao.localeCompare(b.descricao, 'pt-BR');
-      case 'qty-asc': return a.quantidade - b.quantidade;
-      case 'qty-desc': return b.quantidade - a.quantidade;
-      default: return 0;
-    }
-  });
+  const sortedItems = [...inventoryItems]
+    .filter((item) => !secaoFiltro || item.secao === secaoFiltro)
+    .sort((a, b) => {
+      switch (sortOrder) {
+        case 'alpha': return a.descricao.localeCompare(b.descricao, 'pt-BR');
+        case 'qty-asc': return a.quantidade - b.quantidade;
+        case 'qty-desc': return b.quantidade - a.quantidade;
+        default: return 0;
+      }
+    });
 
   const packaging = product?.embalagem ?? null;
   const packagingQuantity = packaging ? Number(packaging.quantidade_fechada) : 1;
@@ -443,6 +449,9 @@ const InventarioView = () => {
                   <SelectItem value="qty-asc">Menor qtd</SelectItem>
                 </SelectContent>
               </Select>
+            )}
+            {hasInventory && (
+              <SecaoFilter value={secaoFiltro} onChange={setSecaoFiltro} id="filtro-secao-inventario" className="w-[170px]" />
             )}
             {isViewing && (
               <Button onClick={exitViewLote} variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
@@ -664,7 +673,7 @@ const InventarioView = () => {
           <div className="mt-6 sm:mt-8">
             <div className="mb-3 flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-white/70" />
-              <h3 className="font-semibold text-white text-sm sm:text-base">Contagem ({inventoryItems.length})</h3>
+              <h3 className="font-semibold text-white text-sm sm:text-base">Contagem ({sortedItems.length})</h3>
             </div>
 
             {/* Mobile cards */}
@@ -675,6 +684,7 @@ const InventarioView = () => {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-gray-900 text-sm truncate">{item.descricao}</p>
                       <p className="text-xs text-gray-500 mt-0.5">EAN: {item.ean} · Cód: {item.codigo}</p>
+                      {item.secao && <SecaoBadge secao={item.secao} className="mt-1" />}
                     </div>
                     {isAdmin && editingCodigo === item.codigo ? (
                       <div className="flex items-center gap-1 ml-2">
@@ -726,7 +736,12 @@ const InventarioView = () => {
                     <TableRow key={item.codigo} className={`${index % 2 !== 0 ? 'bg-gray-50' : 'bg-white'} text-gray-900`}>
                       <TableCell className="font-mono text-sm">{item.ean}</TableCell>
                       <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
-                      <TableCell>{item.descricao}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{item.descricao}</span>
+                          <SecaoBadge secao={item.secao} />
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-semibold">
                         {isAdmin && editingCodigo === item.codigo ? (
                           <div className="flex items-center justify-end gap-1">

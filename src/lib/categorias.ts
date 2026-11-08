@@ -14,7 +14,7 @@ export interface Categoria {
 
 /** Produto (ou item de lista) que pode exibir a seção do catálogo. */
 export interface ComSecao {
-  categoria_codigo?: string | null;
+  categoria_codigo?: string | number | null;
   secao?: string | null;
 }
 
@@ -35,6 +35,40 @@ export async function fetchCategorias(): Promise<Categoria[]> {
   return rows
     .map((row) => ({ codigo: String(row.codigo ?? ''), secao: String(row.secao ?? '') }))
     .filter((row) => row.codigo !== '' && row.secao !== '');
+}
+
+let cache: Categoria[] | null = null;
+let pendente: Promise<Categoria[]> | null = null;
+
+/**
+ * Taxonomia compartilhada entre as telas: uma única chamada por sessão.
+ * Se a chamada falhar, a próxima tentativa acontece de novo.
+ */
+export function carregarCategorias(): Promise<Categoria[]> {
+  if (cache) return Promise.resolve(cache);
+  if (!pendente) {
+    pendente = fetchCategorias()
+      .then(lista => {
+        cache = lista;
+        return lista;
+      })
+      .catch((error: unknown) => {
+        pendente = null;
+        throw error;
+      });
+  }
+  return pendente;
+}
+
+/**
+ * Limpa a taxonomia em memória.
+ *
+ * Usado quando a sessão muda (o token define o que a pessoa pode ver) e
+ * pelos testes, que precisam recarregar a lista a cada caso.
+ */
+export function limparCacheCategorias(): void {
+  cache = null;
+  pendente = null;
 }
 
 /**
