@@ -2,10 +2,11 @@
  * Tela da Rebaixa.
  *
  * O encarregado monta a lista de produtos vencendo, perdendo qualidade ou em
- * excesso, ajusta o preço final e envia a planilha ao comercial. Regras:
+ * excesso, ajusta o preço e envia a planilha ao comercial. Regras:
  * - UN usa data de vencimento; KG usa motivo (Excesso/Qualidade/Excesso-qualidade);
- * - o preço sugerido é 50% do PMZ (piso de R$ 0,99) e pode ser ajustado;
- * - a margem é calculada sobre o preço sugerido;
+ * - o preço da rebaixa é 50% do PMZ (piso de R$ 0,99) e pode ser ajustado;
+ * - não existe "preço final" à parte: o preço da rebaixa é o preço sugerido;
+ * - a margem é calculada sobre o preço da rebaixa;
  * - o rascunho é salvo no servidor e o histórico guarda cada lote enviado.
  */
 
@@ -181,8 +182,6 @@ const RebaixaView = () => {
   const [addMotivo, setAddMotivo] = useState<MotivoRebaixa | ''>('');
   const [addPmz, setAddPmz] = useState<number | null>(null);
   const [addSugerido, setAddSugerido] = useState('');
-  const [addFinal, setAddFinal] = useState('');
-  const [addFinalTouched, setAddFinalTouched] = useState(false);
   const [addStock, setAddStock] = useState<number | null>(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
 
@@ -202,7 +201,6 @@ const RebaixaView = () => {
   const [editValidade, setEditValidade] = useState('');
   const [editMotivo, setEditMotivo] = useState<MotivoRebaixa | ''>('');
   const [editSugerido, setEditSugerido] = useState('');
-  const [editFinal, setEditFinal] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   // ── Exportação / e-mail ────────────────────────────────────────────
@@ -286,8 +284,6 @@ const RebaixaView = () => {
     setAddMotivo('');
     setAddPmz(null);
     setAddSugerido('');
-    setAddFinal('');
-    setAddFinalTouched(false);
     setAddStock(null);
   }, []);
 
@@ -305,8 +301,6 @@ const RebaixaView = () => {
     setAddError('');
     setAddPmz(null);
     setAddSugerido('');
-    setAddFinal('');
-    setAddFinalTouched(false);
     setAddStock(null);
 
     try {
@@ -345,7 +339,6 @@ const RebaixaView = () => {
           const suggested = Math.round(suggestedPrice(cost) * 100) / 100;
           setAddPmz(cost);
           setAddSugerido(formatMoneyInput(suggested));
-          setAddFinal(formatMoneyInput(suggested));
         }
       } catch {
         /* sem custo: o usuário informa o preço manualmente */
@@ -359,18 +352,7 @@ const RebaixaView = () => {
   const addTipo: RebaixaTipo = addProduct && isWeightProduct(addProduct.tipo) ? 'KG' : 'UN';
 
   const addSuggestedValue = parseDecimalInput(addSugerido);
-  const addFinalValue = parseDecimalInput(addFinal);
   const addMargin = marginPercent(addPmz, addSuggestedValue);
-
-  const handleAddSuggested = (value: string) => {
-    setAddSugerido(value);
-    if (!addFinalTouched) setAddFinal(value);
-  };
-
-  const handleAddFinal = (value: string) => {
-    setAddFinal(value);
-    setAddFinalTouched(true);
-  };
 
   const handlePullStock = () => {
     if (addStock === null) {
@@ -410,7 +392,6 @@ const RebaixaView = () => {
         motivo: addTipo === 'KG' ? addMotivo || null : null,
         pmz: addPmz,
         preco_sugerido: addSuggestedValue,
-        preco_final: addFinalValue ?? addSuggestedValue,
       }]);
 
       if (result.added > 0) {
@@ -541,7 +522,6 @@ const RebaixaView = () => {
     setEditValidade(toDateInput(item.validade));
     setEditMotivo(motivoFromValidade(item.motivo) ?? '');
     setEditSugerido(item.preco_sugerido !== null ? formatMoneyInput(item.preco_sugerido) : '');
-    setEditFinal(item.preco_final !== null ? formatMoneyInput(item.preco_final) : '');
   };
 
   const editSuggestedValue = parseDecimalInput(editSugerido);
@@ -573,7 +553,6 @@ const RebaixaView = () => {
           ? { validade: validadeIso }
           : { motivo: editMotivo || null }),
         preco_sugerido: editSuggestedValue,
-        preco_final: parseDecimalInput(editFinal),
       });
       toast.success('Item atualizado');
       setEditing(null);
@@ -1139,11 +1118,13 @@ const RebaixaView = () => {
                           </span>
                         )}
                         <span className="hidden sm:inline">PMZ <b className="text-slate-900">{formatMoney(item.pmz)}</b></span>
-                        <span className="hidden sm:inline">Sug. <b className="text-slate-900">{formatMoney(item.preco_sugerido)}</b></span>
                         <span className="hidden md:inline">Margem <b className="text-slate-900">{formatMargin(item.pmz, item.preco_sugerido)}</b></span>
                       </div>
                     </div>
-                    <div className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold tabular-nums text-emerald-700 ring-1 ring-emerald-200">
+                    <div
+                      className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold tabular-nums text-emerald-700 ring-1 ring-emerald-200"
+                      title="Preço da rebaixa"
+                    >
                       {formatMoney(item.preco_final)}
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" />
@@ -1341,7 +1322,6 @@ const RebaixaView = () => {
                     setAddMotivo('');
                     setAddPmz(null);
                     setAddSugerido('');
-                    setAddFinal('');
                     setAddStock(null);
                   }}
                 >
@@ -1473,14 +1453,12 @@ const RebaixaView = () => {
                   </div>
                   <div>
                     <label className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
-                      Preço sugerido
+                      Preço da rebaixa
                       <button
                         type="button"
                         onClick={() => {
                           if (addPmz === null) return;
-                          const suggested = formatMoneyInput(Math.round(suggestedPrice(addPmz) * 100) / 100);
-                          setAddSugerido(suggested);
-                          if (!addFinalTouched) setAddFinal(suggested);
+                          setAddSugerido(formatMoneyInput(Math.round(suggestedPrice(addPmz) * 100) / 100));
                         }}
                         disabled={addPmz === null}
                         className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
@@ -1491,26 +1469,16 @@ const RebaixaView = () => {
                     </label>
                     <Input
                       value={addSugerido}
-                      onChange={(event) => handleAddSuggested(event.target.value)}
-                      placeholder="0,00"
-                      inputMode="decimal"
-                      className="tabular-nums"
-                    />
-                    <p className="mt-1 text-[11px] text-slate-400">Piso de R$ 0,99</p>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Preço final da rebaixa</label>
-                    <Input
-                      value={addFinal}
-                      onChange={(event) => handleAddFinal(event.target.value)}
+                      onChange={(event) => setAddSugerido(event.target.value)}
                       placeholder="0,00"
                       inputMode="decimal"
                       className="border-emerald-300 bg-emerald-50/40 font-bold tabular-nums text-emerald-700"
                     />
+                    <p className="mt-1 text-[11px] text-slate-400">Piso de R$ 0,99 — é o preço que vai para a planilha.</p>
                   </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Margem</label>
                     <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-bold tabular-nums text-slate-700">
@@ -1767,7 +1735,7 @@ const RebaixaView = () => {
                 </div>
                 <div>
                   <label className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
-                    Preço sugerido
+                    Preço da rebaixa
                     <button
                       type="button"
                       onClick={() => {
@@ -1785,21 +1753,13 @@ const RebaixaView = () => {
                     value={editSugerido}
                     onChange={(event) => setEditSugerido(event.target.value)}
                     inputMode="decimal"
-                    className="tabular-nums"
+                    className="border-emerald-300 bg-emerald-50/40 font-bold tabular-nums text-emerald-700"
                   />
+                  <p className="mt-1 text-[11px] text-slate-400">É o preço que vai para a planilha.</p>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-sm font-semibold text-slate-800">Preço final da rebaixa</label>
-                  <Input
-                    value={editFinal}
-                    onChange={(event) => setEditFinal(event.target.value)}
-                    inputMode="decimal"
-                    className="border-emerald-300 bg-emerald-50/40 font-bold tabular-nums text-emerald-700"
-                  />
-                </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-semibold text-slate-800">Margem</label>
                   <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-bold tabular-nums text-slate-700">

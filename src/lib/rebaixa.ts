@@ -58,8 +58,8 @@ export interface NewRebaixaItem {
   motivo: string | null;
   quantidade: number;
   pmz?: number | null;
+  /** Preço da rebaixa (50% do PMZ, piso R$ 0,99). É editável na tela. */
   preco_sugerido?: number | null;
-  preco_final?: number | null;
   validade_id?: string | null;
 }
 
@@ -105,8 +105,8 @@ export interface RebaixaUpdatePatch {
   quantidade?: number;
   validade?: string | null;
   motivo?: string | null;
+  /** Ajusta o preço da rebaixa (o preço final acompanha o sugerido). */
   preco_sugerido?: number | null;
-  preco_final?: number | null;
 }
 
 export async function updateRebaixaItem(id: string, patch: RebaixaUpdatePatch): Promise<void> {

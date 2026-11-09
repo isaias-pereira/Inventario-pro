@@ -226,10 +226,17 @@ describe('parseItem', () => {
     expect(parseItem(unItem({ validade: '30/10/2026' })).ok).toBe(false);
   });
 
-  it('recusa quantidade e preços inválidos', () => {
+  it('recusa quantidade e preço sugerido inválidos', () => {
     expect(parseItem(unItem({ quantidade: 0 })).ok).toBe(false);
     expect(parseItem(unItem({ preco_sugerido: 'abc' })).ok).toBe(false);
-    expect(parseItem(unItem({ preco_final: -2 })).ok).toBe(false);
+    expect(parseItem(unItem({ preco_sugerido: -2 })).ok).toBe(false);
+  });
+
+  it('ignora um "preço final" enviado pelo cliente (o preço é o sugerido)', () => {
+    const parsed = parseItem(unItem({ preco_sugerido: 4, preco_final: 3.5 }));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.item.precoFinal).toBe(4);
   });
 
   it('recusa vínculo de validade que não é UUID', () => {
@@ -239,7 +246,7 @@ describe('parseItem', () => {
 
 describe('withCatalogCost', () => {
   it('completa PMZ, sugestão e preço final a partir do custo', () => {
-    const parsed = parseItem(kgItem({ preco_sugerido: null, preco_final: null }));
+    const parsed = parseItem(kgItem({ preco_sugerido: null }));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
@@ -249,15 +256,16 @@ describe('withCatalogCost', () => {
     expect(item.precoFinal).toBe(2.5);
   });
 
-  it('respeita os preços informados pela tela', () => {
-    const parsed = parseItem(kgItem({ pmz: 10, preco_sugerido: 4, preco_final: 3.5 }));
+  it('respeita o preço informado pela tela', () => {
+    const parsed = parseItem(kgItem({ pmz: 10, preco_sugerido: 4 }));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
     const item = withCatalogCost(parsed.item, 5);
     expect(item.pmz).toBe(10);
     expect(item.precoSugerido).toBe(4);
-    expect(item.precoFinal).toBe(3.5);
+    // O preço final é o próprio sugerido: não existe uma decisão à parte.
+    expect(item.precoFinal).toBe(4);
   });
 
   it('deixa os preços vazios quando não há custo nem valor informado', () => {

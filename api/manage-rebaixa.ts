@@ -158,10 +158,11 @@ export function parseItem(raw: unknown): { ok: true; item: ParsedItem } | { ok: 
 
   const pmz = normalizePrice(item.pmz);
   const precoSugerido = normalizePrice(item.preco_sugerido ?? item.precoSugerido);
-  const precoFinal = normalizePrice(item.preco_final ?? item.precoFinal);
-  if (pmz.ok === false || precoSugerido.ok === false || precoFinal.ok === false) {
+  if (pmz.ok === false || precoSugerido.ok === false) {
     return { ok: false, error: 'Preços inválidos' };
   }
+  // Não existe "preço final" decidido à parte: o preço da rebaixa É o sugerido.
+  // O que o cliente mandar em `preco_final` é ignorado de propósito.
 
   // Vínculo opcional com o item de origem na Validade.
   const rawValidadeId = item.validade_id ?? item.validadeId;
@@ -185,7 +186,7 @@ export function parseItem(raw: unknown): { ok: true; item: ParsedItem } | { ok: 
       quantidade,
       pmz: pmz.value,
       precoSugerido: precoSugerido.value,
-      precoFinal: precoFinal.value,
+      precoFinal: precoSugerido.value,
       validadeId,
     },
   };
@@ -195,7 +196,8 @@ export function parseItem(raw: unknown): { ok: true; item: ParsedItem } | { ok: 
 export function withCatalogCost(item: ParsedItem, cost: number | null): ParsedItem {
   const pmz = item.pmz ?? (cost && cost > 0 ? cost : null);
   const precoSugerido = item.precoSugerido ?? (pmz !== null ? suggestedPriceFromCost(pmz) : null);
-  const precoFinal = item.precoFinal ?? precoSugerido;
+  // O preço final acompanha o sugerido: é o mesmo número na planilha.
+  const precoFinal = precoSugerido;
   return { ...item, pmz, precoSugerido, precoFinal };
 }
 
@@ -473,15 +475,8 @@ const handler: ApiHandler = async (req, res) => {
         precoSugerido = value.value;
       }
 
-      let precoFinal = row.preco_final === null ? null : Number(row.preco_final);
-      if (has('preco_final')) {
-        const value = normalizePrice(body.preco_final);
-        if (value.ok === false) {
-          sendJson(res, { error: 'Preço final inválido' }, 400);
-          return;
-        }
-        precoFinal = value.value;
-      }
+      // O preço final não é um campo editável: acompanha o preço sugerido.
+      const precoFinal = precoSugerido;
 
       let validade = row.validade ? new Date(row.validade as string).toISOString() : null;
       let motivo = typeof row.motivo === 'string' ? row.motivo : null;
