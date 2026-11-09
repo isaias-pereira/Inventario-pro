@@ -200,7 +200,7 @@ export function formatDateTime(iso: string | null): string {
   });
 }
 
-/** Itens da Rebaixa no formato da planilha (motivo KG vai para DESCRIÇÃO DA OFERTA). */
+/** Itens da Rebaixa no formato da planilha (o motivo KG vai para VENCIMENTO DO PRODUTO). */
 export function toSpreadsheetItems(items: RebaixaItem[]): ValidadeSpreadsheetItem[] {
   return items.map((item) => ({
     ean: item.ean,
@@ -209,8 +209,8 @@ export function toSpreadsheetItems(items: RebaixaItem[]): ValidadeSpreadsheetIte
     quantidade: item.quantidade,
     validade: item.validade,
     tipo: item.tipo,
-    oferta: item.tipo === 'KG' ? (item.motivo ?? '') : '',
-    precoFinal: item.preco_final,
+    // O lado COMERCIAL da planilha fica em branco: só o comercial preenche.
+    motivo: item.tipo === 'KG' ? item.motivo : null,
   }));
 }
 

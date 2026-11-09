@@ -91,13 +91,9 @@ describe('planilha de solicitação de rebaixa', () => {
     expect(row.pmz).toBe('');
     expect(row.precoSugerido).toBe('');
     expect(row.margem).toBe('');
-    expect(row.descricaoOferta).toBe('');
-    expect(row.precoFinalRebaxa).toBe('');
-    expect(row.inicio).toBe('');
-    expect(row.final).toBe('');
   });
 
-  it('deixa o vencimento vazio para KG e usa a validade para UN', () => {
+  it('usa a validade em UN e deixa KG sem data quando não há motivo', () => {
     expect(isWeightProduct('kg')).toBe(true);
     expect(isWeightProduct('UN')).toBe(false);
 
@@ -366,14 +362,13 @@ describe('campos da Rebaixa na planilha', () => {
       quantidade: 2.5,
       validade: null,
       tipo: 'KG',
-      oferta: 'Qualidade',
-      precoFinal: 3.45,
+      motivo: 'Qualidade',
     },
     {
       ...items[0],
       tipo: 'UN',
-      oferta: '  ',
-      precoFinal: 2.5,
+      // Motivo em produto UN é ignorado: a coluna recebe a data de validade.
+      motivo: 'Excesso',
     },
   ];
 
@@ -386,37 +381,34 @@ describe('campos da Rebaixa na planilha', () => {
       { '456': 7.5, '123': 5 },
     );
 
-    expect(banana.vencimento).toBe('');
+    expect(banana.vencimento).toBe('Qualidade');
     expect(leite.vencimento).toBe('30/10/2026');
   });
 
-  it('leva o motivo para a descrição da oferta e o preço final para a coluna', () => {
+  it('grava o motivo KG e a data UN em VENCIMENTO DO PRODUTO', () => {
     const [banana, leite] = buildSpreadsheetRows(rebaixaItems, tipos, 103, { '456': 7.5, '123': 5 });
 
-    expect(banana.descricaoOferta).toBe('Qualidade');
-    expect(banana.precoFinalRebaxa).toBe(3.45);
-    expect(leite.descricaoOferta).toBe('');
-    expect(leite.precoFinalRebaxa).toBe(2.5);
+    expect(banana.vencimento).toBe('Qualidade');
+    expect(leite.vencimento).toBe('30/10/2026');
   });
 
-  it('arredonda o preço final para centavos e ignora valores inválidos', () => {
-    const [centavos, zero, negativo, invalido] = buildSpreadsheetRows(
-      [
-        { ...items[0], precoFinal: 2.345 },
-        { ...items[0], precoFinal: 0 },
-        { ...items[0], precoFinal: -1 },
-        { ...items[0], precoFinal: Number.NaN },
-      ],
-      tipos,
+  it('nunca preenche o lado comercial (DESCRIÇÃO DA OFERTA, PREÇO FINAL, INÍCIO e FINAL)', () => {
+    const doc = parseContent(
+      buildValidadeOdsContent(rebaixaItems, tipos, {
+        date: new Date(2026, 9, 28),
+        custos: { '456': 7.5, '123': 5 },
+      }),
     );
+    const rows = rowsOf(doc);
 
-    expect(centavos.precoFinalRebaxa).toBe(2.35);
-    expect(zero.precoFinalRebaxa).toBe('');
-    expect(negativo.precoFinalRebaxa).toBe('');
-    expect(invalido.precoFinalRebaxa).toBe('');
+    for (const linha of [cellsOf(rows[3]), cellsOf(rows[4])]) {
+      for (const coluna of [9, 10, 11, 12]) {
+        expect(cellText(linha[coluna])).toBe('');
+      }
+    }
   });
 
-  it('grava a oferta e o preço final como número no XML', () => {
+  it('grava o motivo e a data na coluna VENCIMENTO DO PRODUTO do XML', () => {
     const doc = parseContent(
       buildValidadeOdsContent(rebaixaItems, tipos, {
         date: new Date(2026, 9, 28),
@@ -426,19 +418,15 @@ describe('campos da Rebaixa na planilha', () => {
     const rows = rowsOf(doc);
 
     const banana = cellsOf(rows[3]);
-    expect(cellText(banana[7])).toBe('');
-    expect(cellValue(banana[9])).toBe('Qualidade');
-    expect(banana[10].getAttribute('office:value-type')).toBe('float');
-    expect(cellValue(banana[10])).toBe('3.45');
-    expect(cellText(banana[10])).toBe('R$ 3,45');
+    expect(cellValue(banana[7])).toBe('Qualidade');
+    expect(cellText(banana[9])).toBe('');
 
     const leite = cellsOf(rows[4]);
+    expect(cellValue(leite[7])).toBe('30/10/2026');
     expect(cellText(leite[9])).toBe('');
-    expect(cellValue(leite[10])).toBe('2.5');
-    expect(cellText(leite[10])).toBe('R$ 2,50');
   });
 
-  it('usa o formato de moeda na coluna PREÇO FINAL REBAIXA', () => {
+  it('mantém a formatação da coluna PREÇO FINAL REBAIXA pronta para o comercial', () => {
     const doc = parseContent(buildValidadeOdsContent(rebaixaItems, tipos, { custos: { '456': 7.5 } }));
 
     expect(styleByName(doc, 'ceD10')?.getAttribute('style:data-style-name')).toBe('Nbrl');

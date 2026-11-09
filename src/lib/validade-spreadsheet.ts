@@ -37,10 +37,8 @@ export interface ValidadeSpreadsheetItem {
   validade?: string | null;
   /** Tipo explícito (KG/UN); quando ausente, usa o mapa `tipos`. */
   tipo?: string | null;
-  /** Texto da coluna DESCRIÇÃO DA OFERTA (a Rebaixa grava o motivo KG). */
-  oferta?: string | null;
-  /** Preço final decidido na tela; vazio quando não informado. */
-  precoFinal?: number | null;
+  /** Motivo da rebaixa (KG); vai para VENCIMENTO DO PRODUTO, nunca para o lado comercial. */
+  motivo?: string | null;
 }
 
 export interface ValidadeSpreadsheetRow {
@@ -54,13 +52,9 @@ export interface ValidadeSpreadsheetRow {
   precoSugerido: string | number;
   /** Fórmula ODF ((custo - sugestão) / custo) * 100; vazia quando não há custo. */
   margem: string;
+  /** VENCIMENTO DO PRODUTO: data da validade (UN) ou motivo da rebaixa (KG). */
   vencimento: string;
   quantidade: number;
-  descricaoOferta: string;
-  /** Preço final decidido na Rebaixa; vazio quando não informado. */
-  precoFinalRebaxa: string | number;
-  inicio: string;
-  final: string;
 }
 
 export type TipoMap = Record<string, string>;
@@ -211,11 +205,7 @@ export function buildSpreadsheetRows(
     const tipo = item.tipo?.trim() || tipos[codigo];
     const custo = custos[codigo];
     const temCusto = typeof custo === 'number' && Number.isFinite(custo) && custo > 0;
-    const precoFinal = typeof item.precoFinal === 'number'
-      && Number.isFinite(item.precoFinal)
-      && item.precoFinal > 0
-      ? Math.round(item.precoFinal * 100) / 100
-      : '';
+    const motivo = typeof item.motivo === 'string' ? item.motivo.trim() : '';
 
     return {
       loja: store,
@@ -228,14 +218,13 @@ export function buildSpreadsheetRows(
       precoSugerido: temCusto ? suggestedPrice(custo!) : '',
       // Margem calculada pela própria planilha, assim o comercial pode ajustar a sugestão.
       margem: temCusto ? marginFormula(FIRST_DATA_ROW + index) : '',
-      // KG fica vazio, UN recebe a validade da lista e tipo desconhecido não é chutado como UN.
-      vencimento: isUnitProduct(tipo) && item.validade ? formatDateBR(item.validade) : '',
+      // VENCIMENTO DO PRODUTO: KG recebe o motivo; UN recebe a validade.
+      vencimento: isWeightProduct(tipo)
+        ? motivo
+        : isUnitProduct(tipo) && item.validade
+          ? formatDateBR(item.validade)
+          : '',
       quantidade: Number(item.quantidade) || 0,
-      // A Rebaixa grava o motivo KG aqui; a Validade continua com a coluna em branco.
-      descricaoOferta: typeof item.oferta === 'string' ? item.oferta.trim() : '',
-      precoFinalRebaxa: precoFinal,
-      inicio: '',
-      final: '',
     };
   });
 }
@@ -554,12 +543,11 @@ export function buildValidadeOdsContent(
         : textCell('ceD6', ''),
       textCell('ceD7', row.vencimento),
       numberCell('ceD8', row.quantidade, String(row.quantidade)),
-      textCell('ceD9', row.descricaoOferta),
-      typeof row.precoFinalRebaxa === 'number'
-        ? numberCell('ceD10', row.precoFinalRebaxa, formatBrl(row.precoFinalRebaxa))
-        : textCell('ceD10', ''),
-      textCell('ceD11', row.inicio),
-      textCell('ceD12', row.final),
+      // Lado COMERCIAL (J–M): nunca é preenchido pelo sistema — quem preenche é o comercial.
+      textCell('ceD9', ''),
+      textCell('ceD10', ''),
+      textCell('ceD11', ''),
+      textCell('ceD12', ''),
     ];
 
     sheetRows.push(

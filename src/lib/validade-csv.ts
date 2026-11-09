@@ -83,10 +83,11 @@ export function createValidadeCsv(
       margem,
       row.vencimento,
       String(row.quantidade),
-      row.descricaoOferta,
-      typeof row.precoFinalRebaxa === 'number' ? brNumber(row.precoFinalRebaxa) : '',
-      row.inicio,
-      row.final,
+      // Lado COMERCIAL (J–M): nunca é preenchido pelo sistema.
+      '',
+      '',
+      '',
+      '',
     ];
     lines.push(fields.map(csvField).join(';'));
   }

@@ -130,27 +130,24 @@ describe('toDateInput', () => {
 });
 
 describe('toSpreadsheetItems', () => {
-  it('leva o motivo KG para a descrição da oferta', () => {
+  it('leva o motivo KG para a coluna VENCIMENTO DO PRODUTO', () => {
     const [row] = toSpreadsheetItems([
       item({ tipo: 'KG', validade: null, motivo: 'Qualidade', preco_final: 3.45 }),
     ]);
 
     expect(row).toMatchObject({
       tipo: 'KG',
-      oferta: 'Qualidade',
-      precoFinal: 3.45,
+      motivo: 'Qualidade',
       validade: null,
     });
   });
 
-  it('mantém a descrição da oferta vazia em produtos UN', () => {
+  it('não leva preço nem oferta para o lado comercial da planilha', () => {
     const [row] = toSpreadsheetItems([item({ motivo: null })]);
 
-    expect(row).toMatchObject({
-      tipo: 'UN',
-      oferta: '',
-      precoFinal: 2.5,
-    });
+    expect(row).toMatchObject({ tipo: 'UN', motivo: null });
+    expect(row).not.toHaveProperty('precoFinal');
+    expect(row).not.toHaveProperty('oferta');
   });
 });
 

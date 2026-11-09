@@ -101,7 +101,7 @@ describe('planilha de rebaixa em CSV', () => {
     expect(rows[1]).toContain('"REGAJO ""VIP""; 500ML"');
   });
 
-  it('grava o motivo KG na descrição da oferta e o preço final na coluna', () => {
+  it('grava o motivo KG e a data UN em VENCIMENTO DO PRODUTO e deixa o comercial vazio', () => {
     const rows = linesOf(createValidadeCsv(
       [
         {
@@ -111,30 +111,28 @@ describe('planilha de rebaixa em CSV', () => {
           quantidade: 2.5,
           validade: null,
           tipo: 'KG',
-          oferta: 'Qualidade',
-          precoFinal: 3.45,
+          motivo: 'Qualidade',
         },
-        { ...items[0], tipo: 'UN', oferta: '', precoFinal: 2.5 },
+        { ...items[0], tipo: 'UN' },
       ],
       tipos,
       { custos: { '456': 7.5, '123': 5 } },
     ));
 
     const banana = rows[1].split(';');
-    expect(banana[7]).toBe('');
-    expect(banana[9]).toBe('Qualidade');
-    expect(banana[10]).toBe('3,45');
+    expect(banana[7]).toBe('Qualidade');
+    expect(banana.slice(9)).toEqual(['', '', '', '']);
 
     const leite = rows[2].split(';');
     expect(leite[7]).toBe('30/10/2026');
-    expect(leite[9]).toBe('');
-    expect(leite[10]).toBe('2,50');
+    expect(leite.slice(9)).toEqual(['', '', '', '']);
   });
 
-  it('deixa o preço final vazio quando não informado', () => {
-    const rows = linesOf(createValidadeCsv(items, tipos));
-    expect(rows[1].split(';')[10]).toBe('');
-    expect(rows[2].split(';')[10]).toBe('');
+  it('mantém as quatro colunas do comercial sempre vazias', () => {
+    const rows = linesOf(createValidadeCsv(items, tipos, { custos: { '123': 5 } }));
+
+    expect(rows[1].split(';').slice(9)).toEqual(['', '', '', '']);
+    expect(rows[2].split(';').slice(9)).toEqual(['', '', '', '']);
   });
 
   it('gera o nome do arquivo com a data', () => {
