@@ -88,8 +88,8 @@ export function WhatsappValidadeDialog({
     setPreview(null);
 
     Promise.all([
-      invokeFunction<WhatsappConfigInfo>('whatsapp-validade', { body: { action: 'config' } }),
-      invokeFunction<WhatsappPreview>('whatsapp-validade', { body: { action: 'preview' } }),
+      invokeFunction<WhatsappConfigInfo>('manage-validade', { body: { action: 'whatsapp_config' } }),
+      invokeFunction<WhatsappPreview>('manage-validade', { body: { action: 'whatsapp_preview' } }),
     ])
       .then(([configResult, previewResult]) => {
         if (!active) return;
@@ -120,8 +120,8 @@ export function WhatsappValidadeDialog({
     setResult(null);
 
     const { data, error: sendError } = await invokeFunction<WhatsappSendResult>(
-      'whatsapp-validade',
-      { body: { action: 'send' } },
+      'manage-validade',
+      { body: { action: 'whatsapp_send' } },
     );
     setSending(false);
 

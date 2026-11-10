@@ -20,7 +20,8 @@ vi.mock('../../api/_lib/whatsapp', async (importOriginal) => {
   };
 });
 
-import handler, { canSendWhatsapp } from '../../api/whatsapp-validade';
+import { handleWhatsappCron, handleWhatsappPost, canSendWhatsapp } from '../../api/_lib/whatsapp-endpoint';
+import manageValidade from '../../api/manage-validade';
 
 const CONFIG: WhatsappConfig = {
   enabled: true,
@@ -56,6 +57,16 @@ function fakeResponse() {
 
 function fakeRequest(overrides: Partial<ApiRequest> = {}): ApiRequest {
   return { method: 'POST', headers: {}, body: {}, ...overrides };
+}
+
+/**
+ * O endpoint real mora em `_lib/whatsapp-endpoint` e é chamado por
+ * `manage-validade`; este atalho mantém os testes focados na lógica.
+ */
+function handler(req: ApiRequest, res: Parameters<typeof handleWhatsappCron>[1]) {
+  return req.method === 'GET'
+    ? handleWhatsappCron(req, res)
+    : handleWhatsappPost(req, res);
 }
 
 /** Texto da query, seja tagged template (`sql\`...\``) ou query crua. */
@@ -113,7 +124,7 @@ describe('canSendWhatsapp', () => {
   });
 });
 
-describe('GET /api/whatsapp-validade (cron)', () => {
+describe('GET /api/manage-validade (cron)', () => {
   it('responde 503 quando o CRON_SECRET não está configurado', async () => {
     process.env.CRON_SECRET = '';
     installSql();
@@ -229,7 +240,7 @@ describe('GET /api/whatsapp-validade (cron)', () => {
   });
 });
 
-describe('POST /api/whatsapp-validade (tela)', () => {
+describe('POST /api/manage-validade (whatsapp_*)', () => {
   it('bloqueia papéis sem permissão', async () => {
     authenticateMock.mockReturnValue({ sub: 'fulano', role: 'user' });
     installSql();
@@ -338,5 +349,32 @@ describe('POST /api/whatsapp-validade (tela)', () => {
     await handler(fakeRequest({ body: { action: 'apagar' } }), res);
 
     expect(state.status).toBe(400);
+  });
+});
+
+describe('delegação em api/manage-validade', () => {
+  it('encaminha o GET do cron para o WhatsApp', async () => {
+    installSql({ claim: false });
+    const { res, state } = fakeResponse();
+
+    await manageValidade(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.skipped).toBe('slot já enviado');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('encaminha as ações whatsapp_* para o endpoint', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await manageValidade(fakeRequest({ body: { action: 'whatsapp_config' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ enabled: true, recipientsCount: 1 });
   });
 });

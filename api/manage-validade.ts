@@ -2,6 +2,7 @@ import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
+import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
@@ -42,14 +43,28 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
 }
 
 const handler: ApiHandler = async (req, res) => {
+  // GET é o cron dos alertas de validade por WhatsApp (a tela só usa POST).
+  if (req.method === 'GET') {
+    await handleWhatsappCron(req, res);
+    return;
+  }
+
   if (!requirePost(req, res)) return;
 
   try {
+    const body = await readJsonBody<Record<string, any>>(req);
+
+    // As ações `whatsapp_*` são da integração com a Meta e ficam em
+    // `_lib/whatsapp-endpoint.ts` (o plano Hobby limita o total de funções).
+    if (typeof body.action === 'string' && body.action.startsWith('whatsapp_')) {
+      await handleWhatsappPost(req, res, body);
+      return;
+    }
+
     const payload = authenticate(req, res);
     if (!payload) return;
 
     const username = payload.sub;
-    const body = await readJsonBody<Record<string, any>>(req);
     const action = body.action;
     const sql = createSql();
 

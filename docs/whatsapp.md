@@ -9,7 +9,7 @@ normalmente — a tela da Validade apenas avisa que a integração está indispo
 
 | Quando | O que acontece |
 | --- | --- |
-| Todos os dias às **07h** e **13h** (Brasília) | Os crons da Vercel chamam `GET /api/whatsapp-validade`; o servidor monta o resumo + lista e envia o template para cada número de `WHATSAPP_RECIPIENTS`. |
+| Todos os dias às **07h** e **13h** (Brasília) | Os crons da Vercel chamam `GET /api/manage-validade`; o servidor monta o resumo + lista e envia o template para cada número de `WHATSAPP_RECIPIENTS`. |
 | A qualquer momento | Na aba **Validade**, o botão verde do WhatsApp (admin/encarregado) mostra a prévia exata e permite **Enviar agora**. |
 
 - Só entram produtos **ativos** (`status = true`), **sem motivo** (os itens KG
@@ -41,7 +41,8 @@ manutenção, crie um **System User** no Business Manager:
 
 1. **Configurações do negócio → Usuários → Usuários do sistema** → adicionar.
 2. Dê acesso ao app e à conta do WhatsApp Business.
-3. Gere um token com a permissão **`whatsapp_business_messaging`**.
+3. Gere um token com as permissões **`whatsapp_business_messaging`**,
+   `business_management` e `whatsapp_business_management`.
 4. Guarde o token: ele só aparece uma vez. Use-o em `WHATSAPP_TOKEN`.
 
 ## 2. Criar o template aprovado
@@ -101,8 +102,8 @@ O `vercel.json` já declara os dois envios:
 
 ```json
 "crons": [
-  { "path": "/api/whatsapp-validade", "schedule": "0 10 * * *" },
-  { "path": "/api/whatsapp-validade", "schedule": "0 16 * * *" }
+  { "path": "/api/manage-validade", "schedule": "0 10 * * *" },
+  { "path": "/api/manage-validade", "schedule": "0 16 * * *" }
 ]
 ```
 
@@ -110,6 +111,13 @@ Os horários são em **UTC**: `10:00 UTC = 07:00` e `16:00 UTC = 13:00` em
 America/Sao_Paulo (UTC-3, sem horário de verão). O endpoint identifica o slot
 pelo cabeçalho `x-vercel-cron-schedule`, então um atraso do cron não troca o
 slot.
+
+> **Por que `/api/manage-validade`?** O plano Hobby da Vercel aceita no máximo
+> **12 Serverless Functions** por deploy. Como a Validade já usa
+> `api/manage-validade.ts`, a lógica do WhatsApp fica em
+> `api/_lib/whatsapp-endpoint.ts` e é chamada por essa função (o `_lib` não
+> conta como função). A tela usa as ações `whatsapp_config`,
+> `whatsapp_preview`, `whatsapp_send` e `whatsapp_history` no mesmo endpoint.
 
 > **Plano Hobby:** cada expressão de cron roda no máximo **1x por dia** e pode
 > atrasar até ~59 minutos. Como são duas expressões distintas, os dois envios
@@ -126,12 +134,26 @@ slot.
 
 ### Pelo terminal (simulando o cron)
 
+Use `dry=1` para conferir o que seria enviado **sem reservar o slot nem mandar
+mensagem**:
+
 ```bash
-curl -i "https://SEU-DOMINIO.vercel.app/api/whatsapp-validade?slot=manha" \
+curl -i "https://SEU-DOMINIO.vercel.app/api/manage-validade?dry=1&slot=manha" \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+Para enviar de verdade, remova o `dry=1`:
+
+```bash
+curl -i "https://SEU-DOMINIO.vercel.app/api/manage-validade?slot=manha" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
 Respostas comuns:
+
+```json
+{ "ok": true, "dryRun": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "summary": "...", "list": "..." }
+```
 
 ```json
 { "ok": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "enviados": 2, "falhas": 0 }

@@ -48,11 +48,11 @@ function mockInvoke(overrides: {
 } = {}) {
   invoke.mockImplementation(async (_name: string, options: { body: { action: string } }) => {
     switch (options.body.action) {
-      case 'config':
+      case 'whatsapp_config':
         return { data: overrides.config ?? CONFIG, error: null };
-      case 'preview':
+      case 'whatsapp_preview':
         return { data: overrides.preview ?? PREVIEW, error: null };
-      case 'send':
+      case 'whatsapp_send':
         return {
           data: overrides.send ?? {
             ok: true,
@@ -97,7 +97,7 @@ describe('WhatsappValidadeDialog', () => {
 
     expect(await screen.findByText(/1 enviado\(s\)/)).toBeInTheDocument();
     expect(toast.success).toHaveBeenCalledWith('Alerta enviado para 1 número(s)');
-    expect(invoke).toHaveBeenCalledWith('whatsapp-validade', { body: { action: 'send' } });
+    expect(invoke).toHaveBeenCalledWith('manage-validade', { body: { action: 'whatsapp_send' } });
   });
 
   it('desabilita o envio e explica a configuração quando a integração está inativa', async () => {

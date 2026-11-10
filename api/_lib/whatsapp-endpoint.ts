@@ -1,33 +1,37 @@
 /**
  * Alertas de validade por WhatsApp (Meta Cloud API).
  *
- * Dois modos no mesmo endpoint:
+ * A lógica mora aqui (em `_lib`, que não vira Serverless Function) e é
+ * chamada por `api/manage-validade.ts` — o plano Hobby da Vercel limita o
+ * deploy a 12 funções, então o cron e as ações da tela entram na função que já
+ * atende a Validade.
+ *
+ * Dois modos:
  *
  * - **GET** — chamado pelos crons da Vercel (`0 10 * * *` e `0 16 * * *`,
  *   equivalentes a 07h e 13h em Brasília). Exige `CRON_SECRET` no cabeçalho
  *   `Authorization: Bearer <secret>` e é idempotente por slot/dia na tabela
  *   `whatsapp_envios` — se o cron repetir, a segunda chamada não reenvia.
- * - **POST** — usado pela tela da Validade (admin/encarregado):
- *   - `config`: estado da integração e destinatários (mascarados);
- *   - `preview`: resumo e lista que seriam enviados, sem enviar nada;
- *   - `send`: envia agora (registra no histórico como `manual`);
- *   - `history`: últimos envios (automáticos e manuais).
+ * - **POST** — usado pela tela da Validade (admin/encarregado), com as ações
+ *   prefixadas por `whatsapp_`:
+ *   - `whatsapp_config`: estado da integração e destinatários (mascarados);
+ *   - `whatsapp_preview`: resumo e lista que seriam enviados, sem enviar nada;
+ *   - `whatsapp_send`: envia agora (registra no histórico como `manual`);
+ *   - `whatsapp_history`: últimos envios (automáticos e manuais).
  *
  * A integração é opcional: sem as variáveis de ambiente o endpoint responde
  * 503 e o restante do app continua funcionando.
  */
 
-import { createSql, type Sql } from './_lib/db.js';
-import { authenticate } from './_lib/auth.js';
+import { createSql, type Sql } from './db.js';
+import { authenticate } from './auth.js';
 import {
   bearerToken,
   readJsonBody,
-  requirePost,
   sendJson,
-  type ApiHandler,
   type ApiRequest,
   type ApiResponse,
-} from './_lib/http.js';
+} from './http.js';
 import {
   buildValidadeDigest,
   maskPhone,
@@ -40,7 +44,7 @@ import {
   type ValidadeDigest,
   type ValidadeSourceRow,
   type WhatsappConfig,
-} from './_lib/whatsapp.js';
+} from './whatsapp.js';
 
 /** Papéis que podem ver a configuração e disparar o alerta pela tela. */
 export const WHATSAPP_ROLES = ['admin', 'encarregado'] as const;
@@ -189,7 +193,21 @@ function firstError(results: SendResult[]): string | null {
 
 // ── GET: cron da Vercel ───────────────────────────────────────────────
 
-async function handleCron(req: ApiRequest, res: ApiResponse): Promise<void> {
+/**
+ * Atende o cron (GET). Exportada para `api/manage-validade.ts` — o plano
+ * Hobby da Vercel limita o deploy a 12 Serverless Functions.
+ */
+export async function handleWhatsappCron(req: ApiRequest, res: ApiResponse): Promise<void> {
+  try {
+    await runCron(req, res);
+  } catch (error) {
+    console.error('WhatsApp cron error:', error);
+    const message = error instanceof Error ? error.message : 'Erro interno do servidor';
+    sendJson(res, { error: message }, 500);
+  }
+}
+
+async function runCron(req: ApiRequest, res: ApiResponse): Promise<void> {
   const secret = (process.env.CRON_SECRET ?? '').trim();
   if (!secret) {
     sendJson(res, { error: 'CRON_SECRET não configurado no servidor' }, 503);
@@ -283,20 +301,15 @@ async function handleCron(req: ApiRequest, res: ApiResponse): Promise<void> {
 
 // ── POST: tela da Validade ────────────────────────────────────────────
 
-const handler: ApiHandler = async (req, res) => {
-  if (req.method === 'GET') {
-    try {
-      await handleCron(req, res);
-    } catch (error) {
-      console.error('WhatsApp cron error:', error);
-      const message = error instanceof Error ? error.message : 'Erro interno do servidor';
-      sendJson(res, { error: message }, 500);
-    }
-    return;
-  }
-
-  if (!requirePost(req, res)) return;
-
+/**
+ * Atende as ações `whatsapp_*` da tela. O corpo já pode vir lido pelo
+ * `manage-validade` (evita ler o JSON duas vezes).
+ */
+export async function handleWhatsappPost(
+  req: ApiRequest,
+  res: ApiResponse,
+  preloadedBody?: Record<string, unknown>,
+): Promise<void> {
   try {
     const payload = authenticate(req, res);
     if (!payload) return;
@@ -306,8 +319,10 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    const body = await readJsonBody<Record<string, unknown>>(req);
-    const action = body.action;
+    const body = preloadedBody ?? await readJsonBody<Record<string, unknown>>(req);
+    // As ações chegam prefixadas (`whatsapp_config`) para não colidir com as
+    // ações da própria Validade.
+    const action = String(body.action ?? '').replace(/^whatsapp_/, '');
     const config = whatsappConfig();
     const sql = createSql();
 
@@ -418,6 +433,4 @@ const handler: ApiHandler = async (req, res) => {
     const message = error instanceof Error ? error.message : 'Erro interno do servidor';
     sendJson(res, { error: message }, 500);
   }
-};
-
-export default handler;
+}
