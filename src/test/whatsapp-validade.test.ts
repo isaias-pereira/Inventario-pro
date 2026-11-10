@@ -1,0 +1,342 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiRequest } from '../../api/_lib/http';
+import type { WhatsappConfig } from '../../api/_lib/whatsapp';
+
+const { authenticateMock, createSqlMock, configMock, sendMock } = vi.hoisted(() => ({
+  authenticateMock: vi.fn(),
+  createSqlMock: vi.fn(),
+  configMock: vi.fn(),
+  sendMock: vi.fn(),
+}));
+
+vi.mock('../../api/_lib/auth', () => ({ authenticate: authenticateMock }));
+vi.mock('../../api/_lib/db', () => ({ createSql: createSqlMock }));
+vi.mock('../../api/_lib/whatsapp', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/_lib/whatsapp')>();
+  return {
+    ...actual,
+    whatsappConfig: configMock,
+    sendWhatsappToRecipients: sendMock,
+  };
+});
+
+import handler, { canSendWhatsapp } from '../../api/whatsapp-validade';
+
+const CONFIG: WhatsappConfig = {
+  enabled: true,
+  token: 'token',
+  phoneNumberId: '123',
+  recipients: ['5511999999999'],
+  templateName: 'alerta_validade_sgs',
+  templateLang: 'pt_BR',
+  apiVersion: 'v23.0',
+  alertDays: 4,
+  maxItems: 30,
+};
+
+const AMANHA = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+function fakeResponse() {
+  const state = { status: 200, body: null as Record<string, unknown> | null };
+  const res = {
+    status(code: number) {
+      state.status = code;
+      return res;
+    },
+    setHeader() {},
+    json(payload: unknown) {
+      state.body = payload as Record<string, unknown>;
+    },
+    end(payload?: unknown) {
+      if (payload) state.body = JSON.parse(String(payload)) as Record<string, unknown>;
+    },
+  };
+  return { res, state };
+}
+
+function fakeRequest(overrides: Partial<ApiRequest> = {}): ApiRequest {
+  return { method: 'POST', headers: {}, body: {}, ...overrides };
+}
+
+/** Texto da query, seja tagged template (`sql\`...\``) ou query crua. */
+function sqlText(query: unknown): string {
+  if (typeof query === 'string') return query;
+  if (Array.isArray(query)) return query.join(' ');
+  return '';
+}
+
+/**
+ * Instala o mock de banco. `rows` são os produtos da validade; `claim` diz se
+ * a reserva do slot foi aceita; `history` alimenta a ação `history`.
+ */
+function installSql(options: {
+  rows?: unknown[];
+  claim?: boolean;
+  history?: unknown[];
+} = {}) {
+  const { rows = [], claim = true, history = [] } = options;
+  const sql = vi.fn(async (query: unknown) => {
+    const text = sqlText(query);
+    if (text.includes('to_regclass')) return [{ table_name: 'whatsapp_envios' }];
+    if (text.includes('INSERT INTO public.whatsapp_envios')) {
+      return claim ? [{ id: '42' }] : [];
+    }
+    if (text.includes('FROM public.whatsapp_envios')) return history;
+    if (text.includes('FROM public.validade_products')) return rows;
+    return [];
+  });
+  createSqlMock.mockReturnValue(sql);
+  return sql;
+}
+
+beforeEach(() => {
+  authenticateMock.mockReset();
+  createSqlMock.mockReset();
+  configMock.mockReset();
+  sendMock.mockReset();
+  configMock.mockReturnValue({ ...CONFIG });
+  sendMock.mockResolvedValue({
+    results: [{ to: '5511999999999', ok: true }],
+    enviados: 1,
+    falhas: 0,
+  });
+  process.env.CRON_SECRET = 'segredo';
+});
+
+describe('canSendWhatsapp', () => {
+  it('libera só admin e encarregado', () => {
+    expect(canSendWhatsapp('admin')).toBe(true);
+    expect(canSendWhatsapp('encarregado')).toBe(true);
+    expect(canSendWhatsapp('user')).toBe(false);
+    expect(canSendWhatsapp('enc_flv')).toBe(false);
+    expect(canSendWhatsapp(null)).toBe(false);
+  });
+});
+
+describe('GET /api/whatsapp-validade (cron)', () => {
+  it('responde 503 quando o CRON_SECRET não está configurado', async () => {
+    process.env.CRON_SECRET = '';
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ method: 'GET' }), res);
+
+    expect(state.status).toBe(503);
+    expect(String(state.body?.error)).toContain('CRON_SECRET');
+  });
+
+  it('recusa chamada sem o segredo correto', async () => {
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ method: 'GET', headers: { authorization: 'Bearer outro' } }), res);
+
+    expect(state.status).toBe(401);
+  });
+
+  it('responde 503 quando a integração está desabilitada', async () => {
+    configMock.mockReturnValue({ ...CONFIG, enabled: false });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo' },
+    }), res);
+
+    expect(state.status).toBe(503);
+  });
+
+  it('não reenvia quando o slot do dia já foi reservado', async () => {
+    installSql({ claim: false });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.skipped).toBe('slot já enviado');
+    expect(state.body?.slot).toBe('manha');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('não envia nada quando não há produtos no período', async () => {
+    installSql({ rows: [] });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 16 * * *' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.skipped).toBe('sem produtos vencendo');
+    expect(state.body?.slot).toBe('tarde');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('envia e registra o resultado do slot', async () => {
+    const sql = installSql({
+      rows: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ ok: true, slot: 'manha', total: 1, enviados: 1, falhas: 0 });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const update = sql.mock.calls.find((call) => sqlText(call[0]).includes('UPDATE public.whatsapp_envios'));
+    expect(update).toBeTruthy();
+  });
+
+  it('aceita o slot explícito na query (teste manual do cron)', async () => {
+    installSql({ rows: [] });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo' },
+      query: { slot: 'tarde' },
+    }), res);
+
+    expect(state.body?.slot).toBe('tarde');
+  });
+
+  it('com ?dry=1 mostra a mensagem sem reservar o slot nem enviar', async () => {
+    const sql = installSql({
+      rows: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+      query: { dry: '1' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ ok: true, dryRun: true, slot: 'manha', total: 1 });
+    expect(String(state.body?.summary)).toContain('1 vence em até 4 dias');
+    expect(sendMock).not.toHaveBeenCalled();
+    const insert = sql.mock.calls.find((call) => sqlText(call[0]).includes('INSERT INTO public.whatsapp_envios'));
+    expect(insert).toBeFalsy();
+  });
+});
+
+describe('POST /api/whatsapp-validade (tela)', () => {
+  it('bloqueia papéis sem permissão', async () => {
+    authenticateMock.mockReturnValue({ sub: 'fulano', role: 'user' });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'config' } }), res);
+
+    expect(state.status).toBe(403);
+  });
+
+  it('devolve a configuração com os números mascarados', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'config' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({
+      enabled: true,
+      recipientsCount: 1,
+      template: 'alerta_validade_sgs',
+      schedule: ['07:00', '13:00'],
+    });
+    expect((state.body?.recipients as string[])[0]).toBe('5511*****9999');
+  });
+
+  it('monta a prévia sem enviar', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql({
+      rows: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'preview' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.total).toBe(1);
+    expect(String(state.body?.summary)).toContain('1 vence em até 4 dias');
+    expect(String(state.body?.list)).toContain('ARROZ 5KG');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('recusa o envio manual quando a integração está desabilitada', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    configMock.mockReturnValue({ ...CONFIG, enabled: false });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'send' } }), res);
+
+    expect(state.status).toBe(503);
+  });
+
+  it('envia manualmente e registra no histórico', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    const sql = installSql({
+      rows: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'send' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ ok: true, total: 1, enviados: 1, falhas: 0 });
+    const manual = sql.mock.calls.find((call) => sqlText(call[0]).includes("'manual'"));
+    expect(manual).toBeTruthy();
+  });
+
+  it('não envia nada no modo manual quando não há produtos no período', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql({ rows: [] });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'send' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({
+      ok: true,
+      skipped: 'sem produtos vencendo',
+      total: 0,
+      enviados: 0,
+      falhas: 0,
+    });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('lista os últimos envios', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql({
+      history: [{ slot: 'manha', dia: '2026-11-10', total: 3, enviados: 1, falhas: 0 }],
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'history' } }), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.items).toHaveLength(1);
+  });
+
+  it('recusa ação desconhecida', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin' });
+    installSql();
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'apagar' } }), res);
+
+    expect(state.status).toBe(400);
+  });
+});

@@ -63,71 +63,6 @@ async function showValidadeNotification(alerts: ValidadeAlert[], hour: number, a
   }
 }
 
-// ── Webhook (WhatsApp via Zapier) ──
-
-function getWebhookUrl(): string | null {
-  try { return localStorage.getItem('zapier_webhook_url'); } catch { return null; }
-}
-
-export function setWebhookUrl(url: string) {
-  try { localStorage.setItem('zapier_webhook_url', url); } catch { /* noop */ }
-}
-
-export function removeWebhookUrl() {
-  try { localStorage.removeItem('zapier_webhook_url'); } catch { /* noop */ }
-}
-
-async function sendZapierWebhook(alerts: ValidadeAlert[]) {
-  const webhookUrl = getWebhookUrl();
-  if (!webhookUrl || alerts.length === 0) return;
-
-  const vencidos = alerts.filter(i => i.status === 'vencido');
-  const hoje = alerts.filter(i => i.status === 'hoje');
-  const proximo = alerts.filter(i => i.status === 'proximo');
-
-  let message = '⚠️ *Alerta de Validade - SGS-PRO*\n\n';
-
-  if (vencidos.length > 0) {
-    message += '🔴 *VENCIDOS:*\n';
-    vencidos.forEach(a => { message += `  • ${a.descricao} (Qtd: ${a.quantidade}) - ${new Date(a.validade).toLocaleDateString('pt-BR')}\n`; });
-    message += '\n';
-  }
-  if (hoje.length > 0) {
-    message += '🟠 *VENCEM HOJE:*\n';
-    hoje.forEach(a => { message += `  • ${a.descricao} (Qtd: ${a.quantidade})\n`; });
-    message += '\n';
-  }
-  if (proximo.length > 0) {
-    message += '🟡 *VENCEM EM BREVE:*\n';
-    proximo.forEach(a => { message += `  • ${a.descricao} (Qtd: ${a.quantidade}) - ${new Date(a.validade).toLocaleDateString('pt-BR')}\n`; });
-  }
-
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      mode: 'no-cors',
-      body: JSON.stringify({
-        message,
-        total_alerts: alerts.length,
-        vencidos: vencidos.length,
-        hoje: hoje.length,
-        proximo: proximo.length,
-        items: alerts.map(a => ({
-          descricao: a.descricao,
-          validade: a.validade,
-          quantidade: a.quantidade,
-          status: a.status,
-        })),
-        timestamp: new Date().toISOString(),
-      }),
-    });
-    console.log('Zapier webhook sent successfully');
-  } catch (e) {
-    console.error('Error sending Zapier webhook:', e);
-  }
-}
-
 // ── Token ──
 
 function getToken(): string | null {
@@ -138,7 +73,6 @@ export function useValidadeNotifications() {
   const [alerts, setAlerts] = useState<ValidadeAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const toastShown = useRef(false);
-  const webhookSent = useRef(false);
   const notifying = useRef(false);
 
   const fetchAlerts = useCallback(async (): Promise<ValidadeAlert[] | null> => {
@@ -169,11 +103,6 @@ export function useValidadeNotifications() {
         if (proximo > 0) parts.push(`${proximo} vence(m) em até ${alertDays} dia(s)`);
 
         toast.warning(`⚠️ Alerta de Validade: ${parts.join(', ')}`, { duration: 8000 });
-      }
-
-      if (!webhookSent.current && urgentItems.length > 0) {
-        webhookSent.current = true;
-        void sendZapierWebhook(urgentItems);
       }
 
       return urgentItems;

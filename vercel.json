@@ -10,8 +10,21 @@
     },
     "api/ai-assist.ts": {
       "maxDuration": 60
+    },
+    "api/whatsapp-validade.ts": {
+      "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/api/whatsapp-validade",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/whatsapp-validade",
+      "schedule": "0 16 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",

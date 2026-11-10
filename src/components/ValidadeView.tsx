@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag, MessageCircle,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -27,6 +27,7 @@ import SecaoBadge from '@/components/SecaoBadge';
 import SecaoFilter from '@/components/SecaoFilter';
 import ConsultaValidadeView from '@/components/ConsultaValidadeView';
 import ArrastaoView from '@/components/ArrastaoView';
+import WhatsappValidadeDialog from '@/components/WhatsappValidadeDialog';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
 import {
   createValidadeOds,
@@ -110,6 +111,7 @@ const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin, userRole } = useAuth();
   const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado' || userRole === 'enc_flv';
   const canSendEmail = isAdmin || userRole === 'encarregado';
+  const canSendWhatsapp = isAdmin || userRole === 'encarregado';
   const [code, setCode] = useState('');
   const [validade, setValidade] = useState('');
   const [motivo, setMotivo] = useState<MotivoKg | ''>('');
@@ -168,6 +170,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   });
   const [showAlertConfig, setShowAlertConfig] = useState(false);
   const [tempAlertDays, setTempAlertDays] = useState(alertDays);
+  const [showWhatsapp, setShowWhatsapp] = useState(false);
 
   const fetchItems = useCallback(async () => {
     const { data, error } = await invokeWithToken('manage-validade', { action: 'list_all' });
@@ -854,6 +857,19 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 <Share2 className="h-4 w-4 text-foreground" />
               )}
             </Button>
+
+            {canSendWhatsapp && (
+              <Button
+                variant="outline"
+                size="icon"
+                className="ml-1 h-8 w-8 border-emerald-200 bg-white hover:bg-emerald-50"
+                onClick={() => setShowWhatsapp(true)}
+                title="Enviar alerta por WhatsApp"
+                aria-label="Enviar alerta por WhatsApp"
+              >
+                <MessageCircle className="h-4 w-4 text-emerald-600" />
+              </Button>
+            )}
           </h2>
         </div>
 
@@ -1632,6 +1648,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <WhatsappValidadeDialog open={showWhatsapp} onOpenChange={setShowWhatsapp} />
     </div>
   );
 };

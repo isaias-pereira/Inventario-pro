@@ -1,16 +1,14 @@
-import { Bell, AlertTriangle, Clock, CalendarClock, Settings, MessageCircle, Check, X, BellRing } from 'lucide-react';
-import { useValidadeNotifications, setWebhookUrl, removeWebhookUrl, requestPushPermission, getPushPermissionStatus } from '@/hooks/useValidadeNotifications';
+import { Bell, AlertTriangle, Clock, CalendarClock, BellRing } from 'lucide-react';
+import { useValidadeNotifications, requestPushPermission, getPushPermissionStatus } from '@/hooks/useValidadeNotifications';
 import { readAlertDays, NOTIFICATION_HOURS } from '@/lib/validade-notifications';
 import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface NotificationBellProps {
@@ -19,28 +17,11 @@ interface NotificationBellProps {
 
 const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
   const { alerts, alertCount } = useValidadeNotifications();
-  const [showSettings, setShowSettings] = useState(false);
-  const [webhookUrl, setWebhookUrlState] = useState('');
   const [pushStatus, setPushStatus] = useState<NotificationPermission | 'unsupported'>('default');
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('zapier_webhook_url') || '';
-      setWebhookUrlState(saved);
-    } catch { /* noop */ }
     setPushStatus(getPushPermissionStatus());
   }, []);
-
-  const handleSaveWebhook = () => {
-    if (webhookUrl.trim()) {
-      setWebhookUrl(webhookUrl.trim());
-      toast.success('Webhook do Zapier salvo! Notificações WhatsApp serão enviadas ao abrir o app.');
-    } else {
-      removeWebhookUrl();
-      toast.info('Webhook removido.');
-    }
-    setShowSettings(false);
-  };
 
   const getIcon = (status: string) => {
     switch (status) {
@@ -55,8 +36,6 @@ const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
     if (status === 'hoje') return 'Vence hoje';
     return `Vence em ${days} dia(s)`;
   };
-
-  const hasWebhook = !!webhookUrl.trim();
 
   return (
     <Popover>
@@ -97,16 +76,6 @@ const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
             >
               <BellRing className={`h-3.5 w-3.5 ${pushStatus === 'granted' ? 'text-green-500' : 'text-muted-foreground'}`} />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={() => setShowSettings(!showSettings)}
-              title="Configurar WhatsApp via Zapier"
-              aria-label="Configurar notificações WhatsApp via Zapier"
-            >
-              <MessageCircle className={`h-3.5 w-3.5 ${hasWebhook ? 'text-green-500' : 'text-muted-foreground'}`} />
-            </Button>
           </div>
         </div>
 
@@ -116,34 +85,6 @@ const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
             {pushStatus !== 'granted' && ' · ative o push no ícone do sino'}
           </p>
         </div>
-
-        {showSettings && (
-          <div className="border-b px-4 py-3 bg-muted/30 space-y-2">
-            <p className="text-xs font-medium">Webhook Zapier (WhatsApp)</p>
-            <p className="text-[11px] text-muted-foreground">
-              Cole a URL do seu webhook Zapier para receber alertas de validade no WhatsApp ao abrir o app.
-            </p>
-            <div className="flex gap-1">
-              <Input
-                placeholder="https://hooks.zapier.com/..."
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrlState(e.target.value)}
-                className="h-8 text-xs"
-              />
-              <Button size="icon" className="h-8 w-8 shrink-0" onClick={handleSaveWebhook} aria-label="Salvar webhook">
-                <Check className="h-3.5 w-3.5" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setShowSettings(false)} aria-label="Cancelar configuração do webhook">
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            {hasWebhook && (
-              <p className="text-[11px] text-green-600 flex items-center gap-1">
-                <Check className="h-3 w-3" /> Webhook configurado ✓
-              </p>
-            )}
-          </div>
-        )}
 
         <ScrollArea className="max-h-72">
           {alerts.length === 0 ? (
