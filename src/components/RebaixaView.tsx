@@ -930,11 +930,10 @@ const RebaixaView = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant="outline"
               size="sm"
-              className="h-9 gap-2 border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+              className="h-9 gap-2 bg-white text-sky-700 shadow-sm hover:bg-sky-50"
               onClick={openValidade}
             >
               <CalendarClock className="h-4 w-4" />
@@ -951,9 +950,8 @@ const RebaixaView = () => {
               <span className="sm:hidden">Adicionar</span>
             </Button>
             <Button
-              variant="outline"
               size="icon"
-              className="h-9 w-9 border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+              className="h-9 w-9 bg-white text-sky-700 shadow-sm hover:bg-sky-50"
               onClick={openHistory}
               title="Histórico de rebaixas"
               aria-label="Histórico de rebaixas"
@@ -961,9 +959,8 @@ const RebaixaView = () => {
               <History className="h-4 w-4" />
             </Button>
             <Button
-              variant="outline"
               size="icon"
-              className="h-9 w-9 border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+              className="h-9 w-9 bg-white text-sky-700 shadow-sm hover:bg-sky-50"
               onClick={() => setShowExport(true)}
               disabled={items.length === 0}
               title="Exportar / enviar"
@@ -998,12 +995,7 @@ const RebaixaView = () => {
 
         {/* Cabeçalho da lista */}
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-white/90">Rascunho</h3>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/80">
-              salvo automaticamente
-            </span>
-          </div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-white/90">Rascunho</h3>
           <div className="flex flex-wrap items-center gap-1.5">
             {(['todos', 'UN', 'KG'] as ListFilter[]).map((option) => (
               <button
@@ -1182,7 +1174,11 @@ const RebaixaView = () => {
           <div className="mt-3 flex justify-end">
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 border-red-300 bg-white text-xs font-semibold text-red-600 shadow-sm hover:border-red-400 hover:bg-red-50 hover:text-red-700"
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                   Limpar rascunho
                 </Button>

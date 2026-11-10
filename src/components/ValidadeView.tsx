@@ -1051,20 +1051,26 @@ const [filter, setFilter] = useState<FilterType>('todos');
           );
         })()}
 
-        {/* Filter buttons */}
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          {filterOptions.map((opt) => (
-            <Button
-              key={opt.key}
-              variant={filter === opt.key ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter(opt.key)}
-              className="text-xs"
-            >
-              {opt.label}
-            </Button>
-          ))}
-          <SecaoFilter value={secaoFiltro} onChange={setSecaoFiltro} className="ml-auto" />
+        {/* Filter buttons: os 4 períodos ficam em uma linha no celular */}
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="grid grid-cols-4 gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+            {filterOptions.map((opt) => (
+              <Button
+                key={opt.key}
+                variant={filter === opt.key ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilter(opt.key)}
+                className="h-8 w-full px-0 text-[11px] sm:h-9 sm:w-auto sm:px-3 sm:text-xs"
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+          <SecaoFilter
+            value={secaoFiltro}
+            onChange={setSecaoFiltro}
+            className="w-full sm:ml-auto sm:w-[190px]"
+          />
         </div>
 
         {/* Items list */}

@@ -20,6 +20,7 @@ vi.mock('@/lib/api', () => ({ invokeFunction }));
 const CATEGORIAS = [
   { codigo: '4', secao: 'Mercearia' },
   { codigo: '8', secao: 'Hortifruti' },
+  { codigo: '12', secao: 'Bebê' },
   { codigo: '19', secao: 'Outros' },
 ];
 
@@ -139,6 +140,18 @@ describe('SecaoFilter', () => {
     await user.click(await screen.findByRole('option', { name: 'Todas as seções' }));
 
     expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it('filtra a lista pela busca, ignorando acento e caixa', async () => {
+    const user = userEvent.setup();
+    invokeFunction.mockResolvedValue({ data: { categorias: CATEGORIAS }, error: null });
+    render(<SecaoFilter value="" onChange={() => {}} />);
+
+    await user.click(await screen.findByLabelText('Filtrar por seção'));
+    await user.type(await screen.findByLabelText('Buscar seção'), 'BEBE');
+
+    expect(await screen.findByRole('option', { name: 'Bebê' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Hortifruti' })).not.toBeInTheDocument();
   });
 });
 
