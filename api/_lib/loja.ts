@@ -26,13 +26,21 @@ import type { JwtPayload } from './jwt.js';
 /** Loja usada quando ainda não há escopo definido (dados herdados). */
 export const DEFAULT_LOJA = 103;
 
-/** Lojas que já existem na empresa (criadas pela migration). */
+/** Lojas da empresa (criadas pelas migrations). */
 export const LOJAS_INICIAIS: Array<{ codigo: number; nome: string }> = [
+  { codigo: 73, nome: 'Loja 73' },
+  { codigo: 82, nome: 'Loja 82' },
   { codigo: 83, nome: 'Loja 83' },
   { codigo: 88, nome: 'Loja 88' },
   { codigo: 92, nome: 'Loja 92' },
+  { codigo: 93, nome: 'Loja 93' },
+  { codigo: 96, nome: 'Loja 96' },
   { codigo: 103, nome: 'Loja 103' },
   { codigo: 104, nome: 'Loja 104' },
+  { codigo: 108, nome: 'Loja 108' },
+  { codigo: 143, nome: 'Loja 143' },
+  { codigo: 148, nome: 'Loja 148' },
+  { codigo: 173, nome: 'Loja 173' },
 ];
 
 export interface Loja {

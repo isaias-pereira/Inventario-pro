@@ -1,6 +1,7 @@
 # Multi-loja (multi-tenant)
 
-O SGS-PRO atende várias lojas da empresa: **83, 88, 92, 103 e 104**.
+O SGS-PRO atende várias lojas da empresa: **73, 82, 83, 88, 92, 93, 96, 103,
+104, 108, 143, 148 e 173** (13 lojas).
 
 Todas usam o **mesmo catálogo** e as **mesmas regras de negócio**, mas cada
 loja trata o **seu próprio dado operacional**. A loja 103 não enxerga a
@@ -176,8 +177,10 @@ ON CONFLICT (loja, telefone) DO UPDATE SET ativo = TRUE, nome = EXCLUDED.nome;
 
 ## 5. Aplicar a migration
 
-A migration oficial é `db/migrations/20261111090000_add_loja.sql`.
-**No Neon ela já foi aplicada** (as 5 lojas estão ativas, as 14 tabelas
+A migration oficial é `db/migrations/20261111090000_add_loja.sql` (schema
+multi-loja) e `db/migrations/20261111091000_add_lojas_empresa.sql` (as 8 lojas
+que faltavam no cadastro).
+**No Neon elas já foram aplicadas** (as 13 lojas estão ativas, as 14 tabelas
 operacionais têm a coluna `loja` e os dados herdados ficaram na 103).
 
 O driver HTTP do Neon (`neon().query`) recusa múltiplos comandos numa
@@ -189,7 +192,12 @@ import { readFileSync } from 'node:fs';
 
 const client = new Client(process.env.NEON_DATABASE_URL);
 await client.connect();
-await client.query(readFileSync('db/migrations/20261111090000_add_loja.sql', 'utf8'));
+for (const arquivo of [
+  'db/migrations/20261111090000_add_loja.sql',
+  'db/migrations/20261111091000_add_lojas_empresa.sql',
+]) {
+  await client.query(readFileSync(arquivo, 'utf8'));
+}
 await client.end();
 ```
 
