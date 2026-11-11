@@ -87,3 +87,80 @@ describe('invokeFunction — falhas de rede', () => {
     localStorage.removeItem('estoque_pro_token');
   });
 });
+
+describe('invokeFunction — novas tentativas', () => {
+  it('tenta de novo quando a primeira falha é de rede', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ success: true }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { data, error } = await invokeFunction('auth-login', {
+      body: { username: 'a', password: 'b' },
+      retries: 1,
+      retryDelayMs: 10,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(error).toBeNull();
+    expect(data).toMatchObject({ success: true });
+  });
+
+  it('não repete quando o servidor responde com erro HTTP', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: 'Banco de dados indisponível no momento.' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { error } = await invokeFunction('auth-login', {
+      body: { username: 'a', password: 'b' },
+      retries: 1,
+      retryDelayMs: 10,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(error?.name).toBe('FunctionsHttpError');
+    expect(error?.context?.status).toBe(503);
+  });
+
+  it('não repete quando a credencial é inválida', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: false, error: 'Usuário ou senha inválidos' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { data, error } = await invokeFunction('auth-login', {
+      body: { username: 'a', password: 'b' },
+      retries: 1,
+      retryDelayMs: 10,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(error).toBeNull();
+    expect(data).toMatchObject({ success: false });
+  });
+
+  it('devolve o erro depois de exhausting as tentativas', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { error } = await invokeFunction('auth-login', {
+      body: { username: 'a', password: 'b' },
+      retries: 2,
+      retryDelayMs: 10,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(error?.name).toBe('FunctionsFetchError');
+  });
+});

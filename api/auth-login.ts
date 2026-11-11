@@ -5,11 +5,19 @@ import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
 import { dbTimeoutMs, TimeoutError, withTimeout } from './_lib/timeout.js';
 
+/** Duração padrão da sessão (6 h) e da sessão com "Lembrar-me" (7 dias). */
+export const SESSION_TTL_SECONDS = 6 * 3600;
+export const REMEMBER_TTL_SECONDS = 7 * 24 * 3600;
+
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
 
   try {
-    const { username, password } = await readJsonBody<{ username?: string; password?: string }>(req);
+    const { username, password, remember } = await readJsonBody<{
+      username?: string;
+      password?: string;
+      remember?: boolean;
+    }>(req);
     if (!username || !password) {
       sendJson(res, { error: 'Usuário e senha são obrigatórios' }, 400);
       return;
@@ -46,12 +54,22 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     const now = Math.floor(Date.now() / 1000);
+    // Com "Lembrar-me" a sessão dura 7 dias: assim o app abre direto no
+    // computador da empresa sem passar pelo login (o caminho frágil quando a
+    // rede corporativa bloqueia o domínio).
+    const ttl = remember === true ? REMEMBER_TTL_SECONDS : SESSION_TTL_SECONDS;
+    const expiresAt = now + ttl;
     const token = signJwt(
-      { sub: user.username, role: user.role, iat: now, exp: now + 6 * 3600 },
+      { sub: user.username, role: user.role, iat: now, exp: expiresAt },
       jwtSecret(),
     );
 
-    sendJson(res, { success: true, user: { username: user.username, role: user.role }, token });
+    sendJson(res, {
+      success: true,
+      user: { username: user.username, role: user.role },
+      token,
+      expiresAt,
+    });
   } catch (error) {
     console.error('Login error:', error);
     // Falha de conexão com o banco (Neon): responde 503 para que o app

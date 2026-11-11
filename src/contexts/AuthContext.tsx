@@ -28,7 +28,8 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const TOKEN_KEY = 'estoque_pro_token';
 const SESSION_KEY = 'estoque_pro_session';
-const SESSION_DURATION_MS = 6 * 60 * 60 * 1000;
+/** Janela da sessão com "Lembrar-me" (7 dias, igual ao token do servidor). */
+const REMEMBER_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function loadSession(): { user: User; token: string } | null {
   try {
@@ -79,15 +80,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = useCallback(async (username: string, password: string, remember = false): Promise<LoginResult> => {
     try {
       // Timeout menor que o padrão: no login a espera é curta e a mensagem
-      // de rede ajuda a identificar proxy/firewall corporativo.
+      // de rede ajuda a identificar proxy/firewall corporativo. Uma nova
+      // tentativa é segura aqui (consultar credenciais não grava nada) e
+      // ajuda quando o domínio resolve para um IP bloqueado na rede.
       const { data, error } = await invokeFunction<{
         success?: boolean;
         error?: string;
         token?: string;
+        expiresAt?: number;
         user?: User;
       }>('auth-login', {
-        body: { username, password },
+        body: { username, password, remember },
         timeoutMs: 15000,
+        retries: 1,
+        retryDelayMs: 1200,
       });
 
       if (error) return { ok: false, error: error.message };
@@ -101,11 +107,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Store only the JWT token — role/username are derived from its signed payload
       localStorage.setItem(TOKEN_KEY, data.token);
 
+      // Com "Lembrar-me", a sessão vale 7 dias (o servidor emite o token com
+      // essa validade). Sem ele, a sessão segue o token (6 h) e a chave antiga
+      // é removida para não manter uma janela de login maior que a do token.
       if (remember) {
-        localStorage.setItem(
-          SESSION_KEY,
-          JSON.stringify({ expiresAt: Date.now() + SESSION_DURATION_MS })
-        );
+        const expiresAt = data.expiresAt
+          ? data.expiresAt * 1000
+          : Date.now() + REMEMBER_DURATION_MS;
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ expiresAt }));
+      } else {
+        localStorage.removeItem(SESSION_KEY);
       }
       return { ok: true };
     } catch (error) {

@@ -93,4 +93,43 @@ describe('POST /api/auth-login', () => {
 
     expect(state.status).toBe(400);
   });
+
+  it('emite token de 6 horas sem "Lembrar-me"', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'isa', password: HASH, role: 'admin' },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
+
+    const payload = decodeJwt(String(state.body?.token));
+    const duracao = Number(payload.exp) - Number(payload.iat);
+    expect(duracao).toBe(6 * 3600);
+    expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));
+  });
+
+  it('emite token de 7 dias com "Lembrar-me"', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'isa', password: HASH, role: 'admin' },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'isa', password: 'senha123', remember: true }), res);
+
+    const payload = decodeJwt(String(state.body?.token));
+    const duracao = Number(payload.exp) - Number(payload.iat);
+    expect(duracao).toBe(7 * 24 * 3600);
+    expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));
+  });
 });
+
+/** Decodifica o payload de um JWT (sem validar a assinatura). */
+function decodeJwt(token: string): Record<string, unknown> {
+  const parte = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  const json = atob(parte.padEnd(parte.length + ((4 - (parte.length % 4)) % 4), '='));
+  return JSON.parse(decodeURIComponent(
+    Array.from(json)
+      .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+      .join(''),
+  )) as Record<string, unknown>;
+}

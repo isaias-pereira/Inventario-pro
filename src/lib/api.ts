@@ -29,6 +29,17 @@ export interface InvokeOptions {
    * deixa a tela em "carregando" para sempre.
    */
   timeoutMs?: number;
+  /**
+   * Tentativas extras quando a falha é de rede (padrão: 0).
+   *
+   * O domínio do SGS-PRO resolve para mais de um IP e, em rede corporativa,
+   * um deles pode estar bloqueado: a primeira conexão pendura e a segunda
+   * passa. Use apenas em operações idempotentes (ex.: login), para não
+   * duplicar uma gravação que já tenha chegado ao servidor.
+   */
+  retries?: number;
+  /** Espera entre as tentativas, em milissegundos (padrão: 1200). */
+  retryDelayMs?: number;
 }
 
 export interface InvokeError {
@@ -87,12 +98,41 @@ export async function invokeFunction<T = any>(
   options: InvokeOptions = {},
 ): Promise<InvokeResult<T>> {
   const token = options.token === undefined ? sessionToken() : options.token;
+  const maxRetries = Math.max(0, options.retries ?? 0);
+  const retryDelayMs = options.retryDelayMs ?? 1200;
+
+  let result: InvokeResult<T> = {
+    data: null,
+    error: { name: 'FunctionsFetchError', message: NETWORK_ERROR_MESSAGE },
+  };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    result = await invokeOnce<T>(name, options, token);
+
+    // Só falhas de rede/timeout valem nova tentativa: um erro HTTP (senha
+    // errada, por exemplo) repetiria sem mudar o resultado.
+    const retryable = result.error?.name === 'FunctionsFetchError'
+      || result.error?.name === 'FunctionsTimeoutError';
+    if (!retryable || attempt === maxRetries) return result;
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  }
+
+  return result;
+}
+
+/** Uma tentativa de chamada à API (com timeout próprio). */
+async function invokeOnce<T = any>(
+  name: string,
+  options: InvokeOptions,
+  token: string | null,
+): Promise<InvokeResult<T>> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // A corrida com o timer garante o fim da espera mesmo se o navegador
-  // demorar (ou nãoobedecer) o `abort` — o `abort` só cancela a requisição.
+  // demorar (ou não obedecer) o `abort` — o `abort` só cancela a requisição.
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller?.abort();
