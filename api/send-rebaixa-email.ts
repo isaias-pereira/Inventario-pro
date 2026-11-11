@@ -17,6 +17,8 @@
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { copyNotInTo, mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
+import { createSql, type Sql } from './_lib/db.js';
+import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 /** Papéis que podem disparar a planilha por e-mail. */
 export const EMAIL_ROLES = ['admin', 'encarregado'] as const;
@@ -88,6 +90,27 @@ function productCount(value: unknown): number {
   return Math.trunc(number);
 }
 
+/**
+ * E-mail padrão da loja (`email_padrao.padrao`).
+ *
+ * Cada loja tem o seu destinatário padrão; sem cadastro, vale o
+ * `REBAIXA_EMAIL_TO` do servidor.
+ */
+async function defaultEmailDaLoja(sql: Sql, loja: number): Promise<string | null> {
+  try {
+    const rows = await sql`
+      SELECT email
+        FROM public.email_padrao
+       WHERE loja = ${loja} AND padrao = TRUE AND ativo = TRUE
+       LIMIT 1`;
+    const email = rows[0]?.email ? String(rows[0].email).trim() : '';
+    return email || null;
+  } catch (error) {
+    console.error('E-mail padrão da loja:', error);
+    return null;
+  }
+}
+
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
 
@@ -103,14 +126,20 @@ const handler: ApiHandler = async (req, res) => {
     const body = await readJsonBody<Record<string, unknown>>(req);
     const action = body.action;
     const config = mailerConfig();
+    const sql = createSql();
+    await ensureLojaSchema(sql);
+    // O destinatário padrão é o da loja do usuário.
+    const loja = await resolveLoja(sql, payload);
+    const defaultDaLoja = await defaultEmailDaLoja(sql, loja);
 
     // Configuração: o cliente usa para saber se o envio está disponível.
     if (action === 'config') {
       sendJson(res, {
         enabled: Boolean(config.provider),
         provider: config.provider,
-        defaultTo: config.defaultTo,
+        defaultTo: defaultDaLoja ?? config.defaultTo,
         copyTo: config.copyTo ?? null,
+        loja,
       });
       return;
     }
@@ -125,11 +154,12 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    // Destinatário: usa o informado ou, na falta, o padrão do servidor.
+    // Destinatário: usa o informado ou, na falta, o padrão da loja e depois
+    // o padrão do servidor.
     const copyTo = config.copyTo ?? null;
     const rawTo = typeof body.to === 'string' && body.to.trim()
       ? body.to
-      : (config.defaultTo ?? copyTo ?? '');
+      : (defaultDaLoja ?? config.defaultTo ?? copyTo ?? '');
     const recipients = validateRecipients(rawTo);
     if (!recipients) {
       sendJson(res, { error: 'Destinatário inválido' }, 400);

@@ -9,19 +9,32 @@ normalmente — a tela da Validade apenas avisa que a integração está indispo
 
 | Quando | O que acontece |
 | --- | --- |
-| Todos os dias às **07h** e **13h** (Brasília) | Os crons da Vercel chamam `GET /api/manage-validade`; o servidor monta o resumo + lista e envia o template para cada número de `WHATSAPP_RECIPIENTS`. |
-| A qualquer momento | Na aba **Validade**, o botão verde do WhatsApp (admin/encarregado) mostra a prévia exata e permite **Enviar agora**. |
+| Todos os dias às **07h** e **13h** (Brasília) | Os crons da Vercel chamam `GET /api/manage-validade`; o servidor monta o resumo + lista **de cada loja** e envia o template para os destinatários dela. |
+| A qualquer momento | Na aba **Validade**, o botão verde do WhatsApp (admin/encarregado) mostra a prévia exata da **loja do usuário** e permite **Enviar agora**. |
 
 - Só entram produtos **ativos** (`status = true`), **sem motivo** (os itens KG
   de balança não vencem) e com validade até `WHATSAPP_ALERT_DAYS` dias à frente
   — inclusive os já vencidos.
 - Se não houver nenhum produto no período, **nada é enviado**.
-- Cada slot do dia é enviado **uma única vez**. Se o cron repetir (a Vercel
-  pode executar com até ~59 min de atraso no plano Hobby), a segunda chamada
-  responde `skipped` e não manda mensagem duplicada. O controle fica na tabela
-  `whatsapp_envios` (slot + dia em America/Sao_Paulo).
+- Cada slot do dia é enviado **uma única vez por loja**. Se o cron repetir (a
+  Vercel pode executar com até ~59 min de atraso no plano Hobby), a segunda
+  chamada responde `skipped` e não manda mensagem duplicada. O controle fica
+  na tabela `whatsapp_envios` (loja + slot + dia em America/Sao_Paulo).
 - O antigo webhook do Zapier que rodava no navegador foi removido para não
   duplicar as mensagens.
+
+## Multi-loja
+
+O alerta é **por loja** (detalhes em [multi-loja.md](./multi-loja.md)):
+
+- o cron **itera as lojas ativas** e manda um alerta para cada uma — o digest,
+  a lista e os destinatários são os da loja;
+- os números ficam na tabela `whatsapp_destinatarios` (uma linha por loja);
+  **sem número cadastrado**, a loja usa os números do servidor
+  (`WHATSAPP_RECIPIENTS`) — é o fallback para nenhuma loja ficar sem alerta;
+- o token e o número do remetente continuam **só no servidor**;
+- a tela (botão verde) mostra e envia **os produtos da loja do usuário** para
+  **os destinatários da loja**.
 
 ## 1. Configurar o app na Meta
 
@@ -86,7 +99,7 @@ Preview, conforme o caso). Nenhuma delas pode ter o prefixo `VITE_`.
 | --- | --- | --- |
 | `WHATSAPP_TOKEN` | sim | Token permanente do System User (aceita o apelido `WHATSAPP_ACCESS_TOKEN`). |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | Phone number ID do app Meta (aceita o apelido `WHATSAPP_PHONE_ID`). |
-| `WHATSAPP_RECIPIENTS` | sim | Números separados por vírgula. Pode usar `+55 (11) 99999-9999` ou `5511999999999`; o servidor normaliza e remove repetidos. |
+| `WHATSAPP_RECIPIENTS` | não (se houver destinatários por loja) | Números separados por vírgula, usados como **fallback**: valem para as lojas que não têm número cadastrado em `whatsapp_destinatarios`. Pode usar `+55 (11) 99999-9999` ou `5511999999999`; o servidor normaliza e remove repetidos. |
 | `CRON_SECRET` | sim (para o cron) | Segredo que a Vercel envia no `Authorization: Bearer` ao chamar o cron. Sem ele o `GET` responde 503. |
 | `WHATSAPP_TEMPLATE` | não | Nome do template. Padrão: `alerta_validade_sgs`. |
 | `WHATSAPP_TEMPLATE_LANG` | não | Idioma do template. Padrão: `pt_BR`. |
@@ -149,18 +162,18 @@ curl -i "https://SEU-DOMINIO.vercel.app/api/manage-validade?slot=manha" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-Respostas comuns:
+Respostas comuns (o cron):
 
 ```json
-{ "ok": true, "dryRun": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "summary": "...", "list": "..." }
+{ "ok": true, "dryRun": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "summary": "...", "list": "...", "lojas": [{ "loja": 103, "total": 7 }] }
 ```
 
 ```json
-{ "ok": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "enviados": 2, "falhas": 0 }
+{ "ok": true, "slot": "manha", "dia": "2026-11-10", "total": 7, "enviados": 2, "falhas": 0, "lojas": [{ "loja": 103, "total": 7, "enviados": 2 }] }
 ```
 
 ```json
-{ "ok": true, "skipped": "slot já enviado", "slot": "manha", "dia": "2026-11-10" }
+{ "ok": true, "skipped": "slot já enviado", "slot": "manha", "dia": "2026-11-10", "lojas": [{ "loja": 103, "skipped": "slot já enviado" }] }
 ```
 
 ```json
@@ -169,9 +182,10 @@ Respostas comuns:
 
 ## 6. Banco de dados
 
-A tabela é criada automaticamente na primeira chamada (`ensureSchema`), mas a
-migração fica versionada em
-`db/migrations/20261110090000_create_whatsapp_envios.sql`:
+As tabelas são criadas automaticamente na primeira chamada (`ensureSchema`),
+mas as migrações ficam versionadas em
+`db/migrations/20261110090000_create_whatsapp_envios.sql` e
+`db/migrations/20261111090000_add_loja.sql`:
 
 ```sql
 CREATE TABLE public.whatsapp_envios (
@@ -185,12 +199,39 @@ CREATE TABLE public.whatsapp_envios (
   erro TEXT,
   created_by TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  loja INTEGER NOT NULL DEFAULT 103 -- loja do alerta
 );
 
-CREATE UNIQUE INDEX idx_whatsapp_envios_slot_dia
-  ON public.whatsapp_envios (slot, dia)
+-- Um envio automático por loja/slot/dia (o manual pode repetir).
+CREATE UNIQUE INDEX idx_whatsapp_envios_loja_slot_dia
+  ON public.whatsapp_envios (loja, slot, dia)
   WHERE slot <> 'manual';
+
+-- Números que recebem o alerta de cada loja.
+CREATE TABLE public.whatsapp_destinatarios (
+  id BIGSERIAL PRIMARY KEY,
+  loja INTEGER NOT NULL DEFAULT 103,
+  telefone VARCHAR(20) NOT NULL,
+  nome VARCHAR(60),
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT whatsapp_destinatarios_loja_fkey
+    FOREIGN KEY (loja) REFERENCES public.lojas(codigo) ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_whatsapp_destinatarios_loja_telefone
+  ON public.whatsapp_destinatarios (loja, telefone);
+```
+
+Para cadastrar os números de uma loja:
+
+```sql
+INSERT INTO public.whatsapp_destinatarios (loja, telefone, nome, ativo)
+VALUES (92, '5511988888888', 'Encarregado Loja 92', TRUE)
+ON CONFLICT (loja, telefone) DO UPDATE SET ativo = TRUE, nome = EXCLUDED.nome;
 ```
 
 ## 7. Problemas comuns
@@ -206,15 +247,24 @@ CREATE UNIQUE INDEX idx_whatsapp_envios_slot_dia
 | Erro `190` / token inválido | Token expirado (o temporário dura 24h) | Gere um token permanente de System User. |
 | Mensagem não chega | Template ainda em análise, número bloqueado ou opt-out | Veja o status no Gerenciador de modelos e os logs da função na Vercel. |
 
-Os logs da função mostram uma linha por envio:
+Os logs da função mostram uma linha por loja e por envio:
 
 ```text
-[whatsapp] manha 2026-11-10 total=7 enviados=2 falhas=0
+[whatsapp] loja=103 manha 2026-11-10 total=7 enviados=2 falhas=0
 ```
 
 ## 8. Desligar a integração
 
-Remova `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` ou `WHATSAPP_RECIPIENTS` e
-faça um novo deploy. O botão da tela passa a mostrar "Integração não
-configurada" e os crons respondem 503 sem enviar nada. O restante do SGS-PRO
-continua igual.
+Remova `WHATSAPP_TOKEN` ou `WHATSAPP_PHONE_NUMBER_ID` (e faça novo deploy).
+O botão da tela passa a mostrar "Integração não configurada" e os crons
+respondem 503 sem enviar nada. O restante do SGS-PRO continua igual.
+
+Para **uma loja** parar de receber o alerta, desative o número dela:
+
+```sql
+UPDATE public.whatsapp_destinatarios SET ativo = FALSE WHERE loja = 92;
+```
+
+> Se a loja não tiver nenhum número **ativo**, ela volta a usar o fallback do
+> servidor (`WHATSAPP_RECIPIENTS`). Para isso não acontecer, mantenha a env var
+> vazia e cadastre os números por loja.

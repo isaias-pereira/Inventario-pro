@@ -79,21 +79,42 @@ function sqlText(query: unknown): string {
 /**
  * Instala o mock de banco. `rows` são os produtos da validade; `claim` diz se
  * a reserva do slot foi aceita; `history` alimenta a ação `history`.
+ *
+ * No multi-loja: `lojas` é o cadastro de lojas, `destinatarios` mapeia a loja
+ * aos números cadastrados e `rowsPorLoja` dá os produtos de cada loja.
  */
 function installSql(options: {
   rows?: unknown[];
+  rowsPorLoja?: Record<number, unknown[]>;
   claim?: boolean;
   history?: unknown[];
+  lojas?: unknown[];
+  destinatarios?: Record<number, string[]>;
 } = {}) {
-  const { rows = [], claim = true, history = [] } = options;
-  const sql = vi.fn(async (query: unknown) => {
+  const {
+    rows = [],
+    rowsPorLoja = {},
+    claim = true,
+    history = [],
+    lojas = [],
+    destinatarios = {},
+  } = options;
+  const sql = vi.fn(async (query: unknown, params?: unknown[]) => {
     const text = sqlText(query);
     if (text.includes('to_regclass')) return [{ table_name: 'whatsapp_envios' }];
     if (text.includes('INSERT INTO public.whatsapp_envios')) {
       return claim ? [{ id: '42' }] : [];
     }
     if (text.includes('FROM public.whatsapp_envios')) return history;
-    if (text.includes('FROM public.validade_products')) return rows;
+    if (text.includes('FROM public.whatsapp_destinatarios')) {
+      const loja = Number((params as unknown[] | undefined)?.[0]);
+      return (destinatarios[loja] ?? []).map((telefone) => ({ telefone }));
+    }
+    if (text.includes('FROM public.lojas')) return lojas;
+    if (text.includes('FROM public.validade_products')) {
+      const loja = Number((params as unknown[] | undefined)?.[1]);
+      return rowsPorLoja[loja] ?? rows;
+    }
     return [];
   });
   createSqlMock.mockReturnValue(sql);
@@ -349,6 +370,71 @@ describe('POST /api/manage-validade (whatsapp_*)', () => {
     await handler(fakeRequest({ body: { action: 'apagar' } }), res);
 
     expect(state.status).toBe(400);
+  });
+});
+
+describe('WhatsApp por loja', () => {
+  it('envia o alerta de cada loja separadamente (cron)', async () => {
+    installSql({
+      lojas: [
+        { codigo: 103, nome: 'Loja 103', ativo: true },
+        { codigo: 92, nome: 'Loja 92', ativo: true },
+      ],
+      rowsPorLoja: {
+        103: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+        92: [{ descricao: 'FEIJA 1KG', quantidade: 2, validade: AMANHA, status: true, motivo: null }],
+      },
+      destinatarios: { 103: ['5511999999999'], 92: ['5511888888888'] },
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+    }), res);
+
+    expect(state.status).toBe(200);
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    // Cada loja recebe só os números e os produtos dela.
+    expect(sendMock.mock.calls[0][0]).toEqual(['5511999999999']);
+    expect(sendMock.mock.calls[1][0]).toEqual(['5511888888888']);
+    expect(state.body?.total).toBe(2);
+  });
+
+  it('usa os destinatários cadastrados da loja', async () => {
+    installSql({
+      lojas: [{ codigo: 103, nome: 'Loja 103', ativo: true }],
+      rows: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+      destinatarios: { 103: ['5511999999999'] },
+    });
+    const { res } = fakeResponse();
+
+    await handler(fakeRequest({
+      method: 'GET',
+      headers: { authorization: 'Bearer segredo', 'x-vercel-cron-schedule': '0 10 * * *' },
+    }), res);
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0][0]).toEqual(['5511999999999']);
+  });
+
+  it('a prévia da tela mostra só os produtos da loja do token', async () => {
+    authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin', loja: 92 });
+    installSql({
+      rowsPorLoja: {
+        103: [{ descricao: 'ARROZ 5KG', quantidade: 3, validade: AMANHA, status: true, motivo: null }],
+        92: [{ descricao: 'FEIJA 1KG', quantidade: 2, validade: AMANHA, status: true, motivo: null }],
+      },
+      destinatarios: { 92: ['5511888888888'] },
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ body: { action: 'preview' } }), res);
+
+    expect(state.body?.loja).toBe(92);
+    expect(state.body?.total).toBe(1);
+    expect(String(state.body?.list)).toContain('FEIJA 1KG');
+    expect(String(state.body?.list)).not.toContain('ARROZ 5KG');
   });
 });
 

@@ -21,6 +21,7 @@ import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
+import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 export type RebaixaTipo = 'KG' | 'UN';
 
@@ -247,6 +248,7 @@ const CREATE_TABLE_SQL = `
     sent_to TEXT,
     created_by TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    loja INTEGER NOT NULL DEFAULT 103,
     CONSTRAINT rebaixa_products_status_check CHECK (status IN ('rascunho', 'enviada')),
     CONSTRAINT rebaixa_products_tipo_check CHECK (tipo IN ('KG', 'UN')),
     CONSTRAINT rebaixa_products_quantidade_check CHECK (quantidade > 0)
@@ -274,8 +276,12 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   try {
     await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_status_created ON public.rebaixa_products(status, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_batch ON public.rebaixa_products(batch_id)`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rebaixa_validade_draft
-      ON public.rebaixa_products(validade_id)
+    await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_loja_status_created ON public.rebaixa_products(loja, status, created_at)`;
+    // O mesmo item da Validade só pode estar uma vez no rascunho **da loja**.
+    await sql`ALTER TABLE public.rebaixa_products ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`DROP INDEX IF EXISTS public.idx_rebaixa_validade_draft`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rebaixa_loja_validade_draft
+      ON public.rebaixa_products(loja, validade_id)
       WHERE status = 'rascunho' AND validade_id IS NOT NULL`;
   } catch {
     /* índices são otimização: seguem mesmo se falharem */
@@ -290,7 +296,7 @@ const LIST_SQL = `
          ${SECAO_COLUNAS}
     FROM public.rebaixa_products r
    ${secaoJoin('r')}
-   WHERE r.status = 'rascunho'
+   WHERE r.status = 'rascunho' AND r.loja = $1
    ORDER BY r.created_at ASC`;
 
 const HISTORY_ITEM_SQL = `
@@ -300,15 +306,15 @@ const HISTORY_ITEM_SQL = `
          ${SECAO_COLUNAS}
     FROM public.rebaixa_products r
    ${secaoJoin('r')}
-   WHERE r.batch_id = $1::uuid
+   WHERE r.batch_id = $1::uuid AND r.loja = $2
    ORDER BY r.created_at ASC`;
 
 const INSERT_SQL = `
   INSERT INTO public.rebaixa_products
     (ean, codigo, descricao, tipo, validade, motivo, quantidade, pmz,
-     preco_sugerido, preco_final, validade_id, status, created_by)
+     preco_sugerido, preco_final, validade_id, status, created_by, loja)
   VALUES ($1::bigint, $2::bigint, $3, $4, $5, $6, $7::numeric, $8::numeric,
-          $9::numeric, $10::numeric, $11::uuid, 'rascunho', $12)`;
+          $9::numeric, $10::numeric, $11::uuid, 'rascunho', $12, $13)`;
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
@@ -331,10 +337,13 @@ const handler: ApiHandler = async (req, res) => {
       sendJson(res, { error: 'A tabela da rebaixa não está disponível' }, 503);
       return;
     }
+    await ensureLojaSchema(sql);
+    // Escopo multi-loja: o rascunho e o histórico são da loja do token.
+    const loja = await resolveLoja(sql, payload);
 
     // LIST — rascunho corrente
     if (action === 'list') {
-      const items = await sql(LIST_SQL);
+      const items = await sql(LIST_SQL, [loja]);
       sendJson(res, { items });
       return;
     }
@@ -372,8 +381,8 @@ const handler: ApiHandler = async (req, res) => {
       if (validadeIds.length > 0) {
         const rows = await sql(
           `SELECT validade_id::text FROM public.rebaixa_products
-            WHERE status = 'rascunho' AND validade_id = ANY($1::uuid[])`,
-          [validadeIds],
+            WHERE status = 'rascunho' AND loja = $2 AND validade_id = ANY($1::uuid[])`,
+          [validadeIds, loja],
         );
         alreadyDrafted = new Set(rows.map((row) => String(row.validade_id)));
       }
@@ -407,6 +416,7 @@ const handler: ApiHandler = async (req, res) => {
               item.precoFinal,
               item.validadeId,
               payload.sub,
+              loja,
             ],
           })),
           [],
@@ -434,8 +444,8 @@ const handler: ApiHandler = async (req, res) => {
         `SELECT id::text, tipo, validade, motivo, quantidade::float8,
                 preco_sugerido::float8, preco_final::float8
            FROM public.rebaixa_products
-          WHERE id = $1::uuid AND status = 'rascunho'`,
-        [id],
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2`,
+        [id, loja],
       );
       const row = existing[0];
       if (!row) {
@@ -507,8 +517,8 @@ const handler: ApiHandler = async (req, res) => {
         `UPDATE public.rebaixa_products
             SET quantidade = $2::numeric, preco_sugerido = $3::numeric,
                 preco_final = $4::numeric, validade = $5, motivo = $6
-          WHERE id = $1::uuid AND status = 'rascunho'`,
-        [id, quantidade, precoSugerido, precoFinal, validade, motivo],
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $7`,
+        [id, quantidade, precoSugerido, precoFinal, validade, motivo, loja],
       );
       sendJson(res, { success: true });
       return;
@@ -523,9 +533,9 @@ const handler: ApiHandler = async (req, res) => {
       }
       const removed = await sql(
         `DELETE FROM public.rebaixa_products
-          WHERE id = $1::uuid AND status = 'rascunho'
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2
           RETURNING id`,
-        [id],
+        [id, loja],
       );
       if (removed.length === 0) {
         sendJson(res, { error: 'Item não encontrado no rascunho' }, 404);
@@ -539,8 +549,9 @@ const handler: ApiHandler = async (req, res) => {
     if (action === 'clear') {
       const removed = await sql(
         `DELETE FROM public.rebaixa_products
-          WHERE status = 'rascunho'
+          WHERE status = 'rascunho' AND loja = $1
           RETURNING id`,
+        [loja],
       );
       sendJson(res, { success: true, removed: removed.length });
       return;
@@ -572,9 +583,9 @@ const handler: ApiHandler = async (req, res) => {
       const sent = await sql(
         `UPDATE public.rebaixa_products
             SET status = 'enviada', sent_at = NOW(), sent_to = $2, batch_id = $3::uuid
-          WHERE id = ANY($1::uuid[]) AND status = 'rascunho'
+          WHERE id = ANY($1::uuid[]) AND status = 'rascunho' AND loja = $4
           RETURNING id`,
-        [ids, to, batchId],
+        [ids, to, batchId, loja],
       );
       sendJson(res, { success: true, batch_id: batchId, sent: sent.length });
       return;
@@ -587,10 +598,10 @@ const handler: ApiHandler = async (req, res) => {
                MAX(created_by) AS created_by, COUNT(*)::int AS itens,
                COALESCE(SUM(quantidade * COALESCE(preco_final, 0)), 0)::float8 AS total
           FROM public.rebaixa_products
-         WHERE status = 'enviada' AND batch_id IS NOT NULL
+         WHERE status = 'enviada' AND batch_id IS NOT NULL AND loja = $1
          GROUP BY batch_id
          ORDER BY MAX(sent_at) DESC
-         LIMIT 50`);
+         LIMIT 50`, [loja]);
       sendJson(res, { batches });
       return;
     }
@@ -602,7 +613,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Lote inválido' }, 400);
         return;
       }
-      const items = await sql(HISTORY_ITEM_SQL, [batchId]);
+      const items = await sql(HISTORY_ITEM_SQL, [batchId, loja]);
       sendJson(res, { items });
       return;
     }

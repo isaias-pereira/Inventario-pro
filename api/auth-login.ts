@@ -4,6 +4,7 @@ import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/htt
 import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
 import { dbTimeoutMs, TimeoutError, withTimeout } from './_lib/timeout.js';
+import { DEFAULT_LOJA, ensureLojaSchema } from './_lib/loja.js';
 
 /** Duração padrão da sessão (6 h) e da sessão com "Lembrar-me" (7 dias). */
 export const SESSION_TTL_SECONDS = 6 * 3600;
@@ -24,12 +25,20 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     const sql = createSql();
+    // A tabela de lojas e a coluna `app_users.loja` precisam existir para o
+    // token sair com o escopo da loja. A criação é idempotente e tolerante a
+    // falha: se o banco não responder, o login segue com a loja padrão.
+    try {
+      await withTimeout(ensureLojaSchema(sql), dbTimeoutMs());
+    } catch {
+      /* a coluna `loja` pode faltar: o token usa a loja padrão */
+    }
     // Sem limite de tempo, uma consulta travada segura o navegador em
     // "carregando" até a Vercel derrubar a Function.
     let rows: Record<string, unknown>[];
     try {
       rows = await withTimeout(
-        sql`SELECT username, password, role FROM app_users WHERE username = ${username} LIMIT 1`,
+        sql`SELECT username, password, role, loja FROM app_users WHERE username = ${username} LIMIT 1`,
         dbTimeoutMs(),
       );
     } catch (error) {
@@ -46,12 +55,18 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    const user = rows[0] as { username: string; password: string; role: string };
+    const user = rows[0] as { username: string; password: string; role: string; loja?: number };
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       sendJson(res, { success: false, error: 'Usuário ou senha inválidos' });
       return;
     }
+
+    // Loja do usuário: vem do cadastro e vai assinado no token — é o escopo
+    // que o servidor aplica em todos os dados operacionais.
+    const loja = Number.isInteger(Number(user.loja)) && Number(user.loja) > 0
+      ? Number(user.loja)
+      : DEFAULT_LOJA;
 
     const now = Math.floor(Date.now() / 1000);
     // Com "Lembrar-me" a sessão dura 7 dias: assim o app abre direto no
@@ -60,13 +75,13 @@ const handler: ApiHandler = async (req, res) => {
     const ttl = remember === true ? REMEMBER_TTL_SECONDS : SESSION_TTL_SECONDS;
     const expiresAt = now + ttl;
     const token = signJwt(
-      { sub: user.username, role: user.role, iat: now, exp: expiresAt },
+      { sub: user.username, role: user.role, loja, iat: now, exp: expiresAt },
       jwtSecret(),
     );
 
     sendJson(res, {
       success: true,
-      user: { username: user.username, role: user.role },
+      user: { username: user.username, role: user.role, loja },
       token,
       expiresAt,
     });

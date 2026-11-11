@@ -5,6 +5,15 @@ import { limparCacheCategorias } from '@/lib/categorias';
 interface User {
   username: string;
   role: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv';
+  /** Loja do usuário (multi-loja). Vem assinado no token. */
+  loja?: number;
+}
+
+/** Loja cadastrada no sistema (para o seletor do admin). */
+export interface Loja {
+  codigo: number;
+  nome: string;
+  ativo: boolean;
 }
 
 /** Resultado do login: além do sucesso, traz o motivo da falha. */
@@ -21,6 +30,12 @@ interface AuthContextType {
   isAdmin: boolean;
   userRole: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv' | null;
   getToken: () => string | null;
+  /** Loja atual do usuário (vem do token). */
+  loja: number | null;
+  /** Lojas cadastradas (preenchido para o admin). */
+  lojas: Loja[];
+  /** Troca a loja do admin em tempo de execução (re-assina o token). */
+  switchLoja: (codigo: number) => Promise<{ ok: boolean; error?: string }>;
 }
 
 
@@ -64,6 +79,7 @@ function loadSession(): { user: User; token: string } | null {
       user: {
         username: payload.sub,
         role: payload.role as User['role'],
+        loja: typeof payload.loja === 'number' ? payload.loja : undefined,
       },
       token,
     };
@@ -76,6 +92,7 @@ function loadSession(): { user: User; token: string } | null {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => loadSession()?.user ?? null);
+  const [lojas, setLojas] = useState<Loja[]>([]);
 
   const login = useCallback(async (username: string, password: string, remember = false): Promise<LoginResult> => {
     try {
@@ -101,7 +118,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { ok: false, error: data?.error || 'Usuário ou senha inválidos.' };
       }
 
-      const u: User = { username: data.user.username, role: data.user.role };
+      const u: User = {
+        username: data.user.username,
+        role: data.user.role,
+        loja: typeof data.user.loja === 'number' ? data.user.loja : undefined,
+      };
       setUser(u);
 
       // Store only the JWT token — role/username are derived from its signed payload
@@ -129,11 +150,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     setUser(null);
+    setLojas([]);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(TOKEN_KEY);
     // A taxonomia de seções fica em memória: a próxima sessão recarrega.
     limparCacheCategorias();
   }, []);
+
+  /**
+   * Troca a loja em tempo de execução (admin).
+   *
+   * O servidor re-assina o token com a loja escolhida — o navegador não
+   * escolhe o escopo por conta própria. Depois da troca a página recarrega
+   * para que todas as telas voltem a buscar os dados da nova loja.
+   */
+  const switchLoja = useCallback(async (codigo: number): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const { data, error } = await invokeFunction<{
+        success?: boolean;
+        error?: string;
+        token?: string;
+        user?: User;
+      }>('manage-users', {
+        body: { action: 'switch_loja', newUser: { loja: codigo } },
+      });
+
+      if (error) return { ok: false, error: error.message };
+      if (!data?.success || !data?.token || !data?.user) {
+        return { ok: false, error: data?.error || 'Não foi possível trocar a loja.' };
+      }
+
+      localStorage.setItem(TOKEN_KEY, data.token);
+      setUser({
+        username: data.user.username,
+        role: data.user.role,
+        loja: typeof data.user.loja === 'number' ? data.user.loja : codigo,
+      });
+      // Recarrega para limpar os dados da loja anterior em memória.
+      window.location.reload();
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Não foi possível trocar a loja.',
+      };
+    }
+  }, []);
+
+  // O admin precisa da lista de lojas para o seletor do header.
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      setLojas([]);
+      return;
+    }
+    let cancelado = false;
+    void (async () => {
+      const { data } = await invokeFunction<{ lojas?: Loja[] }>('manage-users', {
+        body: { action: 'list_lojas' },
+      });
+      if (!cancelado && Array.isArray(data?.lojas)) setLojas(data.lojas);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [user?.role]);
 
   const getToken = useCallback((): string | null => {
     const token = localStorage.getItem(TOKEN_KEY);
@@ -168,7 +248,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAdmin: user?.role === 'admin', userRole: user?.role ?? null, getToken }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        isAdmin: user?.role === 'admin',
+        userRole: user?.role ?? null,
+        getToken,
+        loja: user?.loja ?? null,
+        lojas,
+        switchLoja,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

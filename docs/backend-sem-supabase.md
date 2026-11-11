@@ -28,6 +28,8 @@ Navegador (React/Vite)
   transacionais nos dois caminhos.
 - **Tempo real**: o canal `postgres_changes` do Supabase saiu. O inventário passou a ser
   sincronizado por polling (15 s) e ao voltar para a aba (`DataContext`).
+- **Multi-loja**: o app atende várias lojas com o mesmo catálogo e o mesmo backend. O
+  escopo (`loja`) vem do JWT e é aplicado no servidor — ver [multi-loja.md](./multi-loja.md).
 
 ## Enduntos (rotas)
 

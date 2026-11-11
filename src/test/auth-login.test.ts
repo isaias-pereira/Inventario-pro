@@ -75,7 +75,7 @@ describe('POST /api/auth-login', () => {
 
   it('devolve o token quando a senha confere', async () => {
     createSqlMock.mockReturnValue(() => Promise.resolve([
-      { username: 'isa', password: HASH, role: 'admin' },
+      { username: 'isa', password: HASH, role: 'admin', loja: 92 },
     ]));
     const { res, state } = fakeResponse();
 
@@ -84,6 +84,31 @@ describe('POST /api/auth-login', () => {
     expect(state.status).toBe(200);
     expect(state.body?.success).toBe(true);
     expect(String(state.body?.token).split('.')).toHaveLength(3);
+  });
+
+  it('assina a loja do usuário no token (escopo multi-loja)', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'isa', password: HASH, role: 'admin', loja: 92 },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
+
+    const payload = decodeJwt(String(state.body?.token));
+    expect(Number(payload.loja)).toBe(92);
+    expect(state.body?.user).toMatchObject({ username: 'isa', role: 'admin', loja: 92 });
+  });
+
+  it('usa a loja padrão quando o cadastro não tem loja', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'isa', password: HASH, role: 'admin' },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
+
+    const payload = decodeJwt(String(state.body?.token));
+    expect(Number(payload.loja)).toBe(103);
   });
 
   it('exige usuário e senha', async () => {

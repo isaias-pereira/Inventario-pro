@@ -1,7 +1,19 @@
+/**
+ * Base de Consulta (multi-loja).
+ *
+ * A base de consulta guarda o estoque/preço **da loja** que importou a
+ * planilha. O catálogo de produtos (código, descrição, seção) continua
+ * compartilhado — vem do `query-product`.
+ *
+ * A importação (`replace`) substitui apenas a base da loja atual: as bases
+ * das outras lojas não são tocadas.
+ */
+
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoinTexto } from './_lib/categoria.js';
+import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 /**
  * Limite de produtos por importação.
@@ -21,6 +33,15 @@ const handler: ApiHandler = async (req, res) => {
     const body = await readJsonBody<Record<string, any>>(req);
     const { action } = body;
     const sql = createSql();
+    await ensureLojaSchema(sql);
+    // Coluna da loja (multi-loja) — criada de forma idempotente.
+    try {
+      await sql`ALTER TABLE consulta_products ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_consulta_products_loja_codigo ON consulta_products(loja, codigo)`;
+    } catch {
+      /* a migration oficial cria a coluna; aqui é só uma rede de segurança */
+    }
+    const loja = await resolveLoja(sql, payload);
 
     if (action === 'list') {
       // A seção do catálogo vem junto para o card da Consulta mostrar a
@@ -28,7 +49,9 @@ const handler: ApiHandler = async (req, res) => {
       const data = await sql(
         `SELECT cp.codigo, cp.descricao, cp.estoque, cp.preco, ${SECAO_COLUNAS}
            FROM consulta_products cp ${secaoJoinTexto('cp')}
+          WHERE cp.loja = $1
           ORDER BY cp.created_at ASC`,
+        [loja],
       );
       sendJson(res, { items: data });
       return;
@@ -49,7 +72,8 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      await sql`DELETE FROM consulta_products`;
+      // Só a base da loja atual é substituída — as outras lojas ficam intactas.
+      await sql`DELETE FROM consulta_products WHERE loja = ${loja}`;
 
       // Bulk insert via json_to_recordset (1 round-trip per batch instead of N)
       const batchSize = 500;
@@ -61,8 +85,8 @@ const handler: ApiHandler = async (req, res) => {
           preco: Number(p.preco) || 0,
         }));
         await sql`
-          INSERT INTO consulta_products (codigo, descricao, estoque, preco)
-          SELECT codigo, descricao, estoque, preco
+          INSERT INTO consulta_products (codigo, descricao, estoque, preco, loja)
+          SELECT codigo, descricao, estoque, preco, ${loja}
           FROM json_to_recordset(${JSON.stringify(batch)}::json)
           AS x(codigo text, descricao text, estoque numeric, preco numeric)`;
       }

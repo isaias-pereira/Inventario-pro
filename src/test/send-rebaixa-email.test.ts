@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MailMessage } from '../../api/_lib/mailer';
 
-const { authenticateMock, sendMailMock, mailerConfigMock } = vi.hoisted(() => ({
+const { authenticateMock, sendMailMock, mailerConfigMock, createSqlMock } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
   sendMailMock: vi.fn(async (_message: MailMessage) => undefined),
   mailerConfigMock: vi.fn(() => ({
@@ -10,9 +10,11 @@ const { authenticateMock, sendMailMock, mailerConfigMock } = vi.hoisted(() => ({
     defaultTo: 'comercial@empresa.com',
     copyTo: 'copia@empresa.com',
   })),
+  createSqlMock: vi.fn(),
 }));
 
 vi.mock('../../api/_lib/auth', () => ({ authenticate: authenticateMock }));
+vi.mock('../../api/_lib/db', () => ({ createSql: createSqlMock }));
 vi.mock('../../api/_lib/mailer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/_lib/mailer')>();
   return { ...actual, sendMail: sendMailMock, mailerConfig: mailerConfigMock };
@@ -54,8 +56,11 @@ const odsBase64 = Buffer.from('conteudo-da-planilha').toString('base64');
 
 beforeEach(() => {
   authenticateMock.mockReset();
-  authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin', exp: 0 });
+  authenticateMock.mockReturnValue({ sub: 'admin', role: 'admin', loja: 103, exp: 0 });
   sendMailMock.mockClear();
+  createSqlMock.mockReset();
+  // Sem e-mail padrão cadastrado para a loja: vale o `REBAIXA_EMAIL_TO`.
+  createSqlMock.mockReturnValue(() => Promise.resolve([]));
   mailerConfigMock.mockReturnValue({
     provider: 'resend',
     from: 'rebaixa@empresa.com',
@@ -109,7 +114,25 @@ describe('endpoint de envio por e-mail', () => {
       provider: 'resend',
       defaultTo: 'comercial@empresa.com',
       copyTo: 'copia@empresa.com',
+      loja: 103,
     });
+  });
+
+  it('usa o e-mail padrão cadastrado na loja', async () => {
+    createSqlMock.mockReturnValue((query: unknown) => {
+      const text = typeof query === 'string'
+        ? query
+        : (Array.isArray(query) ? query.join(' ') : '');
+      if (text.includes('FROM public.email_padrao')) {
+        return Promise.resolve([{ email: 'comercial.loja103@empresa.com' }]);
+      }
+      return Promise.resolve([]);
+    });
+    const { res, state } = fakeResponse();
+
+    await handler(request({ action: 'config' }), res);
+
+    expect(state.body?.defaultTo).toBe('comercial.loja103@empresa.com');
   });
 
   it('avisa quando o servidor não tem provedor configurado', async () => {

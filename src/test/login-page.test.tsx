@@ -80,11 +80,13 @@ describe('LoginPage — falhas', () => {
     await screen.findByText(/Não foi possível conectar/);
 
     invoke.mockResolvedValue({
-      data: { success: true, token: 'abc.def.ghi', user: { username: 'isa', role: 'admin' } },
+      data: { success: true, token: 'abc.def.ghi', user: { username: 'isa', role: 'admin', loja: 103 } },
       error: null,
     });
     await entrar(user);
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    // Só contam as tentativas de login (o provider também lista as lojas).
+    const tentativas = invoke.mock.calls.filter((call) => call[0] === 'auth-login');
+    await waitFor(() => expect(tentativas).toHaveLength(2));
   });
 });

@@ -45,6 +45,7 @@ import {
   type ValidadeSourceRow,
   type WhatsappConfig,
 } from './whatsapp.js';
+import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, resolveLoja } from './loja.js';
 
 /** Papéis que podem ver a configuração e disparar o alerta pela tela. */
 export const WHATSAPP_ROLES = ['admin', 'encarregado'] as const;
@@ -68,7 +69,20 @@ const CREATE_TABLE_SQL = `
     created_by TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    loja INTEGER NOT NULL DEFAULT 103,
     CONSTRAINT whatsapp_envios_slot_check CHECK (slot IN ('manha', 'tarde', 'manual'))
+  )`;
+
+const CREATE_DESTINATARIOS_SQL = `
+  CREATE TABLE IF NOT EXISTS public.whatsapp_destinatarios (
+    id BIGSERIAL PRIMARY KEY,
+    loja INTEGER NOT NULL DEFAULT 103,
+    telefone VARCHAR(20) NOT NULL,
+    nome VARCHAR(60),
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
   )`;
 
 let schemaReady = false;
@@ -78,6 +92,7 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   if (schemaReady) return true;
   try {
     await sql(CREATE_TABLE_SQL);
+    await sql(CREATE_DESTINATARIOS_SQL);
   } catch (error) {
     console.error('WhatsApp schema create:', error);
   }
@@ -90,30 +105,69 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   if (!schemaReady) return false;
 
   try {
-    // Só os slots automáticos são únicos: o envio manual pode repetir.
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_envios_slot_dia
-      ON public.whatsapp_envios (slot, dia)
+    // Multi-loja: o slot automático é único por loja/slot/dia e os
+    // destinatários são cadastrados por loja.
+    await sql`ALTER TABLE public.whatsapp_envios ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`DROP INDEX IF EXISTS public.idx_whatsapp_envios_slot_dia`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_envios_loja_slot_dia
+      ON public.whatsapp_envios (loja, slot, dia)
       WHERE slot <> 'manual'`;
     await sql`CREATE INDEX IF NOT EXISTS idx_whatsapp_envios_created
       ON public.whatsapp_envios (created_at DESC)`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_destinatarios_loja_telefone
+      ON public.whatsapp_destinatarios (loja, telefone)`;
   } catch {
     /* índices são otimização: seguem mesmo se falharem */
   }
   return true;
 }
 
-/** Consulta os produtos que vencem até `alertDays` dias à frente. */
-async function loadDigest(sql: Sql, alertDays: number): Promise<ValidadeDigest> {
+/** Produtos da loja que vencem até `alertDays` dias à frente. */
+async function loadRows(sql: Sql, alertDays: number, loja: number): Promise<ValidadeSourceRow[]> {
   const rows = await sql(
     `SELECT descricao, quantidade, validade, status, motivo
        FROM public.validade_products
-      WHERE status = true
+      WHERE loja = $2
+        AND status = true
         AND (motivo IS NULL OR btrim(motivo) = '')
         AND validade <= (NOW() + ($1::int * INTERVAL '1 day'))
       ORDER BY validade ASC`,
-    [alertDays],
+    [alertDays, loja],
   );
-  return buildValidadeDigest(rows as ValidadeSourceRow[], alertDays);
+  return rows as ValidadeSourceRow[];
+}
+
+/** Monta o digest (resumo + lista) dos produtos de uma loja. */
+function buildDigest(rows: ValidadeSourceRow[], alertDays: number): ValidadeDigest {
+  return buildValidadeDigest(rows, alertDays);
+}
+
+/** Números cadastrados para a loja. */
+async function destinatariosDaLoja(sql: Sql, loja: number): Promise<string[]> {
+  try {
+    const rows = await sql(
+      `SELECT telefone
+         FROM public.whatsapp_destinatarios
+        WHERE loja = $1 AND ativo = TRUE
+        ORDER BY nome NULLS LAST, id`,
+      [loja],
+    );
+    return rows.map((row) => String(row.telefone ?? '').trim()).filter(Boolean);
+  } catch (error) {
+    console.error('WhatsApp destinatarios:', error);
+    return [];
+  }
+}
+
+/**
+ * Para quem enviar o alerta da loja.
+ *
+ * Usa os números cadastrados da loja; se a loja não tiver nenhum, cai nos
+ * números do servidor (`WHATSAPP_RECIPIENTS`) — o comportamento anterior.
+ */
+async function recipientsDaLoja(sql: Sql, config: WhatsappConfig, loja: number): Promise<string[]> {
+  const cadastrados = await destinatariosDaLoja(sql, loja);
+  return cadastrados.length > 0 ? cadastrados : config.recipients;
 }
 
 /**
@@ -125,13 +179,14 @@ async function claimSlot(
   slot: WhatsappSlot,
   dia: string,
   createdBy: string,
+  loja: number,
 ): Promise<string | null> {
   const rows = await sql(
-    `INSERT INTO public.whatsapp_envios (slot, dia, created_by)
-     VALUES ($1, $2::date, $3)
+    `INSERT INTO public.whatsapp_envios (slot, dia, created_by, loja)
+     VALUES ($1, $2::date, $3, $4)
      ON CONFLICT DO NOTHING
      RETURNING id::text`,
-    [slot, dia, createdBy],
+    [slot, dia, createdBy, loja],
   );
   return rows[0]?.id ? String(rows[0].id) : null;
 }
@@ -157,13 +212,14 @@ async function recordManual(
   falhas: number,
   erro: string | null,
   createdBy: string,
+  loja: number,
 ): Promise<void> {
   try {
     await sql(
       `INSERT INTO public.whatsapp_envios
-         (slot, dia, total, destinatarios, enviados, falhas, erro, created_by)
-       VALUES ('manual', $1::date, $2, $3, $4, $5, $6, $7)`,
-      [saoPauloDay(), digest.total, config.recipients.length, enviados, falhas, erro, createdBy],
+         (slot, dia, total, destinatarios, enviados, falhas, erro, created_by, loja)
+       VALUES ('manual', $1::date, $2, $3, $4, $5, $6, $7, $8)`,
+      [saoPauloDay(), digest.total, config.recipients.length, enviados, falhas, erro, createdBy, loja],
     );
   } catch (error) {
     // O histórico é acessório: o envio já aconteceu, não falha a resposta.
@@ -229,73 +285,129 @@ async function runCron(req: ApiRequest, res: ApiResponse): Promise<void> {
     sendJson(res, { error: 'Tabela whatsapp_envios indisponível' }, 500);
     return;
   }
+  await ensureLojaSchema(sql);
 
   const now = new Date();
   const slot = requestedSlot(req)
     ?? slotFromSchedule(req.headers['x-vercel-cron-schedule'], saoPauloParts(now).hour);
   const dia = saoPauloDay(now);
 
+  // O cron envia o alerta de **cada loja** separadamente: o digest, os
+  // destinatários e a idempotência são por loja.
+  const lojas = (await listarLojas(sql)).filter((loja) => loja.ativo);
+  const codigos = lojas.length > 0 ? lojas.map((loja) => loja.codigo) : [DEFAULT_LOJA];
+
   // Teste seguro: monta a mensagem sem reservar o slot nem enviar.
   if (isDryRun(req)) {
-    const digest = await loadDigest(sql, config.alertDays);
+    const porLoja: Array<{ loja: number; total: number; summary: string; list: string }> = [];
+    const todasRows: ValidadeSourceRow[] = [];
+    for (const codigo of codigos) {
+      const rows = await loadRows(sql, config.alertDays, codigo);
+      const digest = buildDigest(rows, config.alertDays);
+      todasRows.push(...rows);
+      porLoja.push({ loja: codigo, total: digest.total, summary: digest.summary, list: digest.list });
+    }
+    const agregado = buildDigest(todasRows, config.alertDays);
     sendJson(res, {
       ok: true,
       dryRun: true,
       slot,
       dia,
-      total: digest.total,
-      summary: digest.summary,
-      list: digest.list,
+      lojas: porLoja,
+      total: agregado.total,
+      summary: agregado.summary,
+      list: agregado.list,
     });
     return;
   }
 
-  const claim = await claimSlot(sql, slot, dia, 'cron');
-  if (!claim) {
-    sendJson(res, { ok: true, skipped: 'slot já enviado', slot, dia });
-    return;
-  }
+  const porLoja: Array<Record<string, unknown>> = [];
+  let totalGeral = 0;
+  let enviadosGeral = 0;
+  let falhasGeral = 0;
+  let destinatariosGeral = 0;
+  let algumEnviou = false;
+  let skippedSlot = false;
+  let semProdutos = false;
 
-  const digest = await loadDigest(sql, config.alertDays);
-  if (digest.total === 0) {
+  for (const codigo of codigos) {
+    const recipients = await recipientsDaLoja(sql, config, codigo);
+    if (recipients.length === 0) continue;
+
+    const claim = await claimSlot(sql, slot, dia, 'cron', codigo);
+    if (!claim) {
+      skippedSlot = true;
+      porLoja.push({ loja: codigo, skipped: 'slot já enviado' });
+      continue;
+    }
+
+    const rows = await loadRows(sql, config.alertDays, codigo);
+    const digest = buildDigest(rows, config.alertDays);
+    if (digest.total === 0) {
+      semProdutos = true;
+      await finishSlot(sql, claim, {
+        total: 0,
+        destinatarios: recipients.length,
+        enviados: 0,
+        falhas: 0,
+        erro: null,
+      });
+      porLoja.push({ loja: codigo, total: 0, destinatarios: recipients.length, enviados: 0, falhas: 0 });
+      continue;
+    }
+
+    const { results, enviados, falhas } = await sendWhatsappToRecipients(
+      recipients,
+      digest,
+      config,
+    );
+    const erro = firstError(results);
     await finishSlot(sql, claim, {
-      total: 0,
-      destinatarios: config.recipients.length,
-      enviados: 0,
-      falhas: 0,
-      erro: null,
+      total: digest.total,
+      destinatarios: recipients.length,
+      enviados,
+      falhas,
+      erro,
     });
-    sendJson(res, { ok: true, skipped: 'sem produtos vencendo', slot, dia, total: 0 });
+
+    totalGeral += digest.total;
+    enviadosGeral += enviados;
+    falhasGeral += falhas;
+    destinatariosGeral += recipients.length;
+    if (enviados > 0) algumEnviou = true;
+
+    console.log(
+      `[whatsapp] loja=${codigo} ${slot} ${dia} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
+    );
+    porLoja.push({
+      loja: codigo,
+      total: digest.total,
+      destinatarios: recipients.length,
+      enviados,
+      falhas,
+      erro,
+      results: maskedResults(results),
+    });
+  }
+
+  if (!algumEnviou && skippedSlot) {
+    sendJson(res, { ok: true, skipped: 'slot já enviado', slot, dia, lojas: porLoja });
+    return;
+  }
+  if (!algumEnviou && semProdutos) {
+    sendJson(res, { ok: true, skipped: 'sem produtos vencendo', slot, dia, total: 0, lojas: porLoja });
     return;
   }
 
-  const { results, enviados, falhas } = await sendWhatsappToRecipients(
-    config.recipients,
-    digest,
-    config,
-  );
-  const erro = firstError(results);
-  await finishSlot(sql, claim, {
-    total: digest.total,
-    destinatarios: config.recipients.length,
-    enviados,
-    falhas,
-    erro,
-  });
-
-  console.log(
-    `[whatsapp] ${slot} ${dia} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
-  );
   sendJson(res, {
-    ok: enviados > 0,
+    ok: enviadosGeral > 0,
     slot,
     dia,
-    total: digest.total,
-    destinatarios: config.recipients.length,
-    enviados,
-    falhas,
-    erro,
-    results: maskedResults(results),
+    total: totalGeral,
+    destinatarios: destinatariosGeral,
+    enviados: enviadosGeral,
+    falhas: falhasGeral,
+    lojas: porLoja,
   });
 }
 
@@ -325,13 +437,18 @@ export async function handleWhatsappPost(
     const action = String(body.action ?? '').replace(/^whatsapp_/, '');
     const config = whatsappConfig();
     const sql = createSql();
+    await ensureLojaSchema(sql);
+    // A tela trabalha na loja do usuário: o alerta mostra e envia os produtos
+    // dela, para os destinatários dela.
+    const loja = await resolveLoja(sql, payload);
+    const recipients = await recipientsDaLoja(sql, config, loja);
 
     // CONFIG — a tela usa para saber se o envio está disponível.
     if (action === 'config') {
       sendJson(res, {
         enabled: config.enabled,
-        recipients: config.recipients.map(maskPhone),
-        recipientsCount: config.recipients.length,
+        recipients: recipients.map(maskPhone),
+        recipientsCount: recipients.length,
         template: config.templateName,
         language: config.templateLang,
         apiVersion: config.apiVersion,
@@ -339,16 +456,19 @@ export async function handleWhatsappPost(
         maxItems: config.maxItems,
         schedule: ['07:00', '13:00'],
         cronSecretConfigured: Boolean((process.env.CRON_SECRET ?? '').trim()),
+        loja,
       });
       return;
     }
 
     // PREVIEW — monta a mensagem sem enviar (funciona mesmo sem credenciais).
     if (action === 'preview') {
-      const digest = await loadDigest(sql, config.alertDays);
+      const rows = await loadRows(sql, config.alertDays, loja);
+      const digest = buildDigest(rows, config.alertDays);
       sendJson(res, {
         enabled: config.enabled,
         alertDays: config.alertDays,
+        loja,
         total: digest.total,
         vencidos: digest.vencidos,
         hoje: digest.hoje,
@@ -357,7 +477,7 @@ export async function handleWhatsappPost(
         list: digest.list,
         truncated: digest.truncated,
         items: digest.items.slice(0, 50),
-        recipients: config.recipients.map(maskPhone),
+        recipients: recipients.map(maskPhone),
       });
       return;
     }
@@ -373,8 +493,10 @@ export async function handleWhatsappPost(
                 total, destinatarios, enviados, falhas, erro, created_by,
                 to_char(created_at AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS quando
            FROM public.whatsapp_envios
+          WHERE loja = $1
           ORDER BY created_at DESC
           LIMIT 20`,
+        [loja],
       );
       sendJson(res, { items });
       return;
@@ -390,7 +512,8 @@ export async function handleWhatsappPost(
       return;
     }
 
-    const digest = await loadDigest(sql, config.alertDays);
+    const rows = await loadRows(sql, config.alertDays, loja);
+    const digest = buildDigest(rows, config.alertDays);
     if (digest.total === 0) {
       sendJson(res, {
         ok: true,
@@ -404,23 +527,24 @@ export async function handleWhatsappPost(
     }
 
     const { results, enviados, falhas } = await sendWhatsappToRecipients(
-      config.recipients,
+      recipients,
       digest,
       config,
     );
     const erro = firstError(results);
 
     if (await ensureSchema(sql)) {
-      await recordManual(sql, digest, config, enviados, falhas, erro, payload.sub);
+      await recordManual(sql, digest, config, enviados, falhas, erro, payload.sub, loja);
     }
 
     console.log(
-      `[whatsapp] manual por ${payload.sub} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
+      `[whatsapp] manual por ${payload.sub} loja=${loja} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
     );
     sendJson(res, {
       ok: enviados > 0,
+      loja,
       total: digest.total,
-      destinatarios: config.recipients.length,
+      destinatarios: recipients.length,
       enviados,
       falhas,
       erro,

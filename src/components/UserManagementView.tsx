@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
-import { Users, Plus, Trash2, Loader2, Shield, User, UserCheck, Pencil, X, Check } from 'lucide-react';
+import { Users, Plus, Trash2, Loader2, Shield, User, UserCheck, Pencil, X, Check, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,7 +16,15 @@ interface AppUser {
   id: string;
   username: string;
   role: string;
+  /** Loja do usuário (multi-loja). */
+  loja?: number;
   created_at: string;
+}
+
+interface Loja {
+  codigo: number;
+  nome: string;
+  ativo: boolean;
 }
 
 const ROLE_OPTIONS = [
@@ -40,13 +48,16 @@ const RoleIcon = ({ role }: { role: string }) => {
 const UserManagementView = () => {
   const { getToken } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [lojas, setLojas] = useState<Loja[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [newLoja, setNewLoja] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editRole, setEditRole] = useState('');
+  const [editLoja, setEditLoja] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -56,6 +67,11 @@ const UserManagementView = () => {
       body,
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });
+  };
+
+  const nomeLoja = (codigo?: number) => {
+    if (!codigo) return '—';
+    return lojas.find((l) => l.codigo === codigo)?.nome ?? `Loja ${codigo}`;
   };
 
   const fetchUsers = async () => {
@@ -68,7 +84,20 @@ const UserManagementView = () => {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  const fetchLojas = async () => {
+    try {
+      const { data } = await invokeWithToken({ action: 'list_lojas' });
+      if (Array.isArray(data?.lojas)) {
+        setLojas(data.lojas);
+        setNewLoja((atual) => atual || (data.lojas[0]?.codigo ? String(data.lojas[0].codigo) : ''));
+      }
+    } catch { /* a lista de lojas é acessória */ }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchLojas();
+  }, []);
 
   const handleAdd = async () => {
     if (!newUsername.trim() || !newPassword.trim()) return;
@@ -76,7 +105,12 @@ const UserManagementView = () => {
     try {
       const { data, error } = await invokeWithToken({
         action: 'add',
-        newUser: { username: newUsername.trim(), password: newPassword.trim(), role: newRole },
+        newUser: {
+          username: newUsername.trim(),
+          password: newPassword.trim(),
+          role: newRole,
+          loja: newLoja ? Number(newLoja) : undefined,
+        },
       });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao adicionar usuário'); return; }
       toast.success('Usuário adicionado com sucesso!');
@@ -89,12 +123,14 @@ const UserManagementView = () => {
   const handleEdit = (u: AppUser) => {
     setEditingUser(u.username);
     setEditRole(u.role);
+    setEditLoja(u.loja ? String(u.loja) : '');
     setEditPassword('');
   };
 
   const handleCancelEdit = () => {
     setEditingUser(null);
     setEditRole('');
+    setEditLoja('');
     setEditPassword('');
   };
 
@@ -102,7 +138,8 @@ const UserManagementView = () => {
     if (!editingUser || !editRole) return;
     setSaving(true);
     try {
-      const payload: Record<string, string> = { username: editingUser, role: editRole };
+      const payload: Record<string, unknown> = { username: editingUser, role: editRole };
+      if (editLoja) payload.loja = Number(editLoja);
       if (editPassword.trim()) payload.password = editPassword.trim();
       const { data, error } = await invokeWithToken({ action: 'update', newUser: payload });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao atualizar usuário'); return; }
@@ -146,6 +183,12 @@ const UserManagementView = () => {
               {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Select value={newLoja} onValueChange={setNewLoja}>
+            <SelectTrigger className="w-full sm:w-[130px]" aria-label="Loja"><SelectValue placeholder="Loja" /></SelectTrigger>
+            <SelectContent>
+              {lojas.map(l => <SelectItem key={l.codigo} value={String(l.codigo)}>{l.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Button onClick={handleAdd} disabled={adding || !newUsername.trim() || !newPassword.trim()} className="gap-2">
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Adicionar
           </Button>
@@ -170,6 +213,12 @@ const UserManagementView = () => {
                         {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    <Select value={editLoja} onValueChange={setEditLoja}>
+                      <SelectTrigger aria-label="Loja"><SelectValue placeholder="Loja" /></SelectTrigger>
+                      <SelectContent>
+                        {lojas.map(l => <SelectItem key={l.codigo} value={String(l.codigo)}>{l.nome}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                     <Input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Nova senha (opcional)" />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSaveEdit} disabled={saving} className="gap-1">
@@ -185,7 +234,7 @@ const UserManagementView = () => {
                         <RoleIcon role={u.role} /> {u.username}
                       </p>
                       <p className="text-xs text-gray-600 mt-0.5">
-                        {getRoleLabel(u.role)} · {new Date(u.created_at).toLocaleDateString('pt-BR')}
+                        {getRoleLabel(u.role)} · {nomeLoja(u.loja)} · {new Date(u.created_at).toLocaleDateString('pt-BR')}
                       </p>
                     </div>
                     <div className="flex gap-1">
@@ -209,6 +258,7 @@ const UserManagementView = () => {
                 <TableRow>
                   <TableHead>Usuário</TableHead>
                   <TableHead>Perfil</TableHead>
+                  <TableHead>Loja</TableHead>
                   <TableHead>Criado em</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
@@ -231,6 +281,20 @@ const UserManagementView = () => {
                       ) : (
                         <span className="inline-flex items-center gap-1 text-sm">
                           <RoleIcon role={u.role} /> {getRoleLabel(u.role)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingUser === u.username ? (
+                        <Select value={editLoja} onValueChange={setEditLoja}>
+                          <SelectTrigger className="w-[130px] h-8" aria-label="Loja"><SelectValue placeholder="Loja" /></SelectTrigger>
+                          <SelectContent>
+                            {lojas.map(l => <SelectItem key={l.codigo} value={String(l.codigo)}>{l.nome}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-sm text-gray-700">
+                          <Store className="h-3.5 w-3.5" /> {nomeLoja(u.loja)}
                         </span>
                       )}
                     </TableCell>

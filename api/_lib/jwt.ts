@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export interface JwtPayload {
   sub: string;
   role: string;
+  /** Loja do usuário (multi-loja). Ausente em tokens emitidos antes do recurso. */
+  loja?: number;
   exp: number;
   iat?: number;
 }

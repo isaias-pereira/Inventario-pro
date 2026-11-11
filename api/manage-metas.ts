@@ -1,6 +1,14 @@
+/**
+ * Metas mensais (multi-loja).
+ *
+ * Meta e realizado são definidos por loja: a loja 103 tem as suas metas do
+ * mês, a loja 92 tem as dela — o mesmo (ano, mes, dia) pode existir nas duas.
+ */
+
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
@@ -10,6 +18,7 @@ const handler: ApiHandler = async (req, res) => {
     if (!jwt) return;
 
     const sql = createSql();
+    await ensureLojaSchema(sql);
 
     // Ensure table exists
     await sql`CREATE TABLE IF NOT EXISTS metas_mensais (
@@ -19,8 +28,20 @@ const handler: ApiHandler = async (req, res) => {
       dia INTEGER NOT NULL,
       meta NUMERIC DEFAULT 0,
       realizado NUMERIC DEFAULT 0,
-      UNIQUE(ano, mes, dia)
+      loja INTEGER NOT NULL DEFAULT 103
     )`;
+
+    // A unicidade passa a ser por loja: (ano, mes, dia) pode repetir em lojas
+    // diferentes. A constraint global é removida (a migration faz o mesmo).
+    try {
+      await sql`ALTER TABLE metas_mensais ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+      await sql`ALTER TABLE metas_mensais DROP CONSTRAINT IF EXISTS metas_mensais_ano_mes_dia_key`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS metas_mensais_loja_ano_mes_dia_key ON metas_mensais(loja, ano, mes, dia)`;
+    } catch {
+      /* a migration oficial é a que garante o índice; aqui é só uma rede de segurança */
+    }
+
+    const loja = await resolveLoja(sql, jwt);
 
     const { action, ano, mes, items, realizadoItems } = await readJsonBody<{
       action?: string;
@@ -31,7 +52,7 @@ const handler: ApiHandler = async (req, res) => {
     }>(req);
 
     if (action === 'get') {
-      const rows = await sql`SELECT * FROM metas_mensais WHERE ano = ${ano} AND mes = ${mes} ORDER BY dia`;
+      const rows = await sql`SELECT * FROM metas_mensais WHERE loja = ${loja} AND ano = ${ano} AND mes = ${mes} ORDER BY dia`;
       sendJson(res, { data: rows });
       return;
     }
@@ -48,7 +69,7 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       for (const [dia, meta] of deduped.entries()) {
-        await sql`INSERT INTO metas_mensais (ano, mes, dia, meta) VALUES (${ano}, ${mes}, ${dia}, ${meta}) ON CONFLICT (ano, mes, dia) DO UPDATE SET meta = ${meta}`;
+        await sql`INSERT INTO metas_mensais (ano, mes, dia, meta, loja) VALUES (${ano}, ${mes}, ${dia}, ${meta}, ${loja}) ON CONFLICT (loja, ano, mes, dia) DO UPDATE SET meta = ${meta}`;
       }
 
       sendJson(res, { success: true });
@@ -62,7 +83,7 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       for (const item of realizadoItems ?? []) {
-        await sql`UPDATE metas_mensais SET realizado = ${item.venda} WHERE ano = ${ano} AND mes = ${mes} AND dia = ${item.dia}`;
+        await sql`UPDATE metas_mensais SET realizado = ${item.venda} WHERE loja = ${loja} AND ano = ${ano} AND mes = ${mes} AND dia = ${item.dia}`;
       }
 
       sendJson(res, { success: true });

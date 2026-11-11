@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags, Store, Loader2 } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,7 +9,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
+import { toast } from 'sonner';
 
 export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email' | 'revisao-secoes';
 
@@ -19,7 +24,8 @@ interface HeaderProps {
 
 
 const Header = ({ currentView, onNavigate }: HeaderProps) => {
-  const { user, logout, isAdmin, userRole } = useAuth();
+  const { user, logout, isAdmin, userRole, loja, lojas, switchLoja } = useAuth();
+  const [trocandoLoja, setTrocandoLoja] = useState(false);
   
 
   const allNavItems = [
@@ -47,6 +53,19 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     onNavigate(view);
   };
 
+  const nomeLoja = (codigo: number) =>
+    lojas?.find((item) => item.codigo === codigo)?.nome ?? `Loja ${codigo}`;
+
+  const trocarLoja = async (codigo: number) => {
+    if (codigo === loja) return;
+    setTrocandoLoja(true);
+    const resultado = await switchLoja(codigo);
+    setTrocandoLoja(false);
+    if (!resultado.ok) {
+      toast.error(resultado.error || 'Não foi possível trocar a loja.');
+    }
+  };
+
   return (
     <header className="border-b border-primary/20 bg-primary shadow-lg">
       <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-4">
@@ -61,6 +80,15 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
               >
                 {user.username}
               </span>
+              {loja !== null && (
+                <span
+                  className="hidden items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-xs font-medium text-primary-foreground sm:inline-flex"
+                  title={nomeLoja(loja)}
+                >
+                  <Store className="h-3 w-3" aria-hidden="true" />
+                  {nomeLoja(loja)}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -93,12 +121,43 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
                 <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5 text-sm font-medium">
                 {user?.username}
                 {userRole && <span className="ml-1 text-xs opacity-60">({userRole === 'admin' ? 'admin' : userRole === 'encarregado' ? 'encarregado' : userRole === 'enc_flv' ? 'enc. flv' : userRole === 'promotor' ? 'promotor' : userRole === 'col_validade' ? 'col. validade' : 'usuário'})</span>}
               </div>
+              {loja !== null && (
+                <div className="px-2 pb-1.5 text-xs opacity-70">
+                  Loja: {nomeLoja(loja)}
+                </div>
+              )}
               <DropdownMenuSeparator />
+              {isAdmin && (lojas?.length ?? 0) > 0 && (
+                <>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="gap-2 cursor-pointer">
+                      {trocandoLoja ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Store className="h-4 w-4" />
+                      )}
+                      Trocar loja
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {lojas.map((item) => (
+                        <DropdownMenuItem
+                          key={item.codigo}
+                          onClick={() => void trocarLoja(item.codigo)}
+                          className={`cursor-pointer ${item.codigo === loja ? 'bg-accent font-medium' : ''}`}
+                        >
+                          {item.nome}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {showEmailItems && (
                 <>
                   {emailItems.map((item) => (

@@ -189,10 +189,10 @@ async function invokeOnce<T = any>(
 }
 
 /**
- * Decodifica o payload de um JWT (usado para checar validade e papel do usuário
- * no cliente). Assume payload em base64, com suporte a UTF-8.
+ * Decodifica o payload de um JWT (usado para checar validade, papel e loja do
+ * usuário no cliente). Assume payload em base64, com suporte a UTF-8.
  */
-export function parseJwtPayload(token: string): { sub: string; role: string; exp: number } | null {
+export function parseJwtPayload(token: string): { sub: string; role: string; loja?: number; exp: number } | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;

@@ -3,6 +3,7 @@ import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
+import { ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
@@ -22,7 +23,7 @@ function isDigits14(value: unknown): string | null {
 
 let schemaReady = false;
 
-/** Índices e coluna `motivo` criados de forma idempotente (uma vez por instância). */
+/** Índices e colunas criados de forma idempotente (uma vez por instância). */
 async function ensureSchema(sql: Sql): Promise<boolean> {
   if (schemaReady) return true;
   try {
@@ -38,6 +39,13 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   } catch {
     const rows = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'validade_products' AND column_name = 'motivo'`;
     schemaReady = rows.length > 0;
+  }
+  // Coluna da loja (multi-loja): o DEFAULT cobre os dados já existentes.
+  try {
+    await sql`ALTER TABLE validade_products ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_validade_loja_status_validade ON validade_products(loja, status, validade)`;
+  } catch {
+    /* a coluna é criada pela migration; se falhar, o SELECT dá o erro claro */
   }
   return schemaReady;
 }
@@ -70,11 +78,14 @@ const handler: ApiHandler = async (req, res) => {
 
     // Coluna do motivo (Excesso/Qualidade) usada nos produtos de balança (KG).
     const hasMotivoColumn = await ensureSchema(sql);
+    // A loja vem do token (multi-loja): é o escopo de tudo que é lido/gravado.
+    await ensureLojaSchema(sql);
+    const loja = await resolveLoja(sql, payload);
 
     // Auto-expire only on read actions (avoid unnecessary write on every request)
     const readActions = new Set(['list', 'list_all', 'notifications', 'consulta_periodo']);
     if (readActions.has(action)) {
-      await sql`UPDATE validade_products SET status = false WHERE status = true AND validade < NOW() AND motivo IS NULL`;
+      await sql`UPDATE validade_products SET status = false WHERE status = true AND validade < NOW() AND motivo IS NULL AND loja = ${loja}`;
     }
 
     // LIST - items expiring within 2 days
@@ -82,8 +93,9 @@ const handler: ApiHandler = async (req, res) => {
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
-          WHERE v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+          WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
           ORDER BY v.validade ASC`,
+        [loja],
       );
       sendJson(res, { items: data });
       return;
@@ -97,9 +109,9 @@ const handler: ApiHandler = async (req, res) => {
         const data = await sql(
           `SELECT v.*, ${SECAO_COLUNAS}
              FROM validade_products v ${secaoJoin('v')}
-            WHERE v.status = true AND v.created_by = $1
+            WHERE v.loja = $1 AND v.status = true AND v.created_by = $2
             ORDER BY v.validade ASC`,
-          [username],
+          [loja, username],
         );
         sendJson(res, { items: data });
         return;
@@ -110,8 +122,9 @@ const handler: ApiHandler = async (req, res) => {
           `SELECT v.*, ${SECAO_COLUNAS}
              FROM validade_products v ${secaoJoin('v')}
              INNER JOIN app_users u ON v.created_by = u.username
-            WHERE v.status = true AND u.role = 'promotor'
+            WHERE v.loja = $1 AND v.status = true AND u.role = 'promotor'
             ORDER BY v.validade ASC`,
+          [loja],
         );
         sendJson(res, { items: data });
         return;
@@ -122,19 +135,21 @@ const handler: ApiHandler = async (req, res) => {
           `SELECT v.*, ${SECAO_COLUNAS}
              FROM validade_products v ${secaoJoin('v')}
              INNER JOIN app_users u ON v.created_by = u.username
-            WHERE v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'enc_flv', 'col_validade')
+            WHERE v.loja = $1 AND v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'enc_flv', 'col_validade')
             ORDER BY v.validade ASC`,
+          [loja],
         );
         sendJson(res, { items: data });
         return;
       }
 
-      // admin sees all
+      // admin sees all (da loja atual)
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
-          WHERE v.status = true
+          WHERE v.loja = $1 AND v.status = true
           ORDER BY v.validade ASC`,
+        [loja],
       );
       sendJson(res, { items: data });
       return;
@@ -166,11 +181,11 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       if (hasMotivoColumn) {
-        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, motivo)
-          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${motivo.value})`;
+        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, motivo, loja)
+          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${motivo.value}, ${loja})`;
       } else {
-        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by)
-          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username})`;
+        await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, loja)
+          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${loja})`;
       }
       sendJson(res, { success: true });
       return;
@@ -196,11 +211,11 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       if (hasMotivo && hasMotivoColumn) {
-        await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = COALESCE(${newQuantidade ?? null}, quantidade), motivo = ${motivo.value} WHERE id = ${id}`;
+        await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = COALESCE(${newQuantidade ?? null}, quantidade), motivo = ${motivo.value} WHERE id = ${id} AND loja = ${loja}`;
       } else if (newQuantidade !== undefined) {
-        await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = ${newQuantidade} WHERE id = ${id}`;
+        await sql`UPDATE validade_products SET validade = ${newValidade}, quantidade = ${newQuantidade} WHERE id = ${id} AND loja = ${loja}`;
       } else {
-        await sql`UPDATE validade_products SET validade = ${newValidade} WHERE id = ${id}`;
+        await sql`UPDATE validade_products SET validade = ${newValidade} WHERE id = ${id} AND loja = ${loja}`;
       }
       sendJson(res, { success: true });
       return;
@@ -217,7 +232,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'ID obrigatório' }, 400);
         return;
       }
-      await sql`UPDATE validade_products SET status = false WHERE id = ${id}`;
+      await sql`UPDATE validade_products SET status = false WHERE id = ${id} AND loja = ${loja}`;
       sendJson(res, { success: true });
       return;
     }
@@ -239,8 +254,10 @@ const handler: ApiHandler = async (req, res) => {
       const endDate = data_fim ? new Date(data_fim + 'T23:59:59').toISOString() : null;
 
       // Filtros montados com parâmetros: nada de interpolar valores na query.
+      // O escopo da loja entra primeiro e nunca é negociável pelo cliente.
       const conditions: string[] = [];
       const params: unknown[] = [];
+      conditions.push(filtroLoja(params, loja, 'v'));
       if (startDate) {
         params.push(startDate);
         conditions.push(`v.created_at >= $${params.length}`);
@@ -279,7 +296,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Acesso restrito' }, 403);
         return;
       }
-      const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE created_by IS NOT NULL ORDER BY created_by`;
+      const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by IS NOT NULL ORDER BY created_by`;
       const users = data.map((row: any) => row.created_by);
       sendJson(res, { users });
       return;
@@ -290,8 +307,9 @@ const handler: ApiHandler = async (req, res) => {
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
-          WHERE v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+          WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
           ORDER BY v.validade ASC`,
+        [loja],
       );
       sendJson(res, { items: data });
       return;

@@ -1,10 +1,14 @@
 /**
- * E-mails padrão das rebaixas.
+ * E-mails padrão das rebaixas (multi-loja).
  *
  * A aba E-mail cadastra os destinatários que recebem as rebaixas (com um
  * "padrão" que entra preenchido no envio) e guarda o assunto/mensagem padrão
  * da mensagem. O servidor usa essa lista como atalho no diálogo de envio da
  * Rebaixa e como fallback quando o cliente não informa destinatário.
+ *
+ * Cada loja tem a sua própria lista de destinatários e o seu próprio
+ * assunto/mensagem padrão — a rebaixa da loja 103 não vai para o e-mail
+ * padrão da loja 92.
  *
  * Ações (POST):
  * - `list`: devolve `{ emails, defaults }` — `defaults` traz assunto/mensagem;
@@ -21,6 +25,7 @@
 import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 /** Papéis que podem ler a lista de e-mails padrão. */
 export const EMAIL_READ_ROLES = ['admin', 'encarregado'] as const;
@@ -106,18 +111,20 @@ const CREATE_TABLE_SQL = `
     created_by TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    loja INTEGER NOT NULL DEFAULT 103,
     CONSTRAINT email_padrao_email_check
       CHECK (email ~* '^[^@[:space:],;]+@[^@[:space:],;]+\\.[^@[:space:],;]+$')
   )`;
 
 const CREATE_CONFIG_SQL = `
   CREATE TABLE IF NOT EXISTS public.email_config (
-    id SMALLINT PRIMARY KEY DEFAULT 1,
+    id SMALLINT NOT NULL DEFAULT 1,
     assunto VARCHAR(200) NOT NULL,
     mensagem VARCHAR(2000) NOT NULL,
     updated_by TEXT,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-    CONSTRAINT email_config_linha_unica CHECK (id = 1)
+    loja INTEGER NOT NULL DEFAULT 103,
+    PRIMARY KEY (loja)
   )`;
 
 let schemaReady = false;
@@ -141,10 +148,19 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   if (!schemaReady) return false;
 
   try {
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_email
-      ON public.email_padrao (lower(email))`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_unico_padrao
-      ON public.email_padrao (padrao) WHERE padrao`;
+    // Multi-loja: o e-mail e o padrão passam a ser únicos por loja e a
+    // configuração ganha uma linha por loja (aPK passa a ser `loja`).
+    await sql`ALTER TABLE public.email_padrao ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`ALTER TABLE public.email_config ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`ALTER TABLE public.email_config DROP CONSTRAINT IF EXISTS email_config_linha_unica`;
+    await sql`ALTER TABLE public.email_config DROP CONSTRAINT IF EXISTS email_config_pkey`;
+    await sql`ALTER TABLE public.email_config ADD PRIMARY KEY (loja)`;
+    await sql`DROP INDEX IF EXISTS public.idx_email_padrao_email`;
+    await sql`DROP INDEX IF EXISTS public.idx_email_padrao_unico_padrao`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_loja_email
+      ON public.email_padrao (loja, lower(email))`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_loja_unico_padrao
+      ON public.email_padrao (loja) WHERE padrao`;
     await sql`CREATE INDEX IF NOT EXISTS idx_email_padrao_ativo
       ON public.email_padrao (ativo)`;
   } catch {
@@ -157,6 +173,7 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
 const LIST_SQL = `
   SELECT id::text, nome, email, padrao, ativo, created_by, created_at
     FROM public.email_padrao
+   WHERE loja = $1
    ORDER BY padrao DESC, lower(nome) ASC`;
 
 const handler: ApiHandler = async (req, res) => {
@@ -180,12 +197,15 @@ const handler: ApiHandler = async (req, res) => {
       sendJson(res, { error: 'A tabela de e-mails padrão não está disponível' }, 503);
       return;
     }
+    await ensureLojaSchema(sql);
+    // Escopo multi-loja: cada loja tem a sua lista de destinatários.
+    const loja = await resolveLoja(sql, payload);
 
     // LIST — e-mails padrão + assunto/mensagem padrão.
     if (action === 'list') {
-      const emails = await sql(LIST_SQL);
+      const emails = await sql(LIST_SQL, [loja]);
       const config = await sql`
-        SELECT assunto, mensagem FROM public.email_config WHERE id = 1`;
+        SELECT assunto, mensagem FROM public.email_config WHERE loja = ${loja}`;
       const row = config[0];
       sendJson(res, {
         emails,
@@ -220,11 +240,11 @@ const handler: ApiHandler = async (req, res) => {
         if (padrao) {
           await sql(
             [
-              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao' },
+              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
               {
-                query: `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by)
-                        VALUES ($1, $2, TRUE, TRUE, $3)`,
-                params: [nome, email, payload.sub ?? null],
+                query: `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by, loja)
+                        VALUES ($1, $2, TRUE, TRUE, $3, $4)`,
+                params: [nome, email, payload.sub ?? null, loja],
               },
             ],
             [],
@@ -232,9 +252,9 @@ const handler: ApiHandler = async (req, res) => {
           );
         } else {
           await sql(
-            `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by)
-             VALUES ($1, $2, FALSE, TRUE, $3)`,
-            [nome, email, payload.sub ?? null],
+            `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by, loja)
+             VALUES ($1, $2, FALSE, TRUE, $3, $4)`,
+            [nome, email, payload.sub ?? null, loja],
           );
         }
       } catch (error) {
@@ -257,8 +277,8 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       const current = await sql(
-        'SELECT id::text, nome, email, padrao, ativo FROM public.email_padrao WHERE id = $1::bigint',
-        [id],
+        'SELECT id::text, nome, email, padrao, ativo FROM public.email_padrao WHERE id = $1::bigint AND loja = $2',
+        [id, loja],
       );
       if (!current.length) {
         sendJson(res, { error: 'Cadastro não encontrado' }, 404);
@@ -283,12 +303,12 @@ const handler: ApiHandler = async (req, res) => {
         if (padrao && !row.padrao) {
           await sql(
             [
-              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao' },
+              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
               {
                 query: `UPDATE public.email_padrao
                            SET nome = $1, email = $2, ativo = $3, padrao = TRUE, updated_at = now()
-                         WHERE id = $4::bigint`,
-                params: [nome, email, ativo, id],
+                         WHERE id = $4::bigint AND loja = $5`,
+                params: [nome, email, ativo, id, loja],
               },
             ],
             [],
@@ -298,8 +318,8 @@ const handler: ApiHandler = async (req, res) => {
           await sql(
             `UPDATE public.email_padrao
                 SET nome = $1, email = $2, ativo = $3, padrao = $4, updated_at = now()
-              WHERE id = $5::bigint`,
-            [nome, email, ativo, padrao, id],
+              WHERE id = $5::bigint AND loja = $6`,
+            [nome, email, ativo, padrao, id, loja],
           );
         }
       } catch (error) {
@@ -320,7 +340,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Cadastro inválido' }, 400);
         return;
       }
-      await sql`DELETE FROM public.email_padrao WHERE id = ${id}::bigint`;
+      await sql`DELETE FROM public.email_padrao WHERE id = ${id}::bigint AND loja = ${loja}`;
       sendJson(res, { success: true });
       return;
     }
@@ -332,17 +352,17 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Cadastro inválido' }, 400);
         return;
       }
-      const exists = await sql`SELECT id::text FROM public.email_padrao WHERE id = ${id}::bigint`;
+      const exists = await sql`SELECT id::text FROM public.email_padrao WHERE id = ${id}::bigint AND loja = ${loja}`;
       if (!exists.length) {
         sendJson(res, { error: 'Cadastro não encontrado' }, 404);
         return;
       }
       await sql(
         [
-          { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao' },
+          { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
           {
-            query: 'UPDATE public.email_padrao SET padrao = TRUE, ativo = TRUE, updated_at = now() WHERE id = $1::bigint',
-            params: [id],
+            query: 'UPDATE public.email_padrao SET padrao = TRUE, ativo = TRUE, updated_at = now() WHERE id = $1::bigint AND loja = $2',
+            params: [id, loja],
           },
         ],
         [],
@@ -367,14 +387,14 @@ const handler: ApiHandler = async (req, res) => {
       await sql(
         [
           {
-            query: `INSERT INTO public.email_config (id, assunto, mensagem, updated_by, updated_at)
-                    VALUES (1, $1, $2, $3, now())
-                    ON CONFLICT (id)
+            query: `INSERT INTO public.email_config (id, loja, assunto, mensagem, updated_by, updated_at)
+                    VALUES (1, $1, $2, $3, $4, now())
+                    ON CONFLICT (loja)
                     DO UPDATE SET assunto = EXCLUDED.assunto,
                                   mensagem = EXCLUDED.mensagem,
                                   updated_by = EXCLUDED.updated_by,
                                   updated_at = now()`,
-            params: [assunto, mensagem, payload.sub ?? null],
+            params: [loja, assunto, mensagem, payload.sub ?? null],
           },
         ],
         [],
