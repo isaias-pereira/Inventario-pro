@@ -7,9 +7,16 @@ interface User {
   role: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv';
 }
 
+/** Resultado do login: além do sucesso, traz o motivo da falha. */
+interface LoginResult {
+  ok: boolean;
+  /** Mensagem pronta para exibir (ex.: "Usuário ou senha inválidos."). */
+  error?: string;
+}
+
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string, remember?: boolean) => Promise<boolean>;
+  login: (username: string, password: string, remember?: boolean) => Promise<LoginResult>;
   logout: () => void;
   isAdmin: boolean;
   userRole: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv' | null;
@@ -69,13 +76,24 @@ function loadSession(): { user: User; token: string } | null {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => loadSession()?.user ?? null);
 
-  const login = useCallback(async (username: string, password: string, remember = false): Promise<boolean> => {
+  const login = useCallback(async (username: string, password: string, remember = false): Promise<LoginResult> => {
     try {
-      const { data, error } = await invokeFunction('auth-login', {
+      // Timeout menor que o padrão: no login a espera é curta e a mensagem
+      // de rede ajuda a identificar proxy/firewall corporativo.
+      const { data, error } = await invokeFunction<{
+        success?: boolean;
+        error?: string;
+        token?: string;
+        user?: User;
+      }>('auth-login', {
         body: { username, password },
+        timeoutMs: 15000,
       });
 
-      if (error || !data?.success || !data?.token) return false;
+      if (error) return { ok: false, error: error.message };
+      if (!data?.success || !data?.token || !data?.user) {
+        return { ok: false, error: data?.error || 'Usuário ou senha inválidos.' };
+      }
 
       const u: User = { username: data.user.username, role: data.user.role };
       setUser(u);
@@ -89,9 +107,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           JSON.stringify({ expiresAt: Date.now() + SESSION_DURATION_MS })
         );
       }
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Não foi possível entrar.',
+      };
     }
   }, []);
 

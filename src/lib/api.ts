@@ -23,6 +23,12 @@ export interface InvokeOptions {
   headers?: Record<string, string>;
   /** Token de sessão (por padrão lê o token salvo no login). */
   token?: string | null;
+  /**
+   * Tempo máximo da requisição em milissegundos (padrão: {@link DEFAULT_TIMEOUT_MS}).
+   * Sem isso, uma rede que engole a requisição (proxy corporativo, firewall)
+   * deixa a tela em "carregando" para sempre.
+   */
+  timeoutMs?: number;
 }
 
 export interface InvokeError {
@@ -35,6 +41,21 @@ export interface InvokeResult<T = unknown> {
   data: T | null;
   error: InvokeError | null;
 }
+
+/**
+ * Tempo máximo padrão de uma chamada à API.
+ *
+ * A tela do login e as demais views dependem dessa chamada: sem timeout, uma
+ * rede corporativa que bloqueie o domínio do SGS-PRO trava o app em
+ * "carregando" sem nunca explicar o motivo.
+ */
+export const DEFAULT_TIMEOUT_MS = 25_000;
+
+/** Mensagens de rede: dizem o que aconteceu e o que fazer. */
+export const NETWORK_ERROR_MESSAGE =
+  'Não foi possível conectar ao servidor do SGS-PRO. Verifique a internet ou o proxy desta máquina.';
+export const TIMEOUT_ERROR_MESSAGE =
+  'O servidor do SGS-PRO não respondeu a tempo. A rede pode estar bloqueando o acesso — tente outra conexão (ex.: 4G/hotspot) ou peça ao TI para liberar o domínio do sistema.';
 
 function sessionToken(): string | null {
   try {
@@ -53,14 +74,34 @@ function httpError(status: number, message: string): InvokeError {
  * Chama uma função do backend: `invokeFunction('manage-validade', { body })`.
  * Envia o token da sessão no cabeçalho `Authorization: Bearer`.
  */
+/** Sinal interno de tempo esgotado (independe do `AbortError` do navegador). */
+class RequestTimeoutError extends Error {
+  constructor() {
+    super('Tempo esgotado');
+    this.name = 'RequestTimeoutError';
+  }
+}
+
 export async function invokeFunction<T = any>(
   name: string,
   options: InvokeOptions = {},
 ): Promise<InvokeResult<T>> {
   const token = options.token === undefined ? sessionToken() : options.token;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // A corrida com o timer garante o fim da espera mesmo se o navegador
+  // demorar (ou nãoobedecer) o `abort` — o `abort` só cancela a requisição.
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller?.abort();
+      reject(new RequestTimeoutError());
+    }, timeoutMs);
+  });
 
   try {
-    const response = await fetch(`${apiBase()}/api/${name}`, {
+    const request = fetch(`${apiBase()}/api/${name}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -68,7 +109,10 @@ export async function invokeFunction<T = any>(
         ...(options.headers || {}),
       },
       body: JSON.stringify(options.body ?? {}),
+      signal: controller?.signal,
     });
+
+    const response = await Promise.race([request, timeout]);
 
     const text = await response.text();
     let data: unknown = null;
@@ -89,8 +133,18 @@ export async function invokeFunction<T = any>(
     }
 
     return { data: data as T, error: null };
-  } catch {
-    return { data: null, error: { name: 'FunctionsFetchError', message: 'Não foi possível conectar ao servidor' } };
+  } catch (error) {
+    const timedOut = error instanceof RequestTimeoutError
+      || (error instanceof Error && error.name === 'AbortError');
+    return {
+      data: null,
+      error: {
+        name: timedOut ? 'FunctionsTimeoutError' : 'FunctionsFetchError',
+        message: timedOut ? TIMEOUT_ERROR_MESSAGE : NETWORK_ERROR_MESSAGE,
+      },
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

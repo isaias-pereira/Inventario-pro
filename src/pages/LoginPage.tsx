@@ -1,10 +1,23 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Lock, User, Loader2 } from 'lucide-react';
+import { Lock, User, Loader2, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import loginBg from '@/assets/login-bg.jpg';
+
+/** Mensagens de rede: a tela mostra o que fazer em vez de "Entrando..." infinito. */
+const NETWORK_HINTS = [
+  'sem resposta do servidor',
+  'não foi possível conectar',
+  'não respondeu a tempo',
+  'banco de dados indisponível',
+];
+
+function isNetworkProblem(message: string): boolean {
+  const lower = message.toLowerCase();
+  return NETWORK_HINTS.some((hint) => lower.includes(hint));
+}
 
 const LoginPage = () => {
   const { login } = useAuth();
@@ -12,15 +25,19 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
+  const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setOffline(false);
     setLoading(true);
-    const success = await login(username, password, remember);
-    if (!success) {
-      setError('Usuário ou senha inválidos.');
+    const result = await login(username, password, remember);
+    if (!result.ok) {
+      const message = result.error || 'Não foi possível entrar.';
+      setError(message);
+      setOffline(isNetworkProblem(message));
     }
     setLoading(false);
   };
@@ -92,8 +109,28 @@ const LoginPage = () => {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
+            <div
+              className={`mb-4 rounded-lg p-3 text-sm ${
+                offline ? 'bg-amber-500/15 text-amber-700' : 'bg-destructive/10 text-destructive'
+              }`}
+              role="alert"
+            >
+              <p className="flex items-start gap-2">
+                {offline && <WifiOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                <span>{error}</span>
+              </p>
+              {offline && (
+                <div className="mt-2 space-y-1 pl-6 text-xs opacity-90">
+                  <p>
+                    Esta tela abre mesmo sem internet (o app é instalado como PWA), mas o SGS-PRO
+                    precisa falar com o servidor para conferir o usuário e buscar os dados.
+                  </p>
+                  <p>
+                    Use o 4G/hotspot do celular ou peça ao TI para liberar o domínio{' '}
+                    <span className="font-mono">inventario-pro-one.vercel.app</span>.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
