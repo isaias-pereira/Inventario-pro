@@ -89,6 +89,22 @@ Observações para o TI:
 - Se a máquina usa proxy configurado no navegador/antivírus, ele precisa
   permitir `inventario-pro-one.vercel.app`.
 
+## Depois de um deploy: atualize o app
+
+O SGS-PRO é um PWA: o service worker guarda o bundle em cache e o atualiza em
+segundo plano. Na rede da empresa (lenta ou instável), o computador pode
+continuar usando a **versão antiga** do app por um tempo — inclusive uma versão
+sem as correções de timeout.
+
+Para forçar a versão nova:
+
+1. Feche o app (se estiver instalado, feche a janela) e abra de novo; ou
+2. No navegador, faça uma recarga forçada: **Ctrl + Shift + R** (ou **Ctrl + F5**).
+
+Para conferir a versão: no DevTools do navegador (F12) → aba **Application** →
+**Service Workers** → botão **Unregister** e, em **Cache Storage**, apagar as
+entradas; depois recarregue a página.
+
 ## Solução imediata (sem depender do TI)
 
 Conectar pelo **4G/hotspot do celular** (desativando o Wi-Fi da rede da
