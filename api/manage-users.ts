@@ -21,7 +21,7 @@ import { authenticate } from './_lib/auth.js';
 import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
-import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, lojaAtiva } from './_lib/loja.js';
+import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, lojaAtiva, resolveLoja } from './_lib/loja.js';
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
@@ -79,9 +79,13 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'list') {
+      // Cada loja vê apenas os acessos dela: a lista sai da loja do token
+      // (a loja que o admin está usando agora), nunca de todas as lojas.
+      const loja = await resolveLoja(sql, payload);
       const users = await sql`
         SELECT id, username, role, loja, created_at
           FROM app_users
+         WHERE loja = ${loja}
          ORDER BY created_at ASC`;
       sendJson(res, { users });
       return;
@@ -93,7 +97,9 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      const loja = await lojaDoCadastro(sql, newUser.loja);
+      // Sem loja informada, o acesso nasce na loja do token (a loja atual do
+      // admin) — nunca na loja padrão global.
+      const loja = await lojaDoCadastro(sql, newUser.loja, await resolveLoja(sql, payload));
       if (loja === null) {
         sendJson(res, { error: 'Loja inválida ou inativa' }, 400);
         return;
@@ -172,11 +178,16 @@ const handler: ApiHandler = async (req, res) => {
 /**
  * Loja informada no cadastro de usuário.
  *
- * Sem valor, assume a loja padrão (103) — é o caso dos cadastros feitos
- * antes do multi-loja. Com valor, precisa existir e estar ativa.
+ * Sem valor, assume a loja do token (a loja atual do admin) — é o caso dos
+ * cadastros feitos antes do multi-loja. Com valor, precisa existir e estar
+ * ativa.
  */
-async function lojaDoCadastro(sql: ReturnType<typeof createSql>, valor: unknown): Promise<number | null> {
-  if (valor === undefined || valor === null || valor === '') return DEFAULT_LOJA;
+async function lojaDoCadastro(
+  sql: ReturnType<typeof createSql>,
+  valor: unknown,
+  padrao: number = DEFAULT_LOJA,
+): Promise<number | null> {
+  if (valor === undefined || valor === null || valor === '') return padrao;
   const loja = Number(valor);
   if (!Number.isInteger(loja) || loja <= 0) return null;
   return (await lojaAtiva(sql, loja)) ? loja : null;

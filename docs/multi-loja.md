@@ -125,8 +125,8 @@ que eu quiser": ele só pode pedir uma loja que o servidor validou.
 
 | Action | Quem pode | O que faz |
 | --- | --- | --- |
-| `list` | admin | Lista os usuários (com a loja) |
-| `add` | admin | Cadastra um usuário numa loja |
+| `list` | admin | Lista os usuários **da loja do token** (com a loja) |
+| `add` | admin | Cadastra um usuário (na loja informada ou, sem valor, na loja do token) |
 | `update` | admin | Altera perfil, senha e loja |
 | `delete` | admin | Remove um usuário |
 | `list_lojas` | qualquer logado | Lista as lojas (alimenta o seletor e o badge) |
@@ -220,9 +220,38 @@ migration ainda não tiver sido aplicada, a aplicação não quebra — o `DEFAU
 
 ### Cadastrar um usuário de outra loja
 
-Na tela **Usuários** (menu do usuário → Usuários), o campo **Loja** aparece no
-cadastro e na edição. O mesmo e-mail pode existir em lojas diferentes — a
+Na tela **Usuários** (menu do usuário → Usuários) a lista mostra **apenas os
+acessos da loja em que o admin está** — o servidor filtra por
+`WHERE loja = <loja do token>` (action `list` do `manage-users`). O campo
+**Loja** deixou de existir no formulário de cadastro: o acesso novo nasce
+sempre na loja atual (a do token), e a tela mostra o nome da loja no
+cabeçalho e no botão.
+
+Para cadastrar acesso de outra loja:
+
+1. troque de loja no menu do usuário (submenu **Trocar loja**);
+2. a página recarrega com o token da nova loja;
+3. o formulário "Novo Usuário" passa a criar o acesso na loja nova.
+
+Na **edição**, o campo Loja continua disponível (serve para mover um acesso
+para outra loja). O mesmo e-mail pode existir em lojas diferentes — a
 unicidade do e-mail do WhatsApp e da Rebaixa é por loja.
+
+### Produto de KG não entra na Validade nem no Arrastão
+
+Regra de negócio: produto de balança (KG) é rebaixado direto pela tela da
+**Rebaixa**; na Validade e no Arrastão ele é recusado.
+
+- Na tela, ao digitar o código de um produto KG, aparece a mensagem
+  *"Produto de KG não pode ser adicionado à lista de validade"* (no Arrastão:
+  *"…ao arrastão"*) e o formulário de registro não abre.
+- No servidor, `manage-validade` (`action: add`) e `manage-arrastao`
+  (`action: add_item`) consultam o tipo no catálogo (`api/_lib/produto-tipo.ts`)
+  e respondem **HTTP 400** com a mesma mensagem — a regra não depende só da
+  tela.
+
+As linhas antigas de KG (criadas antes da regra) continuam na lista; elas não
+geram alerta de vencimento porque têm `motivo` preenchido.
 
 ### Criar uma loja nova
 
@@ -231,7 +260,7 @@ INSERT INTO public.lojas (codigo, nome) VALUES (110, 'Loja 110');
 ```
 
 Depois disso a loja aparece no seletor "Trocar loja" do admin (a lista é lida
-do banco a cada carregamento) e no campo de loja do cadastro de usuários.
+do banco a cada carregamento) e na loja atual dos acessos.
 Para desligar uma loja: `UPDATE public.lojas SET ativo = FALSE WHERE codigo = 110;`
 (loja inativa não aparece no seletor e não recebe o alerta do WhatsApp).
 

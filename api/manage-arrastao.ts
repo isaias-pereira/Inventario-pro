@@ -10,6 +10,7 @@ import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
+import { codigoEhKg, MSG_KG_ARRASTAO } from './_lib/produto-tipo.js';
 
 let schemaReady = false;
 
@@ -163,6 +164,12 @@ const handler: ApiHandler = async (req, res) => {
       const cleanQuantidade = Number.isInteger(qtyNum) && qtyNum > 0 && qtyNum <= 100000 ? qtyNum : 1;
       if (!cleanEan || !cleanCodigo || !cleanDescricao || !cleanValidade) {
         sendJson(res, { error: 'Dados inválidos (EAN/código devem ser dígitos até 14, descrição até 500 chars, validade data válida)' }, 400);
+        return;
+      }
+      // Regra de negócio: produto de balança (KG) não entra no Arrastão
+      // (a mesma regra da Validade).
+      if (await codigoEhKg(sql, cleanCodigo)) {
+        sendJson(res, { error: MSG_KG_ARRASTAO }, 400);
         return;
       }
       const s = await sql`SELECT status, participants FROM arrastao_sessions WHERE id = ${session_id} AND loja = ${loja}`;

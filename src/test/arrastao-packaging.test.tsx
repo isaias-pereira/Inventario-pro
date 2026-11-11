@@ -27,6 +27,9 @@ const produtoComCaixa = {
 
 const produtoSimples = { ean: '7891000315507', codigo: '123', descricao: 'LEITE INTEGRAL 1L', tipo: 'UN' };
 
+/** Produto de balança (KG): não entra no Arrastão. */
+const produtoKg = { ean: '210', codigo: '631612', descricao: 'BANANA NANICA KG', tipo: 'KG' };
+
 const sessao = {
   id: 'sessao-1',
   corredor: 'A',
@@ -147,4 +150,18 @@ it('não coleta quando a quantidade convertida é zero', async () => {
   await user.click(screen.getByRole('button', { name: 'Coletar' }));
 
   await waitFor(() => expect(chamadaAddItem()).toBeUndefined());
+});
+
+it('bloqueia produto do tipo KG com a mensagem da regra', async () => {
+  setupInvoke(produtoKg);
+  const user = userEvent.setup();
+  render(<ArrastaoView open onOpenChange={() => {}} />);
+
+  await abrirSessao(user);
+  await user.type(screen.getByPlaceholderText('Código do produto'), '631612');
+  await user.click(screen.getByRole('button', { name: 'Buscar produto' }));
+
+  expect(await screen.findByText('Produto de KG não pode ser adicionado ao arrastão')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Coletar' })).not.toBeInTheDocument();
+  expect(chamadaAddItem()).toBeUndefined();
 });

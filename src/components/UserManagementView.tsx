@@ -46,14 +46,13 @@ const RoleIcon = ({ role }: { role: string }) => {
 };
 
 const UserManagementView = () => {
-  const { getToken } = useAuth();
+  const { getToken, loja: lojaAtual } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [lojas, setLojas] = useState<Loja[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
-  const [newLoja, setNewLoja] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editRole, setEditRole] = useState('');
@@ -74,6 +73,9 @@ const UserManagementView = () => {
     return lojas.find((l) => l.codigo === codigo)?.nome ?? `Loja ${codigo}`;
   };
 
+  /** Loja em que o admin está agora (vem do token). */
+  const nomeLojaAtual = nomeLoja(lojaAtual ?? undefined);
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -89,7 +91,6 @@ const UserManagementView = () => {
       const { data } = await invokeWithToken({ action: 'list_lojas' });
       if (Array.isArray(data?.lojas)) {
         setLojas(data.lojas);
-        setNewLoja((atual) => atual || (data.lojas[0]?.codigo ? String(data.lojas[0].codigo) : ''));
       }
     } catch { /* a lista de lojas é acessória */ }
   };
@@ -109,7 +110,8 @@ const UserManagementView = () => {
           username: newUsername.trim(),
           password: newPassword.trim(),
           role: newRole,
-          loja: newLoja ? Number(newLoja) : undefined,
+          // O acesso nasce na loja em que o admin está (a loja do token).
+          loja: lojaAtual ?? undefined,
         },
       });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao adicionar usuário'); return; }
@@ -166,13 +168,18 @@ const UserManagementView = () => {
         <h2 className="mb-1 text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
           <Users className="h-6 w-6" /> Gerenciar Usuários
         </h2>
-        <p className="text-sm text-white/80">Adicione, edite ou remova usuários do sistema</p>
+        <p className="text-sm text-white/80">
+          Acessos de <span className="font-semibold">{nomeLojaAtual}</span> — para ver outra loja, troque de loja no menu do usuário.
+        </p>
       </div>
 
       {/* Add user form */}
       <div className="rounded-xl border border-border bg-card p-4 sm:p-6 mb-6">
         <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
           <Plus className="h-4 w-4" /> Novo Usuário
+          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+            <Store className="h-3.5 w-3.5" /> {nomeLojaAtual}
+          </span>
         </h3>
         <div className="flex flex-col sm:flex-row gap-3">
           <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="Nome de usuário" disabled={adding} />
@@ -183,16 +190,13 @@ const UserManagementView = () => {
               {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={newLoja} onValueChange={setNewLoja}>
-            <SelectTrigger className="w-full sm:w-[130px]" aria-label="Loja"><SelectValue placeholder="Loja" /></SelectTrigger>
-            <SelectContent>
-              {lojas.map(l => <SelectItem key={l.codigo} value={String(l.codigo)}>{l.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
           <Button onClick={handleAdd} disabled={adding || !newUsername.trim() || !newPassword.trim()} className="gap-2">
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Adicionar
           </Button>
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          O acesso é criado em <span className="font-medium text-foreground">{nomeLojaAtual}</span>.
+        </p>
       </div>
 
       {/* Users list */}
@@ -264,7 +268,13 @@ const UserManagementView = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((u) => (
+                {users.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-sm text-gray-500 py-8">
+                      Nenhum acesso cadastrado em {nomeLojaAtual} ainda.
+                    </TableCell>
+                  </TableRow>
+                ) : users.map((u) => (
                   <TableRow key={u.id}>
                     <TableCell className="font-medium text-gray-900">{u.username}</TableCell>
                     <TableCell>

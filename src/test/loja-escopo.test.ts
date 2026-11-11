@@ -365,6 +365,18 @@ describe('escopo por loja — Arrastão', () => {
 });
 
 describe('escopo por loja — Usuários', () => {
+  it('lista apenas os acessos da loja do token', async () => {
+    const { chamadas } = installSql();
+    const { res, state } = fakeResponse();
+
+    await manageUsers(request({ action: 'list' }), res);
+
+    expect(state.status).toBe(200);
+    const listagem = chamadasCom(chamadas, 'FROM app_users')[0];
+    expect(listagem.text).toContain('WHERE loja =');
+    expect(listagem.params).toContain(103);
+  });
+
   it('cadastra o usuário na loja informada (validada)', async () => {
     const { chamadas } = installSql((text) => {
       if (text.includes('FROM public.lojas WHERE codigo')) return [{ ok: 1 }];

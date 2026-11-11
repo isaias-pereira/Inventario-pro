@@ -4,6 +4,7 @@ import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/htt
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
 import { ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
+import { codigoEhKg, MSG_KG_VALIDADE } from './_lib/produto-tipo.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
@@ -179,10 +180,18 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Motivo inválido (use Excesso ou Qualidade)' }, 400);
         return;
       }
+      // Regra de negócio: produto de balança (KG) não entra na Validade.
+      if (await codigoEhKg(sql, cleanCodigo)) {
+        sendJson(res, { error: MSG_KG_VALIDADE }, 400);
+        return;
+      }
 
+      // O `motivo` era o desvio dos produtos de KG (hoje bloqueados): as
+      // linhas novas da Validade sempre nascem sem motivo. A coluna continua
+      // existindo para as linhas antigas, que continuam aparecendo na lista.
       if (hasMotivoColumn) {
         await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, motivo, loja)
-          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${motivo.value}, ${loja})`;
+          VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, NULL, ${loja})`;
       } else {
         await sql`INSERT INTO validade_products (ean, codigo, descricao, validade, quantidade, status, created_by, loja)
           VALUES (${cleanEan}, ${cleanCodigo}, ${cleanDescricao}, ${cleanValidade}, ${cleanQuantidade}, true, ${username}, ${loja})`;

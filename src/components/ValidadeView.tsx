@@ -31,7 +31,6 @@ import WhatsappValidadeDialog from '@/components/WhatsappValidadeDialog';
 import { DEFAULT_ALERT_DAYS, daysUntil } from '@/lib/validade-notifications';
 import {
   createValidadeOds,
-  isWeightProduct,
   saveValidadeOds,
   shareValidadeOds,
   spreadSheetFileName,
@@ -44,6 +43,7 @@ import { createValidadeCsv, csvFileName, CSV_MIME, saveValidadeCsv } from '@/lib
 import { fetchEmailConfig, sendRebaixaEmail, type EmailConfig } from '@/lib/validade-email';
 import { addRebaixaItems, motivoFromValidade, tipoFromMotivo } from '@/lib/rebaixa';
 import { convertPackagingQuantity, formatQuantity, packagingBadge, packagingLabel, productUnit } from '@/lib/packaging';
+import { isTipoKg, MSG_KG_VALIDADE } from '@/lib/produto-tipo';
 import { trackEvent } from '@/lib/analytics';
 
 /** MIME do PDF, aceito pela folha de compartilhamento do Chrome. */
@@ -81,10 +81,6 @@ interface ValidadeItem {
   secao?: string | null;
 }
 
-/** Motivos de rebaixa para produtos de balança (KG). */
-const MOTIVOS_KG = ['Excesso', 'Qualidade'] as const;
-type MotivoKg = (typeof MOTIVOS_KG)[number];
-
 function getToken(): string | null {
   try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
 }
@@ -114,7 +110,6 @@ const ValidadeView = () => {
   const canSendWhatsapp = isAdmin || userRole === 'encarregado';
   const [code, setCode] = useState('');
   const [validade, setValidade] = useState('');
-  const [motivo, setMotivo] = useState<MotivoKg | ''>('');
   const [product, setProduct] = useState<ProductResult | null>(null);
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading' | 'not_found' | 'error' | 'found'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -231,13 +226,19 @@ const [filter, setFilter] = useState<FilterType>('todos');
     setSearchStatus('loading');
     setProduct(null);
     setValidade('');
-    setMotivo('');
     setErrorMsg('');
     try {
       const { data, error } = await queryProduct(code.trim());
       if (error) { setSearchStatus('error'); setErrorMsg('Erro ao conectar.'); return; }
       if (data.error) { setSearchStatus('error'); setErrorMsg(data.error); return; }
       if (!data.found) { setSearchStatus('not_found'); return; }
+      // Regra de negócio: produto de balança (KG) não entra na Validade.
+      if (isTipoKg(data.product?.tipo)) {
+        setSearchStatus('error');
+        setErrorMsg(MSG_KG_VALIDADE);
+        toast.error(MSG_KG_VALIDADE);
+        return;
+      }
       setProduct(data.product);
       setSearchStatus('found');
     } catch {
@@ -249,11 +250,17 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const searchProduct = async (scannedCode: string) => {
     setSearchStatus('loading');
     setValidade('');
-    setMotivo('');
     try {
       const { data, error } = await queryProduct(scannedCode);
       if (error || data.error) { setSearchStatus('error'); setErrorMsg(data?.error || 'Erro ao conectar.'); return; }
       if (!data.found) { setSearchStatus('not_found'); return; }
+      // Regra de negócio: produto de balança (KG) não entra na Validade.
+      if (isTipoKg(data.product?.tipo)) {
+        setSearchStatus('error');
+        setErrorMsg(MSG_KG_VALIDADE);
+        toast.error(MSG_KG_VALIDADE);
+        return;
+      }
       setProduct(data.product);
       setSearchStatus('found');
     } catch {
@@ -264,9 +271,15 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
   const handleAdd = async () => {
     if (!product || submitting) return;
-    // Produto de balança (KG) não tem vencimento: registra-se o motivo do rebaixa.
-    const peso = isWeightProduct(product.tipo);
-    if (peso ? !motivo : !validade) return;
+    // Regra de negócio: produto de balança (KG) não entra na Validade.
+    if (isTipoKg(product.tipo)) {
+      toast.error(MSG_KG_VALIDADE);
+      setProduct(null);
+      setSearchStatus('error');
+      setErrorMsg(MSG_KG_VALIDADE);
+      return;
+    }
+    if (!validade) return;
     // Embalagem fechada: a quantidade digitada é em caixas/fardos/sacos e
     // vira unidades do produto base (2 CX × 15 = 30 un).
     const fator = product.embalagem ? Number(product.embalagem.quantidade_fechada) : 1;
@@ -284,11 +297,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
           ean: Number(product.ean),
           codigo: Number(product.codigo),
           descricao: product.descricao,
-          validade: peso
-            ? new Date(new Date().setHours(23, 59, 59, 0)).toISOString()
-            : new Date(validade + 'T23:59:59').toISOString(),
+          validade: new Date(validade + 'T23:59:59').toISOString(),
           quantidade: total,
-          motivo: peso ? motivo : null,
         },
       });
       if (!error) {
@@ -300,7 +310,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
               }
             : undefined,
         );
-        setCode(''); setValidade(''); setMotivo(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
+        setCode(''); setValidade(''); setQuantidade(''); setProduct(null); setSearchStatus('idle');
         await fetchItems();
       } else {
         toast.error('Erro ao registrar validade');
@@ -943,28 +953,13 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 ))}
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-border px-4 sm:px-6 py-3 sm:py-4">
-                {isWeightProduct(product.tipo) ? (
-                  <div className="w-full sm:w-[220px]">
-                    <Select value={motivo} onValueChange={(value) => setMotivo(value as MotivoKg)}>
-                      <SelectTrigger aria-label="Motivo" className="h-10">
-                        <SelectValue placeholder="Selecione o motivo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MOTIVOS_KG.map((option) => (
-                          <SelectItem key={option} value={option}>{option}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : (
-                  <Input
-                    type="date"
-                    aria-label="Data de validade"
-                    value={validade}
-                    onChange={(e) => setValidade(e.target.value)}
-                    className="max-w-[180px]"
-                  />
-                )}
+                <Input
+                  type="date"
+                  aria-label="Data de validade"
+                  value={validade}
+                  onChange={(e) => setValidade(e.target.value)}
+                  className="max-w-[180px]"
+                />
                 <div>
                   <label htmlFor="validade-quantidade" className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {packagingName ? `Qtd de ${packagingName.plural}` : 'Quantidade'}
@@ -988,13 +983,13 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 )}
                 <Button
                   onClick={handleAdd}
-                  disabled={submitting || (isWeightProduct(product.tipo) ? !motivo : !validade)}
+                  disabled={submitting || !validade}
                   className="gap-2"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
                   Registrar
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); setMotivo(''); }}>
+                <Button variant="ghost" size="sm" onClick={() => { setCode(''); setProduct(null); setSearchStatus('idle'); setValidade(''); }}>
                   Cancelar
                 </Button>
               </div>

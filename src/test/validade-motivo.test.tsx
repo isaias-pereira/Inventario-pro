@@ -15,6 +15,9 @@ vi.mock('@/lib/validade-tipos', () => ({ fetchProductTipos: vi.fn(async () => ({
 const produtoUn = { ean: '7891000315507', codigo: '123', descricao: 'LEITE INTEGRAL 1L', tipo: 'UN' };
 const produtoKg = { ean: '210', codigo: '631612', descricao: 'BANANA NANICA KG 300044334', tipo: 'KG' };
 
+/** Mensagem da regra de negócio (mesma do servidor). */
+const MSG_KG = 'Produto de KG não pode ser adicionado à lista de validade';
+
 interface InvokeOptions {
   body?: { action?: string; item?: AddItem };
 }
@@ -25,7 +28,7 @@ interface AddItem {
   descricao: string;
   validade: string;
   quantidade: number;
-  motivo: string | null;
+  motivo?: string | null;
 }
 
 beforeEach(() => {
@@ -50,7 +53,6 @@ function setupInvoke(product: Record<string, unknown> | null, items: unknown[] =
 async function buscarProduto(user: ReturnType<typeof userEvent.setup>, codigo: string) {
   await user.type(screen.getByPlaceholderText('Código do produto'), codigo);
   await user.click(screen.getByRole('button', { name: 'Consultar' }));
-  await screen.findByText('Produto Encontrado');
 }
 
 function chamadaAdd(): AddItem | undefined {
@@ -66,58 +68,50 @@ it('mantém o campo de data para produtos do tipo UN', async () => {
   render(<ValidadeView />);
 
   await buscarProduto(user, '123');
+  await screen.findByText('Produto Encontrado');
 
   expect(screen.getByLabelText('Data de validade')).toBeInTheDocument();
   expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument();
   expect(screen.getByText('Tipo').parentElement?.textContent).toContain('UN');
 });
 
-it('troca o campo de data pelo dropdown de motivo para produtos do tipo KG', async () => {
+it('bloqueia produto do tipo KG com a mensagem da regra', async () => {
   setupInvoke(produtoKg);
   const user = userEvent.setup();
   render(<ValidadeView />);
 
   await buscarProduto(user, '631612');
 
-  expect(screen.queryByLabelText('Data de validade')).not.toBeInTheDocument();
-  expect(screen.getByText('Tipo').parentElement?.textContent).toContain('KG');
-
-  await user.click(screen.getByLabelText('Motivo'));
-  expect(await screen.findByRole('option', { name: 'Excesso' })).toBeInTheDocument();
-  expect(screen.getByRole('option', { name: 'Qualidade' })).toBeInTheDocument();
+  expect(await screen.findByText(MSG_KG)).toBeInTheDocument();
+  expect(screen.queryByText('Produto Encontrado')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Registrar' })).not.toBeInTheDocument();
 });
 
-it('registra o motivo escolhido e a data de hoje para produtos KG', async () => {
+it('não envia para o servidor quando o produto é KG', async () => {
   setupInvoke(produtoKg);
   const user = userEvent.setup();
   render(<ValidadeView />);
 
   await buscarProduto(user, '631612');
-  await user.click(screen.getByLabelText('Motivo'));
-  await user.click(await screen.findByRole('option', { name: 'Excesso' }));
-  fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '3' } });
-  await user.click(screen.getByRole('button', { name: 'Registrar' }));
+  await screen.findByText(MSG_KG);
 
-  await waitFor(() => expect(chamadaAdd()).toBeTruthy());
-  const item = chamadaAdd();
-  expect(item.motivo).toBe('Excesso');
-  expect(item.quantidade).toBe(3);
-  expect(new Date(item.validade).toDateString()).toBe(new Date().toDateString());
+  expect(chamadaAdd()).toBeUndefined();
 });
 
-it('registra a data informada e sem motivo para produtos UN', async () => {
+it('registra a data informada para produtos UN', async () => {
   setupInvoke(produtoUn);
   const user = userEvent.setup();
   render(<ValidadeView />);
 
   await buscarProduto(user, '123');
+  await screen.findByText('Produto Encontrado');
   fireEvent.change(screen.getByLabelText('Data de validade'), { target: { value: '2026-10-30' } });
   fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '2' } });
   await user.click(screen.getByRole('button', { name: 'Registrar' }));
 
   await waitFor(() => expect(chamadaAdd()).toBeTruthy());
   const item = chamadaAdd();
-  expect(item.motivo).toBeNull();
+  expect(item.motivo).toBeUndefined();
   expect(new Date(item.validade).toLocaleDateString('pt-BR')).toBe('30/10/2026');
 });
 

@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import BarcodeScanner from '@/components/BarcodeScanner';
 import arrastaoBg from '@/assets/arrastao-bg.webp';
 import { convertPackagingQuantity, formatQuantity, packagingBadge, packagingLabel, productUnit } from '@/lib/packaging';
+import { isTipoKg, MSG_KG_ARRASTAO } from '@/lib/produto-tipo';
 
 interface ArrastaoSession {
   id: string;
@@ -201,12 +202,28 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
       if (error) { setSearchStatus('error'); setErrorMsg('Erro ao conectar.'); return; }
       if (data.error) { setSearchStatus('error'); setErrorMsg(data.error); return; }
       if (!data.found) { setSearchStatus('not_found'); return; }
+      // Regra de negócio: produto de balança (KG) não entra no Arrastão
+      // (a mesma regra da Validade).
+      if (isTipoKg(data.product?.tipo)) {
+        setSearchStatus('error');
+        setErrorMsg(MSG_KG_ARRASTAO);
+        toast.error(MSG_KG_ARRASTAO);
+        return;
+      }
       setProduct(data.product); setSearchStatus('found');
     } catch { setSearchStatus('error'); setErrorMsg('Erro ao conectar.'); }
   };
 
   const handleAddItem = async () => {
     if (!activeSession || !product || !validade || submitting) return;
+    // Regra de negócio: produto de balança (KG) não entra no Arrastão.
+    if (isTipoKg(product.tipo)) {
+      toast.error(MSG_KG_ARRASTAO);
+      setProduct(null);
+      setSearchStatus('error');
+      setErrorMsg(MSG_KG_ARRASTAO);
+      return;
+    }
     // Embalagem fechada: a quantidade digitada é em caixas/fardos/sacos e
     // vira unidades do produto base (2 CX × 15 = 30 un).
     const fator = product.embalagem ? Number(product.embalagem.quantidade_fechada) : 1;
