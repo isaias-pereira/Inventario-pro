@@ -55,4 +55,25 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // O maior pedaço sob demanda é o xlsx-js-style (~870 kB minificado, 323 kB
+    // gzip), que só baixa na Base de Dados (admin). O bundle inicial fica bem
+    // abaixo de 500 kB graças às telas carregadas sob demanda.
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // Bibliotecas grandes viram pedaços próprios, baixados só pela tela
+        // que as usa (as telas já são carregadas sob demanda em pages/Index).
+        // jsPDF fica de fora daqui de propósito: um chunk manual faria o
+        // entry importar helpers compartilhados e pré-carregar o PDF inteiro.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("xlsx-js-style")) return "xlsx";
+          if (id.includes("html5-qrcode")) return "scanner";
+        },
+      },
+    },
+  },
 }));

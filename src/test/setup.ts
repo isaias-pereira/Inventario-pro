@@ -1,4 +1,4 @@
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";
 
 // jsdom lacks the pointer capture API Radix UI Select relies on.
 if (!Element.prototype.hasPointerCapture) {

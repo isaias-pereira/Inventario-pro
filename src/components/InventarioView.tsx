@@ -3,8 +3,6 @@ import { toast } from 'sonner';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
   ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Plus, Download, Trash2, ClipboardList, Pencil, Check, X, Loader2, Undo2, ArrowDownAZ, ArrowDown01, ArrowUp01, RefreshCw, Filter, CheckCircle2, Eye, PauseCircle, AlertTriangle,
 } from 'lucide-react';
@@ -276,8 +274,14 @@ const InventarioView = () => {
     setSubmitting(false);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!hasInventory || !isAdmin) return;
+    // jsPDF + autotable só entram quando a pessoa exporta: não pesam no
+    // carregamento da tela de inventário.
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
     const doc = new jsPDF();
     
     doc.setFillColor(34, 120, 60);

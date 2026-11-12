@@ -1,18 +1,30 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Header, { ViewType } from '@/components/Header';
-import ConsultaView from '@/components/ConsultaView';
-import InventarioView from '@/components/InventarioView';
-import BaseView from '@/components/BaseView';
-import UserManagementView from '@/components/UserManagementView';
-import AddProductView from '@/components/AddProductView';
-import MetasView from '@/components/MetasView';
-import ValidadeView from '@/components/ValidadeView';
-import RebaixaView from '@/components/RebaixaView';
-import EmailView from '@/components/EmailView';
-import RevisaoSecoesView from '@/components/RevisaoSecoesView';
 import LoginPage from '@/pages/LoginPage';
 import { trackView } from '@/lib/analytics';
+
+// Cada tela é carregada sob demanda: só entra no bundle inicial o que a
+// primeira tela precisa. As telas pesadas (BaseView com xlsx, MetasView com
+// recharts, Validade/Rebaixa com jsPDF) ficam em pedaços separados.
+const ConsultaView = lazy(() => import('@/components/ConsultaView'));
+const InventarioView = lazy(() => import('@/components/InventarioView'));
+const BaseView = lazy(() => import('@/components/BaseView'));
+const UserManagementView = lazy(() => import('@/components/UserManagementView'));
+const AddProductView = lazy(() => import('@/components/AddProductView'));
+const MetasView = lazy(() => import('@/components/MetasView'));
+const ValidadeView = lazy(() => import('@/components/ValidadeView'));
+const RebaixaView = lazy(() => import('@/components/RebaixaView'));
+const EmailView = lazy(() => import('@/components/EmailView'));
+const RevisaoSecoesView = lazy(() => import('@/components/RevisaoSecoesView'));
+
+const ViewFallback = () => (
+  <div className="flex flex-1 items-center justify-center py-16" role="status" aria-live="polite">
+    <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden="true" />
+    <span className="sr-only">Carregando tela…</span>
+  </div>
+);
 
 const Index = () => {
   const { user, isAdmin, userRole } = useAuth();
@@ -69,16 +81,18 @@ const Index = () => {
       <h1 className="sr-only">
         {`SGS-PRO — ${viewTitles[safeView]} | Sistema de gerenciamento de Setor`}
       </h1>
-      {safeView === 'consulta' && <ConsultaView />}
-      {safeView === 'inventario' && <InventarioView />}
-      {safeView === 'metas' && <MetasView />}
-      {safeView === 'validade' && <ValidadeView />}
-      {safeView === 'rebaixa' && <RebaixaView />}
-      {safeView === 'email' && <EmailView />}
-      {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
-      {safeView === 'usuarios' && isAdmin && <UserManagementView />}
-      {safeView === 'add-produto' && isAdmin && <AddProductView />}
-      {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
+      <Suspense fallback={<ViewFallback />}>
+        {safeView === 'consulta' && <ConsultaView />}
+        {safeView === 'inventario' && <InventarioView />}
+        {safeView === 'metas' && <MetasView />}
+        {safeView === 'validade' && <ValidadeView />}
+        {safeView === 'rebaixa' && <RebaixaView />}
+        {safeView === 'email' && <EmailView />}
+        {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
+        {safeView === 'usuarios' && isAdmin && <UserManagementView />}
+        {safeView === 'add-produto' && isAdmin && <AddProductView />}
+        {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
+      </Suspense>
 
     </div>
   );
