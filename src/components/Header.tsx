@@ -68,32 +68,39 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
 
   return (
     <header className="border-b border-primary/20 bg-primary shadow-lg">
-      <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-4">
+      <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="SGS-PRO — ir para a página inicial">SGS-PRO</button>
           {user?.username && (
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="h-4 w-px shrink-0 bg-primary-foreground/30" aria-hidden="true" />
+            <span className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <span className="hidden h-4 w-px shrink-0 bg-primary-foreground/30 sm:block" aria-hidden="true" />
+              {/* No celular o nome do usuário sai do header (ele aparece no menu
+                  do usuário) para caber o selo da loja. */}
               <span
-                className="max-w-[80px] truncate text-sm text-primary-foreground/85 sm:max-w-[180px]"
+                className="hidden max-w-[80px] truncate text-sm text-primary-foreground/85 sm:block sm:max-w-[180px]"
                 title={user.username}
               >
                 {user.username}
               </span>
               {loja !== null && (
                 <span
-                  className="hidden items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-xs font-medium text-primary-foreground sm:inline-flex"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-foreground/15 px-1 py-0.5 text-[10px] font-medium text-primary-foreground max-[359px]:hidden sm:px-2 sm:text-xs"
                   title={nomeLoja(loja)}
+                  role="img"
+                  aria-label={nomeLoja(loja)}
                 >
-                  <Store className="h-3 w-3" aria-hidden="true" />
-                  {nomeLoja(loja)}
+                  <Store className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  {/* Celular estreito: só o número (cabe no header). A partir de
+                      375px e no desktop: "Loja 173". */}
+                  <span className="min-[375px]:hidden">{loja}</span>
+                  <span className="hidden min-[375px]:inline">{nomeLoja(loja)}</span>
                 </span>
               )}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1">
           {mainNavItems.map((item) => (
             <Button
               key={item.key}
@@ -112,7 +119,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
 
           <NotificationBell onNavigateToValidade={() => onNavigate('validade')} />
 
-          <div className="mx-1 h-6 w-px bg-primary-foreground/20" />
+          <div className="mx-1 hidden h-6 w-px bg-primary-foreground/20 sm:block" />
 
           {/* User dropdown */}
           <DropdownMenu>

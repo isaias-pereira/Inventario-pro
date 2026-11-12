@@ -29,4 +29,25 @@ describe('Header', () => {
 
     expect(screen.getByTitle('Loja 103')).toBeInTheDocument();
   });
+
+  it('mostra o selo da loja no celular (sem esconder por breakpoint)', () => {
+    render(<Header currentView="inventario" onNavigate={() => {}} />);
+
+    const selo = screen.getByTitle('Loja 103');
+    // Regressão: o selo já foi `hidden ... sm:inline-flex` e sumia no mobile.
+    expect(selo.classList.contains('hidden')).toBe(false);
+    expect(selo.classList.contains('inline-flex')).toBe(true);
+    expect(selo.textContent).toContain('103');
+  });
+
+  it('no celular o header mostra o número da loja e esconde o nome do usuário', () => {
+    render(<Header currentView="inventario" onNavigate={() => {}} />);
+
+    const selo = screen.getByTitle('Loja 103');
+    expect(selo.textContent).toContain('Loja 103');
+    // O nome do usuário sai do header no celular para o selo caber.
+    const usuario = screen.getByText('isaia');
+    expect(usuario.classList.contains('hidden')).toBe(true);
+    expect(usuario.classList.contains('sm:block')).toBe(true);
+  });
 });

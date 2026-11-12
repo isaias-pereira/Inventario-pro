@@ -282,10 +282,10 @@ SELECT loja, role, count(*) FROM public.app_users GROUP BY loja, role;
 
 | Arquivo | O que trava |
 | --- | --- |
-| `src/test/loja-escopo.test.ts` | 22 casos: cada endpoint filtra e grava pela loja do token (Validade, Consulta, Inventário, Metas, Rebaixa, Arrastão, Usuários, E-mails), inclusive a troca de loja re-assinando o token |
+| `src/test/loja-escopo.test.ts` | 23 casos: cada endpoint filtra e grava pela loja do token (Validade, Consulta, Inventário, Metas, Rebaixa, Arrastão, Usuários, E-mails), inclusive a troca de loja re-assinando o token |
 | `src/test/whatsapp-validade.test.ts` | Cron por loja, destinatários por loja e prévia da tela mostrando só a loja do usuário |
 | `src/test/auth-login.test.ts` | A claim `loja` no token e o fallback para a loja padrão |
-| `src/test/header-username.test.tsx` | O selo de loja no cabeçalho |
+| `src/test/header-username.test.tsx` | O selo de loja no cabeçalho — inclusive no celular (sem `hidden ... sm:inline-flex`, que sumia no mobile) |
 | `src/test/send-rebaixa-email.test.ts` | O destinatário padrão da loja |
 
 > Ao mockar `useAuth` em testes, inclua `loja`, `lojas` e `switchLoja` — o

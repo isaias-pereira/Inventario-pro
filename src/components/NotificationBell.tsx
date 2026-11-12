@@ -43,7 +43,7 @@ const NotificationBell = ({ onNavigateToValidade }: NotificationBellProps) => {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground relative"
+          className="h-7 w-7 sm:h-9 sm:w-9 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground relative"
           title="Notificações"
           aria-label={alertCount > 0 ? `Notificações de validade: ${alertCount} alerta(s)` : 'Notificações de validade'}
 
