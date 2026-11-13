@@ -2,12 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addEmail,
+  fetchContasDeEnvio,
   fetchEmails,
+  fetchMinhaConta,
   removeEmail,
+  removerContaDeUsuario,
   saveEmailDefaults,
+  salvarContaDeUsuario,
+  salvarMinhaConta,
   setDefaultEmail,
   updateEmail,
   type EmailDefaults,
+  type EmailEnvioConta,
+  type EmailEnvioContaAdmin,
   type EmailPadrao,
 } from '@/lib/emails';
 import { Button } from '@/components/ui/button';
@@ -31,13 +38,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { Mail, Pencil, Plus, Star, Trash2, Loader2, FileText } from 'lucide-react';
+import { Mail, Pencil, Plus, Star, Trash2, Loader2, FileText, KeyRound, Send, UserCog } from 'lucide-react';
 
 /**
- * Tela E-mail: cadastro dos destinatários padrão das rebaixas e do
- * assunto/mensagem padrão do envio.
+ * Tela E-mail: cadastro dos destinatários padrão das rebaixas, do
+ * assunto/mensagem padrão e da **conta de envio** de cada usuário.
  *
- * Leitura: admin e encarregado. Cadastro/edição/exclusão: só admin.
+ * Destinatários e assunto/mensagem: leitura para admin e encarregado;
+ * cadastro/edição/exclusão só admin.
+ * Conta de envio: cada um cadastra a sua caixa (e-mail + senha do servidor
+ * padrão); o admin vê e edita todas.
  */
 const EmailView = () => {
   const { userRole } = useAuth();
@@ -62,6 +72,23 @@ const EmailView = () => {
 
   const [removing, setRemoving] = useState<EmailPadrao | null>(null);
 
+  // Conta de envio do usuário logado
+  const [conta, setConta] = useState<EmailEnvioConta | null>(null);
+  const [servidor, setServidor] = useState({ host: 'mail.comper.com.br', porta: 465, secure: true });
+  const [contaEmail, setContaEmail] = useState('');
+  const [contaSenha, setContaSenha] = useState('');
+  const [contaRemetente, setContaRemetente] = useState('');
+  const [contaAtiva, setContaAtiva] = useState(true);
+  const [salvandoConta, setSalvandoConta] = useState(false);
+
+  // Contas de envio da loja (admin)
+  const [contas, setContas] = useState<EmailEnvioContaAdmin[]>([]);
+  const [editandoConta, setEditandoConta] = useState<EmailEnvioContaAdmin | null>(null);
+  const [contaAdminEmail, setContaAdminEmail] = useState('');
+  const [contaAdminSenha, setContaAdminSenha] = useState('');
+  const [contaAdminAtiva, setContaAdminAtiva] = useState(true);
+  const [removendoConta, setRemovendoConta] = useState<EmailEnvioContaAdmin | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -75,9 +102,35 @@ const EmailView = () => {
     }
   }, []);
 
+  /** Conta de envio do usuário logado. */
+  const loadConta = useCallback(async () => {
+    try {
+      const data = await fetchMinhaConta();
+      setConta(data.conta);
+      setServidor(data.servidor);
+      setContaEmail(data.conta.email);
+      setContaRemetente(data.conta.remetente ?? '');
+      setContaAtiva(data.conta.ativo);
+    } catch {
+      /* a conta é acessória: a tela continua com a lista de destinatários */
+    }
+  }, []);
+
+  /** Contas de envio da loja (admin). */
+  const loadContas = useCallback(async () => {
+    if (!canManage) return;
+    try {
+      setContas(await fetchContasDeEnvio());
+    } catch {
+      /* a lista de contas é acessória */
+    }
+  }, [canManage]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadConta();
+    void loadContas();
+  }, [load, loadConta, loadContas]);
 
   const openNew = () => {
     setEditing(null);
@@ -168,6 +221,79 @@ const EmailView = () => {
       toast.error(error instanceof Error ? error.message : 'Erro ao salvar o padrão de e-mail');
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Salva a conta de envio do usuário logado. */
+  const saveConta = async () => {
+    if (salvandoConta) return;
+    if (!contaEmail.trim()) {
+      toast.error('Informe o seu e-mail');
+      return;
+    }
+    if (!conta?.temSenha && !contaSenha.trim()) {
+      toast.error('Informe a senha da sua caixa de e-mail');
+      return;
+    }
+    setSalvandoConta(true);
+    try {
+      await salvarMinhaConta({
+        email: contaEmail.trim(),
+        senha: contaSenha.trim() || undefined,
+        remetente: contaRemetente.trim(),
+        ativo: contaAtiva,
+      });
+      toast.success('Conta de e-mail salva!');
+      setContaSenha('');
+      await loadConta();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao salvar a conta de e-mail');
+    } finally {
+      setSalvandoConta(false);
+    }
+  };
+
+  const openEditConta = (item: EmailEnvioContaAdmin) => {
+    setEditandoConta(item);
+    setContaAdminEmail(item.email);
+    setContaAdminSenha('');
+    setContaAdminAtiva(item.ativo);
+  };
+
+  const saveContaAdmin = async () => {
+    if (!editandoConta || salvandoConta) return;
+    if (!contaAdminEmail.trim()) {
+      toast.error('Informe o e-mail');
+      return;
+    }
+    setSalvandoConta(true);
+    try {
+      await salvarContaDeUsuario(editandoConta.usuario, {
+        email: contaAdminEmail.trim(),
+        senha: contaAdminSenha.trim() || undefined,
+        ativo: contaAdminAtiva,
+      });
+      toast.success('Conta de e-mail atualizada!');
+      setEditandoConta(null);
+      setContaAdminSenha('');
+      await loadContas();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao atualizar a conta de e-mail');
+    } finally {
+      setSalvandoConta(false);
+    }
+  };
+
+  const removeConta = async () => {
+    if (!removendoConta) return;
+    const alvo = removendoConta.usuario;
+    setRemovendoConta(null);
+    try {
+      await removerContaDeUsuario(alvo);
+      toast.success('Conta de e-mail removida');
+      await loadContas();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao remover a conta de e-mail');
     }
   };
 
@@ -289,6 +415,170 @@ const EmailView = () => {
           )}
         </section>
 
+        {/* Conta de envio do usuário */}
+        <section className="mt-4 overflow-hidden rounded-2xl border border-white/20 bg-white shadow-lg">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <KeyRound className="h-4 w-4 text-slate-500" />
+                Minha conta de envio
+              </h3>
+              <p className="text-xs text-slate-500">
+                A rebaixa que você enviar sai desta caixa ({servidor.host}:{servidor.porta}).
+              </p>
+            </div>
+            {conta?.temSenha && (
+              <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 sm:inline-flex">
+                <Send className="h-3 w-3" />
+                Conta configurada
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-3 px-4 py-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="conta-email" className="text-sm font-medium">Seu e-mail</label>
+                <Input
+                  id="conta-email"
+                  value={contaEmail}
+                  onChange={(event) => setContaEmail(event.target.value)}
+                  placeholder="isaiassilva@comper.com.br"
+                  className="mt-1"
+                  inputMode="email"
+                  autoComplete="off"
+                  maxLength={160}
+                  disabled={salvandoConta}
+                />
+              </div>
+              <div>
+                <label htmlFor="conta-senha" className="text-sm font-medium">Senha do e-mail</label>
+                <Input
+                  id="conta-senha"
+                  type="password"
+                  value={contaSenha}
+                  onChange={(event) => setContaSenha(event.target.value)}
+                  placeholder={conta?.temSenha ? 'Deixe em branco para manter' : 'Senha da sua caixa'}
+                  className="mt-1"
+                  autoComplete="new-password"
+                  maxLength={128}
+                  disabled={salvandoConta}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="conta-remetente" className="text-sm font-medium">Remetente (opcional)</label>
+                <Input
+                  id="conta-remetente"
+                  value={contaRemetente}
+                  onChange={(event) => setContaRemetente(event.target.value)}
+                  placeholder="Usa o seu e-mail quando vazio"
+                  className="mt-1"
+                  inputMode="email"
+                  autoComplete="off"
+                  maxLength={160}
+                  disabled={salvandoConta}
+                />
+              </div>
+              <div className="flex items-end gap-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-sky-600"
+                    checked={contaAtiva}
+                    onChange={(event) => setContaAtiva(event.target.checked)}
+                    disabled={salvandoConta}
+                  />
+                  Conta ativa
+                </label>
+                <Button
+                  size="sm"
+                  className="h-9 gap-2"
+                  onClick={() => void saveConta()}
+                  disabled={salvandoConta || !contaEmail.trim()}
+                >
+                  {salvandoConta ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                  Salvar conta
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              A senha fica guardada no servidor de forma criptografada e nunca é enviada de volta
+              para o navegador. Sem conta cadastrada, o envio usa a conta padrão do servidor.
+            </p>
+          </div>
+        </section>
+
+        {/* Contas de envio da loja (admin) */}
+        {canManage && (
+          <section className="mt-4 overflow-hidden rounded-2xl border border-white/20 bg-white shadow-lg">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <UserCog className="h-4 w-4 text-slate-500" />
+                  Contas de envio da loja
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Quem está com a conta configurada envia a rebaixa da própria caixa.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                {contas.length} {contas.length === 1 ? 'conta' : 'contas'}
+              </span>
+            </div>
+
+            {contas.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm font-medium text-slate-700">Nenhuma conta cadastrada</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Cada encarregado cadastra a própria caixa na seção “Minha conta de envio”.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {contas.map((item) => (
+                  <li key={item.usuario} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">{item.usuario}</p>
+                      <p className="truncate font-mono text-xs text-slate-500">{item.email}</p>
+                    </div>
+                    {!item.ativo && (
+                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                        Inativa
+                      </span>
+                    )}
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 hover:bg-sky-50 hover:text-sky-700"
+                        onClick={() => openEditConta(item)}
+                        aria-label={`Editar conta de ${item.usuario}`}
+                        title="Editar"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-600"
+                        onClick={() => setRemovendoConta(item)}
+                        aria-label={`Remover conta de ${item.usuario}`}
+                        title="Remover"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
         {/* Assunto e mensagem padrão */}
         <section className="mt-4 overflow-hidden rounded-2xl border border-white/20 bg-white shadow-lg">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
@@ -331,7 +621,8 @@ const EmailView = () => {
 
         {!canManage && (
           <p className="mt-4 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-xs text-white/80">
-            Você pode consultar os e-mails padrão. O cadastro e a edição são do administrador.
+            Você pode consultar os e-mails padrão e manter a sua própria conta de envio. O cadastro
+            dos destinatários e do assunto padrão é do administrador.
           </p>
         )}
       </div>
@@ -485,6 +776,94 @@ const EmailView = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void remove()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* ── Diálogo: conta de envio de outro usuário (admin) ──────── */}
+      <Dialog open={Boolean(editandoConta)} onOpenChange={(open) => { if (!open) setEditandoConta(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                <UserCog className="h-5 w-5" />
+              </span>
+              Conta de envio de {editandoConta?.usuario}
+            </DialogTitle>
+            <DialogDescription>
+              A senha fica criptografada no servidor. Deixe em branco para manter a atual.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <div>
+              <label htmlFor="conta-admin-email" className="text-sm font-medium">E-mail</label>
+              <Input
+                id="conta-admin-email"
+                value={contaAdminEmail}
+                onChange={(event) => setContaAdminEmail(event.target.value)}
+                className="mt-1"
+                inputMode="email"
+                autoComplete="off"
+                maxLength={160}
+                disabled={salvandoConta}
+              />
+            </div>
+            <div>
+              <label htmlFor="conta-admin-senha" className="text-sm font-medium">Senha</label>
+              <Input
+                id="conta-admin-senha"
+                type="password"
+                value={contaAdminSenha}
+                onChange={(event) => setContaAdminSenha(event.target.value)}
+                placeholder="Deixe em branco para manter"
+                className="mt-1"
+                autoComplete="new-password"
+                maxLength={128}
+                disabled={salvandoConta}
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-sky-600"
+                checked={contaAdminAtiva}
+                onChange={(event) => setContaAdminAtiva(event.target.checked)}
+                disabled={salvandoConta}
+              />
+              Conta ativa
+            </label>
+          </div>
+
+          <DialogFooter className="flex-row justify-end gap-2">
+            <Button variant="outline" onClick={() => setEditandoConta(null)} disabled={salvandoConta}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void saveContaAdmin()} disabled={salvandoConta}>
+              {salvandoConta && <Loader2 className="h-4 w-4 animate-spin" />}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Confirmação: remover conta de envio ─────────────────────── */}
+      <AlertDialog open={Boolean(removendoConta)} onOpenChange={(open) => { if (!open) setRemovendoConta(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover conta de e-mail?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A conta de “{removendoConta?.usuario}” será apagada. As rebaixas dele voltam a sair
+              pela conta padrão do servidor.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void removeConta()}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Remover

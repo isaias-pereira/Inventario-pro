@@ -20,6 +20,10 @@ export interface EmailConfig {
   defaultTo: string | null;
   /** Endereço que recebe cópia (Cc) de todos os envios. */
   copyTo: string | null;
+  /** Remetente da mensagem (conta do usuário ou padrão do servidor). */
+  remetente: string | null;
+  /** `true` quando o envio sai da caixa cadastrada pelo próprio usuário. */
+  contaPropria: boolean;
 }
 
 export interface SendRebaixaEmailInput {
@@ -42,6 +46,10 @@ export interface SendRebaixaEmailResult {
   cc: string | null;
   filename: string;
   itens: number;
+  /** Remetente usado no envio. */
+  remetente: string | null;
+  /** `true` quando saiu da caixa cadastrada pelo próprio usuário. */
+  contaPropria: boolean;
 }
 
 /**
@@ -68,6 +76,8 @@ export async function fetchEmailConfig(): Promise<EmailConfig> {
     provider: data?.provider ?? null,
     defaultTo: data?.defaultTo ?? null,
     copyTo: data?.copyTo ?? null,
+    remetente: data?.remetente ?? null,
+    contaPropria: Boolean(data?.contaPropria),
   };
 }
 
@@ -96,5 +106,7 @@ export async function sendRebaixaEmail(
     cc: data?.cc ?? null,
     filename: data?.filename ?? input.filename,
     itens: data?.itens ?? input.itens,
+    remetente: data?.remetente ?? null,
+    contaPropria: Boolean(data?.contaPropria),
   };
 }

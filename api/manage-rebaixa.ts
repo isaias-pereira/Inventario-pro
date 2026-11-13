@@ -277,18 +277,28 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
     await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_status_created ON public.rebaixa_products(status, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_batch ON public.rebaixa_products(batch_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_loja_status_created ON public.rebaixa_products(loja, status, created_at)`;
-    // O mesmo item da Validade só pode estar uma vez no rascunho **da loja**.
+    // O mesmo item da Validade só pode estar uma vez no rascunho **do usuário**
+    // (cada login monta a sua lista; o admin supervisiona pelo histórico).
     await sql`ALTER TABLE public.rebaixa_products ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
     await sql`DROP INDEX IF EXISTS public.idx_rebaixa_validade_draft`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rebaixa_loja_validade_draft
-      ON public.rebaixa_products(loja, validade_id)
+    await sql`DROP INDEX IF EXISTS public.idx_rebaixa_loja_validade_draft`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rebaixa_usuario_validade_draft
+      ON public.rebaixa_products(loja, created_by, validade_id)
       WHERE status = 'rascunho' AND validade_id IS NOT NULL`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_rebaixa_loja_created_by
+      ON public.rebaixa_products(loja, created_by, status)`;
   } catch {
     /* índices são otimização: seguem mesmo se falharem */
   }
   return true;
 }
 
+/**
+ * Rascunho corrente.
+ *
+ * O rascunho é **por usuário**: cada login monta a sua lista — inclusive o
+ * admin, que supervisiona pelo histórico (lotes enviados da loja toda).
+ */
 const LIST_SQL = `
   SELECT r.id::text, r.ean::text, r.codigo::text, r.descricao, r.tipo, r.validade, r.motivo,
          r.quantidade::float8, r.pmz::float8, r.preco_sugerido::float8, r.preco_final::float8,
@@ -296,7 +306,7 @@ const LIST_SQL = `
          ${SECAO_COLUNAS}
     FROM public.rebaixa_products r
    ${secaoJoin('r')}
-   WHERE r.status = 'rascunho' AND r.loja = $1
+   WHERE r.status = 'rascunho' AND r.loja = $1 AND r.created_by = $2
    ORDER BY r.created_at ASC`;
 
 const HISTORY_ITEM_SQL = `
@@ -340,10 +350,18 @@ const handler: ApiHandler = async (req, res) => {
     await ensureLojaSchema(sql);
     // Escopo multi-loja: o rascunho e o histórico são da loja do token.
     const loja = await resolveLoja(sql, payload);
+    const usuario = String(payload.sub ?? '');
+    // O **rascunho é sempre do próprio usuário** (inclusive para o admin): a
+    // lista que ele monta, exporta e envia é a dele. Sem essa separação, o
+    // admin veria os itens de outro login na própria lista e o envio não
+    // marcaria o lote (o `mark_sent` só alcança o que é dele).
+    // A supervisão do admin acontece no **histórico**, que lista os lotes
+    // enviados da loja inteira (com o autor de cada um).
+    const somenteDono = payload.role !== 'admin';
 
-    // LIST — rascunho corrente
+    // LIST — rascunho corrente (sempre do próprio usuário)
     if (action === 'list') {
-      const items = await sql(LIST_SQL, [loja]);
+      const items = await sql(LIST_SQL, [loja, usuario]);
       sendJson(res, { items });
       return;
     }
@@ -373,7 +391,7 @@ const handler: ApiHandler = async (req, res) => {
       const costs = await fetchCosts(sql, parsed.map((item) => item.codigo));
       const completed = parsed.map((item) => withCatalogCost(item, costs[item.codigo] ?? null));
 
-      // Um item da Validade só pode estar uma vez no rascunho.
+      // Um item da Validade só pode estar uma vez no rascunho **do usuário**.
       const validadeIds = [...new Set(
         completed.map((item) => item.validadeId).filter((id): id is string => Boolean(id)),
       )];
@@ -381,8 +399,9 @@ const handler: ApiHandler = async (req, res) => {
       if (validadeIds.length > 0) {
         const rows = await sql(
           `SELECT validade_id::text FROM public.rebaixa_products
-            WHERE status = 'rascunho' AND loja = $2 AND validade_id = ANY($1::uuid[])`,
-          [validadeIds, loja],
+            WHERE status = 'rascunho' AND loja = $2 AND created_by = $3
+              AND validade_id = ANY($1::uuid[])`,
+          [validadeIds, loja, usuario],
         );
         alreadyDrafted = new Set(rows.map((row) => String(row.validade_id)));
       }
@@ -444,8 +463,8 @@ const handler: ApiHandler = async (req, res) => {
         `SELECT id::text, tipo, validade, motivo, quantidade::float8,
                 preco_sugerido::float8, preco_final::float8
            FROM public.rebaixa_products
-          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2`,
-        [id, loja],
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2 AND created_by = $3`,
+        [id, loja, usuario],
       );
       const row = existing[0];
       if (!row) {
@@ -517,8 +536,8 @@ const handler: ApiHandler = async (req, res) => {
         `UPDATE public.rebaixa_products
             SET quantidade = $2::numeric, preco_sugerido = $3::numeric,
                 preco_final = $4::numeric, validade = $5, motivo = $6
-          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $7`,
-        [id, quantidade, precoSugerido, precoFinal, validade, motivo, loja],
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $7 AND created_by = $8`,
+        [id, quantidade, precoSugerido, precoFinal, validade, motivo, loja, usuario],
       );
       sendJson(res, { success: true });
       return;
@@ -533,9 +552,9 @@ const handler: ApiHandler = async (req, res) => {
       }
       const removed = await sql(
         `DELETE FROM public.rebaixa_products
-          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2
+          WHERE id = $1::uuid AND status = 'rascunho' AND loja = $2 AND created_by = $3
           RETURNING id`,
-        [id, loja],
+        [id, loja, usuario],
       );
       if (removed.length === 0) {
         sendJson(res, { error: 'Item não encontrado no rascunho' }, 404);
@@ -545,13 +564,13 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    // CLEAR — limpa o rascunho; o histórico é preservado
+    // CLEAR — limpa o rascunho do próprio usuário; o histórico é preservado
     if (action === 'clear') {
       const removed = await sql(
         `DELETE FROM public.rebaixa_products
-          WHERE status = 'rascunho' AND loja = $1
+          WHERE status = 'rascunho' AND loja = $1 AND created_by = $2
           RETURNING id`,
-        [loja],
+        [loja, usuario],
       );
       sendJson(res, { success: true, removed: removed.length });
       return;
@@ -583,25 +602,36 @@ const handler: ApiHandler = async (req, res) => {
       const sent = await sql(
         `UPDATE public.rebaixa_products
             SET status = 'enviada', sent_at = NOW(), sent_to = $2, batch_id = $3::uuid
-          WHERE id = ANY($1::uuid[]) AND status = 'rascunho' AND loja = $4
+          WHERE id = ANY($1::uuid[]) AND status = 'rascunho' AND loja = $4 AND created_by = $5
           RETURNING id`,
-        [ids, to, batchId, loja],
+        [ids, to, batchId, loja, usuario],
       );
       sendJson(res, { success: true, batch_id: batchId, sent: sent.length });
       return;
     }
 
     // HISTORY — lotes enviados (mais recentes primeiro)
+    // O admin vê todos os lotes da loja; o encarregado, só os dele.
     if (action === 'history') {
-      const batches = await sql(`
-        SELECT batch_id::text, MAX(sent_at) AS sent_at, MAX(sent_to) AS sent_to,
-               MAX(created_by) AS created_by, COUNT(*)::int AS itens,
-               COALESCE(SUM(quantidade * COALESCE(preco_final, 0)), 0)::float8 AS total
-          FROM public.rebaixa_products
-         WHERE status = 'enviada' AND batch_id IS NOT NULL AND loja = $1
-         GROUP BY batch_id
-         ORDER BY MAX(sent_at) DESC
-         LIMIT 50`, [loja]);
+      const batches = somenteDono
+        ? await sql(`
+          SELECT batch_id::text, MAX(sent_at) AS sent_at, MAX(sent_to) AS sent_to,
+                 MAX(created_by) AS created_by, COUNT(*)::int AS itens,
+                 COALESCE(SUM(quantidade * COALESCE(preco_final, 0)), 0)::float8 AS total
+            FROM public.rebaixa_products
+           WHERE status = 'enviada' AND batch_id IS NOT NULL AND loja = $1 AND created_by = $2
+           GROUP BY batch_id
+           ORDER BY MAX(sent_at) DESC
+           LIMIT 50`, [loja, usuario])
+        : await sql(`
+          SELECT batch_id::text, MAX(sent_at) AS sent_at, MAX(sent_to) AS sent_to,
+                 MAX(created_by) AS created_by, COUNT(*)::int AS itens,
+                 COALESCE(SUM(quantidade * COALESCE(preco_final, 0)), 0)::float8 AS total
+            FROM public.rebaixa_products
+           WHERE status = 'enviada' AND batch_id IS NOT NULL AND loja = $1
+           GROUP BY batch_id
+           ORDER BY MAX(sent_at) DESC
+           LIMIT 50`, [loja]);
       sendJson(res, { batches });
       return;
     }
@@ -613,7 +643,13 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Lote inválido' }, 400);
         return;
       }
-      const items = await sql(HISTORY_ITEM_SQL, [batchId, loja]);
+      // O encarregado só abre os lotes que ele mesmo enviou.
+      const items = somenteDono
+        ? await sql(
+          `${HISTORY_ITEM_SQL} AND r.created_by = $3`,
+          [batchId, loja, usuario],
+        )
+        : await sql(HISTORY_ITEM_SQL, [batchId, loja]);
       sendJson(res, { items });
       return;
     }

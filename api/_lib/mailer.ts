@@ -182,11 +182,42 @@ export async function sendViaSmtp(message: MailMessage, config: MailConfig): Pro
   const from = config.from ?? user;
   if (!from) throw new Error('REBAIXA_EMAIL_FROM não configurado');
 
-  const transporter = createTransport({
+  await enviarSmtp(message, {
     host,
     port,
     secure,
-    auth: user ? { user, pass } : undefined,
+    user,
+    pass,
+    from,
+  });
+}
+
+/** Conta SMTP de um usuário (usuário/senha próprios no servidor padrão). */
+export interface SmtpAccount {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  /** Remetente da mensagem. */
+  from: string;
+}
+
+/**
+ * Entrega a mensagem por um transporte SMTP.
+ *
+ * O mesmo código serve para o servidor padrão (env vars) e para a conta
+ * própria do encarregado: muda só o par usuário/senha e o remetente.
+ */
+async function enviarSmtp(
+  message: MailMessage,
+  conta: { host: string; port: number; secure: boolean; user?: string; pass?: string; from: string },
+): Promise<void> {
+  const transporter = createTransport({
+    host: conta.host,
+    port: conta.port,
+    secure: conta.secure,
+    auth: conta.user ? { user: conta.user, pass: conta.pass } : undefined,
     // Prazos curtos: se o servidor de e-mail não responder, a Function falha
     // com uma mensagem clara em vez de ficar pendurada.
     connectionTimeout: 15000,
@@ -195,7 +226,7 @@ export async function sendViaSmtp(message: MailMessage, config: MailConfig): Pro
   });
 
   await transporter.sendMail({
-    from,
+    from: conta.from,
     to: message.to,
     cc: message.cc,
     subject: message.subject,
@@ -212,8 +243,34 @@ export async function sendViaSmtp(message: MailMessage, config: MailConfig): Pro
   });
 }
 
-/** Envia a mensagem usando o provedor configurado no servidor. */
-export async function sendMail(message: MailMessage): Promise<void> {
+/**
+ * Envia usando a conta própria do usuário (quando ele tem uma cadastrada).
+ *
+ * A conta do encarregado tem precedência sobre a configuração do servidor:
+ * a rebaixa sai da caixa de quem montou a lista.
+ */
+export async function sendViaSmtpAccount(message: MailMessage, conta: SmtpAccount): Promise<void> {
+  await enviarSmtp(message, {
+    host: conta.host,
+    port: conta.port,
+    secure: conta.secure,
+    user: conta.user,
+    pass: conta.pass,
+    from: conta.from,
+  });
+}
+
+/**
+ * Envia a mensagem usando o provedor configurado no servidor.
+ *
+ * Com `conta`, a entrega sai da caixa do usuário (SMTP da conta própria);
+ * sem ela, vale a configuração do servidor (Resend ou SMTP das env vars).
+ */
+export async function sendMail(message: MailMessage, conta?: SmtpAccount | null): Promise<void> {
+  if (conta) {
+    await sendViaSmtpAccount(message, conta);
+    return;
+  }
   const config = mailerConfig();
   if (!config.provider) {
     throw new Error('O envio de e-mail não está configurado no servidor (RESEND_API_KEY ou SMTP_HOST)');

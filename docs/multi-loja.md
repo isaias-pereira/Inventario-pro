@@ -36,11 +36,12 @@ validade da loja 92; a loja 92 não apaga a base de consulta da loja 103.
 | `inventory_lote_audit` | Auditoria do Inventário | — |
 | `consulta_products` | Base da Consulta (estoque/preço da loja) | `(loja, codigo)` |
 | `metas_mensais` | Meta e realizado do mês | `(loja, ano, mes, dia)` |
-| `rebaixa_products` | Rascunho e histórico da Rebaixa | rascunho deduplicado por `(loja, validade_id)` |
+| `rebaixa_products` | Rascunho e histórico da Rebaixa | rascunho deduplicado por `(loja, created_by, validade_id)` — **por usuário** |
 | `arrastao_sessions` | Sessões de arrastão | id |
 | `arrastao_items` | Itens escaneados | id |
 | `email_padrao` | Destinatários padrão da rebaixa | `(loja, e-mail)` + um "padrão" por loja |
 | `email_config` | Assunto/mensagem padrão | **PK (loja)** — uma linha por loja |
+| `email_envio` | Conta de envio (remetente) de cada login | `(loja, usuario)` — uma caixa por login e loja |
 | `whatsapp_envios` | Histórico/idempotência dos alertas | `(loja, slot, dia)` nos slots automáticos |
 | `whatsapp_destinatarios` | Números que recebem o alerta da loja | `(loja, telefone)` |
 
@@ -89,8 +90,8 @@ Ou seja, **nenhum usuário fica sem escopo**.
 | `api/manage-metas.ts` | `get`, `save_meta`, `save_realizado` |
 | `api/manage-rebaixa.ts` | Rascunho, histórico, `clear`, `mark_sent` |
 | `api/manage-arrastao.ts` | Sessões, itens, `consulta_all_items`; o `finalizeSession` leva a loja da sessão para a Validade |
-| `api/manage-emails.ts` | Destinatários e assunto/mensagem padrão |
-| `api/send-rebaixa-email.ts` | Destinatário padrão da loja |
+| `api/manage-emails.ts` | Destinatários, assunto/mensagem padrão e a conta de envio do login (`email_envio`) |
+| `api/send-rebaixa-email.ts` | Destinatário padrão da loja e a conta de envio do login |
 | `api/_lib/whatsapp-endpoint.ts` | Digest, destinatários, idempotência e o cron por loja |
 | `api/manage-users.ts` | Cadastro de usuários, `list_lojas` e `switch_loja` |
 
@@ -152,12 +153,33 @@ O seed inicial liga os usuários existentes ao(s) admin(s) e roda uma única vez
   tem os dela. Só há **um** e-mail marcado como "padrão" **por loja**.
 - `email_config` (assunto/mensagem padrão) tem **PK (loja)** — cada loja
   escreve o seu texto.
+- `email_envio` guarda a **conta de envio (remetente) de cada login**, com
+  unicidade `(loja, usuario)`: o login `isaias` da loja 103 tem a sua caixa e
+  o `luana` da loja 103 tem a dele. A senha fica criptografada no banco
+  (AES-256-GCM) e nunca sai do servidor.
 - No envio (`api/send-rebaixa-email.ts`), o destinatário segue esta ordem:
   1. o que o usuário digitou na tela;
   2. o e-mail **padrão da loja** (`email_padrao.padrao`);
   3. o `REBAIXA_EMAIL_TO` do servidor.
+- O **remetente** segue outra ordem: a conta do próprio login
+  (`email_envio`, quando existe e está ativa) e, na falta dela, a conta padrão
+  do servidor (`REBAIXA_EMAIL_FROM`/SMTP das env vars).
 - A cópia em Cc (`REBAIXA_EMAIL_COPY`, padrão `isaiassilva@comper.com.br`)
   continua valendo para todas as lojas.
+
+### Rebaixa por usuário (dentro da loja)
+
+Além do escopo de loja, a Rebaixa tem escopo de **usuário**
+(`rebaixa_products.created_by`):
+
+- O **rascunho é sempre do próprio login** (inclusive para o admin): a lista
+  que ele monta, exporta e envia é a dele. Os itens de outro login não
+  aparecem — o `mark_sent` também só alcança o que é dele.
+- O **encarregado** vê no histórico só os **próprios** lotes enviados.
+- O **admin** vê no histórico **todos os lotes da loja** (supervisão, com o
+  autor de cada um).
+- O rascunho é deduplicado por `(loja, created_by, validade_id)`: o mesmo item
+  da Validade pode estar na rebaixa de dois logins diferentes.
 
 ### WhatsApp da Validade
 
@@ -193,6 +215,11 @@ que faltavam no cadastro).
 **No Neon elas já foram aplicadas** (as 13 lojas estão ativas, as 14 tabelas
 operacionais têm a coluna `loja` e os dados herdados ficaram na 103).
 
+A migration da **conta de e-mail por usuário + Rebaixa por usuário** é
+`db/migrations/20261113100000_email_envio_e_rebaixa_por_usuario.sql`: cria a
+tabela `email_envio`, remove os rascunhos duplicados do mesmo usuário e troca
+o índice único do rascunho para `(loja, created_by, validade_id)`.
+
 O driver HTTP do Neon (`neon().query`) recusa múltiplos comandos numa
 prepared statement. Para aplicar o arquivo inteiro use o driver websocket:
 
@@ -205,6 +232,7 @@ await client.connect();
 for (const arquivo of [
   'db/migrations/20261111090000_add_loja.sql',
   'db/migrations/20261111091000_add_lojas_empresa.sql',
+  'db/migrations/20261113100000_email_envio_e_rebaixa_por_usuario.sql',
 ]) {
   await client.query(readFileSync(arquivo, 'utf8'));
 }

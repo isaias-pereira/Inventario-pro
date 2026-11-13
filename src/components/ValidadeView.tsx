@@ -750,7 +750,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
       // Só preenche quando o campo está vazio: não sobrescreve o que o usuário digitou.
       setEmailTo((current) => current || config.defaultTo || '');
     } catch {
-      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null });
+      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null, remetente: null, contaPropria: false });
     }
     setEmailLoading(false);
   }, []);
@@ -1159,6 +1159,16 @@ const [filter, setFilter] = useState<FilterType>('todos');
                           ) : (
                             <span className="font-semibold text-foreground">
                               {new Date(item.validade).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                          {item.created_by && (
+                            <span
+                              className="inline-flex items-center gap-1"
+                              title={`Coletado por ${item.created_by}`}
+                            >
+                              <User className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              <span className="font-semibold text-foreground">{item.created_by}</span>
+                              <span className="sr-only">— coletado por</span>
                             </span>
                           )}
                           <SecaoBadge secao={item.secao} />

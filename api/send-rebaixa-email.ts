@@ -6,9 +6,15 @@
  * em base64: o servidor anexa a planilha real em `.ods` (com fórmulas e cores) e
  * despacha pelo provedor configurado nas variáveis de ambiente.
  *
+ * Cada encarregado tem a **própria** conta no servidor padrão de e-mail
+ * (`email_envio`): quando ela existe, a rebaixa sai da caixa de quem montou a
+ * lista. Sem conta cadastrada, vale a configuração do servidor (Resend ou SMTP
+ * das env vars).
+ *
  * Ações (POST):
- * - `config`: devolve `{ enabled, provider, defaultTo }` — o cliente usa isso
- *   para avisar quando o envio está indisponível e preencher o destinatário;
+ * - `config`: devolve `{ enabled, provider, defaultTo, remetente, contaPropria }`
+ *   — o cliente usa isso para avisar quando o envio está indisponível e
+ *   mostrar de qual caixa a mensagem vai sair;
  * - `send`: envia a planilha.
  *
  * Restrito a administradores e encarregados (`role === 'admin' | 'encarregado'`).
@@ -17,6 +23,7 @@
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { copyNotInTo, mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
+import { contaSmtpDoUsuario } from './_lib/email-envio.js';
 import { createSql, type Sql } from './_lib/db.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
@@ -132,13 +139,19 @@ const handler: ApiHandler = async (req, res) => {
     const loja = await resolveLoja(sql, payload);
     const defaultDaLoja = await defaultEmailDaLoja(sql, loja);
 
+    // Conta de envio do próprio usuário (prioridade sobre o servidor).
+    const conta = await contaSmtpDoUsuario(sql, String(payload.sub ?? ''), loja);
+    const remetente = conta?.from ?? config.from ?? null;
+
     // Configuração: o cliente usa para saber se o envio está disponível.
     if (action === 'config') {
       sendJson(res, {
-        enabled: Boolean(config.provider),
-        provider: config.provider,
+        enabled: Boolean(conta) || Boolean(config.provider),
+        provider: conta ? 'smtp' : config.provider,
         defaultTo: defaultDaLoja ?? config.defaultTo,
         copyTo: config.copyTo ?? null,
+        remetente,
+        contaPropria: Boolean(conta),
         loja,
       });
       return;
@@ -149,7 +162,7 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    if (!config.provider) {
+    if (!conta && !config.provider) {
       sendJson(res, { error: 'O envio de e-mail não está configurado no servidor' }, 503);
       return;
     }
@@ -206,9 +219,17 @@ const handler: ApiHandler = async (req, res) => {
         contentType: filename.toLowerCase().endsWith('.csv') ? CSV_MIME : ODS_MIME,
         content: new Uint8Array(content),
       },
-    });
+    }, conta);
 
-    sendJson(res, { ok: true, to, cc: cc ?? null, filename, itens });
+    sendJson(res, {
+      ok: true,
+      to,
+      cc: cc ?? null,
+      filename,
+      itens,
+      remetente: remetente ?? null,
+      contaPropria: Boolean(conta),
+    });
   } catch (error) {
     console.error('Send rebaixa email error:', error);
     const message = error instanceof Error ? error.message : 'Erro interno do servidor';

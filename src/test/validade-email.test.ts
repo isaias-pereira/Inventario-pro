@@ -48,6 +48,8 @@ describe('configuração de e-mail', () => {
       provider: 'resend',
       defaultTo: 'comercial@empresa.com',
       copyTo: 'isaiassilva@comper.com.br',
+      remetente: null,
+      contaPropria: false,
     });
     expect(invokeFunction).toHaveBeenCalledWith('send-rebaixa-email', {
       body: { action: 'config' },
@@ -62,6 +64,8 @@ describe('configuração de e-mail', () => {
       provider: null,
       defaultTo: null,
       copyTo: null,
+      remetente: null,
+      contaPropria: false,
     });
   });
 
@@ -103,6 +107,8 @@ describe('envio da planilha por e-mail', () => {
       cc: 'isaiassilva@comper.com.br',
       filename: 'solicitacao-rebaixa-2026-11-04.ods',
       itens: 12,
+      remetente: null,
+      contaPropria: false,
     });
 
     const [, options] = invokeFunction.mock.calls[0];

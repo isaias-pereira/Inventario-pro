@@ -114,6 +114,8 @@ describe('endpoint de envio por e-mail', () => {
       provider: 'resend',
       defaultTo: 'comercial@empresa.com',
       copyTo: 'copia@empresa.com',
+      remetente: 'rebaixa@empresa.com',
+      contaPropria: false,
       loja: 103,
     });
   });
@@ -209,6 +211,8 @@ describe('endpoint de envio por e-mail', () => {
       cc: 'copia@empresa.com',
       filename: 'solicitacao-rebaixa-2026-11-04.ods',
       itens: 12,
+      remetente: 'rebaixa@empresa.com',
+      contaPropria: false,
     });
 
     expect(sendMailMock).toHaveBeenCalledTimes(1);

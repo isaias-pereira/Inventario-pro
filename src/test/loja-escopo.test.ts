@@ -333,6 +333,86 @@ describe('escopo por loja — Rebaixa', () => {
   });
 });
 
+describe('escopo por usuário — Rebaixa', () => {
+  it('lista o rascunho só do próprio login', async () => {
+    authenticateMock.mockReturnValue({ sub: 'luana', role: 'encarregado', loja: 103, exp: 9999999999 });
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({ action: 'list' }), res);
+
+    const listagem = chamadasCom(chamadas, 'FROM public.rebaixa_products r')[0];
+    expect(listagem.text).toContain('r.created_by = $2');
+    expect(listagem.params).toContain('luana');
+  });
+
+  it('limpa só o rascunho do próprio login', async () => {
+    authenticateMock.mockReturnValue({ sub: 'luana', role: 'encarregado', loja: 103, exp: 9999999999 });
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({ action: 'clear' }), res);
+
+    const remocao = chamadasCom(chamadas, 'DELETE FROM public.rebaixa_products')[0];
+    expect(remocao.text).toContain('created_by = $2');
+    expect(remocao.params).toContain('luana');
+  });
+
+  it('remove só item do próprio login', async () => {
+    authenticateMock.mockReturnValue({ sub: 'luana', role: 'encarregado', loja: 103, exp: 9999999999 });
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({
+      action: 'remove',
+      id: '11111111-1111-1111-1111-111111111111',
+    }), res);
+
+    const remocao = chamadasCom(chamadas, 'DELETE FROM public.rebaixa_products')[0];
+    expect(remocao.text).toContain('created_by = $3');
+    expect(remocao.params).toContain('luana');
+  });
+
+  it('marca como enviado só o lote do próprio login', async () => {
+    authenticateMock.mockReturnValue({ sub: 'luana', role: 'encarregado', loja: 103, exp: 9999999999 });
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({
+      action: 'mark_sent',
+      ids: ['11111111-1111-1111-1111-111111111111'],
+      to: 'comercial@empresa.com',
+    }), res);
+
+    const envio = chamadasCom(chamadas, 'UPDATE public.rebaixa_products')[0];
+    expect(envio.text).toContain('created_by = $5');
+    expect(envio.params).toContain('luana');
+  });
+
+  it('limita o histórico do encarregado aos lotes dele', async () => {
+    authenticateMock.mockReturnValue({ sub: 'luana', role: 'encarregado', loja: 103, exp: 9999999999 });
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({ action: 'history' }), res);
+
+    const historico = chamadasCom(chamadas, 'GROUP BY batch_id')[0];
+    expect(historico.text).toContain('created_by = $2');
+    expect(historico.params).toContain('luana');
+  });
+
+  it('deixa o admin supervisionar o histórico da loja toda', async () => {
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageRebaixa(request({ action: 'history' }), res);
+
+    const historico = chamadasCom(chamadas, 'GROUP BY batch_id')[0];
+    expect(historico.text).not.toContain('created_by = $2');
+    expect(historico.params).toContain(103);
+  });
+});
+
 describe('escopo por loja — Arrastão', () => {
   it('inicia a sessão na loja do token', async () => {
     const { chamadas } = installSql((text) => {

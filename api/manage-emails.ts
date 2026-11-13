@@ -1,31 +1,48 @@
 /**
- * E-mails padrão das rebaixas (multi-loja).
+ * E-mails das rebaixas (multi-loja).
  *
- * A aba E-mail cadastra os destinatários que recebem as rebaixas (com um
- * "padrão" que entra preenchido no envio) e guarda o assunto/mensagem padrão
- * da mensagem. O servidor usa essa lista como atalho no diálogo de envio da
- * Rebaixa e como fallback quando o cliente não informa destinatário.
+ * A aba E-mail tem duas partes:
  *
- * Cada loja tem a sua própria lista de destinatários e o seu próprio
- * assunto/mensagem padrão — a rebaixa da loja 103 não vai para o e-mail
- * padrão da loja 92.
+ * 1. **Destinatários** (`email_padrao`): quem recebe as rebaixas, com um
+ *    "padrão" que entra preenchido no envio, e o assunto/mensagem padrão.
+ *    Cada loja tem a sua lista — a rebaixa da loja 103 não vai para o e-mail
+ *    padrão da loja 92. Cadastro/edição: só admin.
+ * 2. **Conta de envio** (`email_envio`): a caixa de e-mail de cada
+ *    encarregado/admin no servidor padrão (mail.comper.com.br:465). A senha
+ *    fica criptografada no banco e nunca volta ao navegador. Cada um
+ *    cadastra a sua; o admin vê e edita todas.
  *
  * Ações (POST):
- * - `list`: devolve `{ emails, defaults }` — `defaults` traz assunto/mensagem;
- * - `add`: cadastra um e-mail padrão (`nome`, `email`, `padrao`);
- * - `update`: altera `nome`, `email`, `ativo` ou `padrao` de um cadastro;
- * - `remove`: remove um cadastro;
- * - `setDefault`: marca um cadastro como e-mail padrão das rebaixas;
+ * - `list`: destinatários + assunto/mensagem padrão da loja;
+ * - `my_account`: conta de envio do usuário logado;
+ * - `save_account`: grava a conta de envio do usuário logado;
+ * - `list_accounts`: contas de envio da loja (admin);
+ * - `update_account`: edita a conta de envio de alguém (admin);
+ * - `remove_account`: remove a conta de envio de alguém (admin);
+ * - `add`: cadastra um destinatário padrão;
+ * - `update`: altera `nome`, `email`, `ativo` ou `padrao` de um destinatário;
+ * - `remove`: remove um destinatário;
+ * - `setDefault`: marca um destinatário como padrão das rebaixas;
  * - `setDefaults`: salva o assunto e a mensagem padrão.
  *
  * Leitura: admin e encarregado (quem envia as rebaixas).
- * Cadastro/edição/exclusão: só admin.
  */
 
 import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
+import { encryptSecret } from './_lib/email-crypto.js';
+import {
+  SMTP_PADRAO_HOST,
+  SMTP_PADRAO_PORT,
+  SMTP_PADRAO_SECURE,
+  atualizarContaDeEnvio,
+  contaDeEnvio,
+  listarContasDeEnvio,
+  removerContaDeEnvio,
+  salvarContaDeEnvio,
+} from './_lib/email-envio.js';
 
 /** Papéis que podem ler a lista de e-mails padrão. */
 export const EMAIL_READ_ROLES = ['admin', 'encarregado'] as const;
@@ -92,6 +109,20 @@ export function normalizeId(value: unknown): number | null {
   const number = typeof value === 'number' ? value : Number(String(value ?? '').trim());
   if (!Number.isFinite(number) || !Number.isInteger(number) || number <= 0) return null;
   return number;
+}
+
+/** Senha da conta de envio: 1 a 128 caracteres, sem espaços nas pontas. */
+export function normalizeSenha(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const senha = value.trim();
+  if (!senha || senha.length > 128) return null;
+  return senha;
+}
+
+/** Remetente opcional (vazio = usa o e-mail da própria conta). */
+export function normalizeRemetente(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') return null;
+  return normalizeEmail(value);
 }
 
 /** Erro de unicidade do Postgres (23505) — e-mail já cadastrado. */
@@ -214,6 +245,187 @@ const handler: ApiHandler = async (req, res) => {
           mensagem: row?.mensagem ?? DEFAULT_MESSAGE,
         },
       });
+      return;
+    }
+
+    // ── Conta de envio do usuário logado ────────────────────────────
+    // Cada encarregado cadastra a própria caixa (e-mail + senha do
+    // servidor padrão); a senha fica criptografada no banco.
+    if (action === 'my_account') {
+      const usuario = String(payload.sub ?? '');
+      const conta = await contaDeEnvio(sql, usuario, loja);
+      sendJson(res, {
+        conta: conta ?? {
+          email: '',
+          host: SMTP_PADRAO_HOST,
+          porta: SMTP_PADRAO_PORT,
+          secure: SMTP_PADRAO_SECURE,
+          remetente: null,
+          ativo: true,
+          temSenha: false,
+        },
+        servidor: {
+          host: SMTP_PADRAO_HOST,
+          porta: SMTP_PADRAO_PORT,
+          secure: SMTP_PADRAO_SECURE,
+        },
+      });
+      return;
+    }
+
+    if (action === 'save_account') {
+      const usuario = String(payload.sub ?? '');
+      if (!usuario) {
+        sendJson(res, { error: 'Usuário inválido' }, 400);
+        return;
+      }
+      const email = normalizeEmail(body.email);
+      if (!email) {
+        sendJson(res, { error: 'E-mail inválido' }, 400);
+        return;
+      }
+      const atual = await contaDeEnvio(sql, usuario, loja);
+      const senha = normalizeSenha(body.senha);
+      if (!senha && !atual?.temSenha) {
+        sendJson(res, { error: 'Informe a senha da conta de e-mail' }, 400);
+        return;
+      }
+      const remetente = normalizeRemetente(body.remetente);
+      if (remetente === undefined) {
+        sendJson(res, { error: 'Remetente inválido' }, 400);
+        return;
+      }
+      const ativo = body.ativo === undefined ? true : body.ativo === true;
+
+      try {
+        if (senha) {
+          await salvarContaDeEnvio(sql, {
+            usuario,
+            loja,
+            email,
+            senhaCriptografada: encryptSecret(senha),
+            host: atual?.host ?? SMTP_PADRAO_HOST,
+            porta: atual?.porta ?? SMTP_PADRAO_PORT,
+            secure: atual?.secure ?? SMTP_PADRAO_SECURE,
+            remetente: remetente ?? atual?.remetente ?? null,
+            ativo,
+            updatedBy: usuario,
+          });
+        } else {
+          // Sem senha nova: os demais dados mudam e a senha guardada continua.
+          await atualizarContaDeEnvio(sql, {
+            usuario,
+            loja,
+            email,
+            remetente: remetente ?? atual?.remetente ?? null,
+            ativo,
+            updatedBy: usuario,
+          });
+        }
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          sendJson(res, { error: 'Já existe uma conta de e-mail para este usuário' }, 400);
+          return;
+        }
+        throw error;
+      }
+
+      sendJson(res, { success: true });
+      return;
+    }
+
+    // ── Gestão das contas (admin) ────────────────────────────────────
+    if (action === 'list_accounts') {
+      if (!canManageEmails(payload.role)) {
+        sendJson(res, { error: 'Apenas administradores podem ver as contas de e-mail' }, 403);
+        return;
+      }
+      const contas = await listarContasDeEnvio(sql, loja);
+      sendJson(res, { contas });
+      return;
+    }
+
+    if (action === 'update_account') {
+      if (!canManageEmails(payload.role)) {
+        sendJson(res, { error: 'Apenas administradores podem editar as contas de e-mail' }, 403);
+        return;
+      }
+      const usuario = String(body.usuario ?? '').trim();
+      if (!usuario) {
+        sendJson(res, { error: 'Usuário obrigatório' }, 400);
+        return;
+      }
+      const alvo = await sql`
+        SELECT username, loja FROM public.app_users WHERE username = ${usuario} LIMIT 1`;
+      if (!alvo.length || Number(alvo[0].loja) !== loja) {
+        sendJson(res, { error: 'Usuário não encontrado nesta loja' }, 404);
+        return;
+      }
+      const atual = await contaDeEnvio(sql, usuario, loja);
+      const email = body.email === undefined ? atual?.email : normalizeEmail(body.email);
+      if (!email) {
+        sendJson(res, { error: 'E-mail inválido' }, 400);
+        return;
+      }
+      const senha = body.senha === undefined ? null : normalizeSenha(body.senha);
+      if (body.senha !== undefined && !senha) {
+        sendJson(res, { error: 'Senha inválida' }, 400);
+        return;
+      }
+      const remetente = body.remetente === undefined
+        ? (atual?.remetente ?? null)
+        : normalizeRemetente(body.remetente);
+      if (remetente === undefined) {
+        sendJson(res, { error: 'Remetente inválido' }, 400);
+        return;
+      }
+      const ativo = body.ativo === undefined ? (atual?.ativo ?? true) : body.ativo === true;
+
+      if (senha) {
+        await salvarContaDeEnvio(sql, {
+          usuario,
+          loja,
+          email,
+          senhaCriptografada: encryptSecret(senha),
+          host: atual?.host ?? SMTP_PADRAO_HOST,
+          porta: atual?.porta ?? SMTP_PADRAO_PORT,
+          secure: atual?.secure ?? SMTP_PADRAO_SECURE,
+          remetente,
+          ativo,
+          updatedBy: String(payload.sub ?? ''),
+        });
+      } else if (atual?.temSenha) {
+        // Sem senha nova: os demais dados mudam e a senha guardada continua.
+        await atualizarContaDeEnvio(sql, {
+          usuario,
+          loja,
+          email,
+          remetente,
+          ativo,
+          updatedBy: String(payload.sub ?? ''),
+        });
+      } else {
+        // O login ainda não tem conta: sem senha não dá para criar uma.
+        sendJson(res, { error: 'Informe a senha da conta de e-mail' }, 400);
+        return;
+      }
+
+      sendJson(res, { success: true });
+      return;
+    }
+
+    if (action === 'remove_account') {
+      if (!canManageEmails(payload.role)) {
+        sendJson(res, { error: 'Apenas administradores podem remover contas de e-mail' }, 403);
+        return;
+      }
+      const usuario = String(body.usuario ?? '').trim();
+      if (!usuario) {
+        sendJson(res, { error: 'Usuário obrigatório' }, 400);
+        return;
+      }
+      await removerContaDeEnvio(sql, usuario, loja);
+      sendJson(res, { success: true });
       return;
     }
 

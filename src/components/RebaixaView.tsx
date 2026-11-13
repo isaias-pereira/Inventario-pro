@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   AlertTriangle, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight,
   Copy, Download, FileSpreadsheet, History, Loader2, Lock, Mail, Package, Pencil,
-  Plus, RefreshCw, Scale, Search, Share2, Star, Tag, Trash2, X,
+  Plus, RefreshCw, Scale, Search, Send, Share2, Star, Tag, Trash2, X,
 } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -711,7 +711,7 @@ const RebaixaView = () => {
       setEmailConfig(config);
       setEmailTo((current) => current || config.defaultTo || '');
     } catch {
-      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null });
+      setEmailConfig({ enabled: false, provider: null, defaultTo: null, copyTo: null, remetente: null, contaPropria: false });
     } finally {
       setEmailLoading(false);
     }
@@ -1998,10 +1998,17 @@ const RebaixaView = () => {
             )}
             {emailConfig && !emailConfig.enabled && !emailLoading && (
               <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                O envio de e-mail não está configurado no servidor. Defina{' '}
-                <span className="font-mono">RESEND_API_KEY</span> ou{' '}
+                O envio de e-mail não está configurado. Cadastre a sua conta na aba <strong>E-mail</strong>{' '}
+                (menu do usuário) ou defina <span className="font-mono">RESEND_API_KEY</span> /{' '}
                 <span className="font-mono">SMTP_HOST</span> nas variáveis de ambiente da Vercel.
                 Enquanto isso, use o download da planilha.
+              </p>
+            )}
+            {emailConfig?.enabled && emailConfig.remetente && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                Enviado de <span className="font-mono text-foreground">{emailConfig.remetente}</span>
+                {emailConfig.contaPropria ? ' (sua conta)' : ' (conta padrão do servidor)'}
               </p>
             )}
           </div>

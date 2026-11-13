@@ -65,7 +65,7 @@ limita o encarregado a `scanned_by` dele + da equipe.
 | Metas | ✅ | — | — | — | — |
 | Validade | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Rebaixa | ✅ | ✅ | — | — | — |
-| E-mail | ✅ | ✅ (só leitura) | — | — | — |
+| E-mail | ✅ | ✅ (destinatários: só leitura · conta de envio: edita a própria) | — | — | — |
 | Adicionar Produto | ✅ | ✅ (só cadastro) | — | — | — |
 | Base de Dados | ✅ | — | — | — | — |
 | Usuários | ✅ | — | — | — | — |
@@ -95,7 +95,24 @@ limita o encarregado a `scanned_by` dele + da equipe.
 
 `list`, `add`, `add_many`, `update`, `remove`, `clear`, `history`,
 `history_items`, `mark_sent`: **admin e encarregado**.
-A Rebaixa continua sendo da **loja** (não é filtrada por equipe).
+
+A Rebaixa é da **loja** (não é filtrada por equipe) e **do usuário**:
+
+| Perfil | Rascunho (`list`) | Histórico (`history`, `history_items`) | Escrita (`add`, `update`, `remove`, `clear`, `mark_sent`) |
+| --- | --- | --- | --- |
+| `admin` | Só o **próprio** | **Todos os lotes da loja** (supervisão) | Só nos itens do **próprio** usuário |
+| `encarregado` | Só o **próprio** | Só os **próprios** lotes | Só nos itens do **próprio** usuário |
+
+O rascunho é **sempre do próprio login** (inclusive para o admin): a lista que
+ele monta, exporta e envia é a dele. Sem essa separação o admin veria os itens
+de outro login na própria lista e o envio não marcaria o lote — o `mark_sent`
+só alcança o que é dele. A supervisão do admin acontece no **histórico**, que
+lista os lotes enviados da loja inteira (com o autor de cada um).
+
+O dono do item é `rebaixa_products.created_by` (o `username` do token). As
+ações destrutivas nunca alcançam a lista de outro login, mesmo para o admin.
+O rascunho é deduplicado por `(loja, created_by, validade_id)` — o mesmo item
+da Validade pode estar na rebaixa de dois logins diferentes.
 
 ### `api/query-product.ts`
 
@@ -113,7 +130,7 @@ O encarregado vê a tela **Adicionar Produto** sem o modo "Editar"
 | Endpoint | Regra |
 | --- | --- |
 | `api/manage-users.ts` | Todas as ações de gestão: **admin**. `list_lojas`: qualquer logado. |
-| `api/manage-emails.ts` | Leitura: admin, encarregado. Cadastro/edição: **admin**. |
+| `api/manage-emails.ts` | Leitura: admin, encarregado. Destinatários (`add`, `update`, `remove`, `setDefault`, `setDefaults`): **admin**. Conta de envio: `my_account`/`save_account` = o próprio login; `list_accounts`/`update_account`/`remove_account` = **admin**. |
 | `api/send-rebaixa-email.ts` | admin, encarregado. |
 | `api/manage-consulta.ts` | `list`: qualquer logado. `replace`: **admin**. |
 | `api/manage-metas.ts` | **admin**. |
@@ -121,7 +138,40 @@ O encarregado vê a tela **Adicionar Produto** sem o modo "Editar"
 | `api/manage-arrastao.ts` | Sessão/itens: participantes logados. `consulta_all_items`: admin (tudo) / encarregado (equipe). |
 | `api/auth-login.ts` | Normaliza `enc_flv` → `encarregado` no token. |
 
-## 6. O que continua igual
+## 6. Conta de e-mail de envio (remetente)
+
+Cada login que envia rebaixa pode ter a **própria caixa** no servidor padrão
+da empresa (`mail.comper.com.br`, TLS na porta 465). O servidor é o mesmo
+para todos — o que muda é o par **usuário/senha**:
+
+- Tabela `public.email_envio (loja, usuario)` — uma conta por login e loja
+  (unicidade em `(loja, usuario)`).
+- A senha fica **criptografada** (AES-256-GCM, `api/_lib/email-crypto.ts`),
+  com a chave derivada de `EMAIL_ENC_SECRET` (ou, na falta, `JWT_SECRET`).
+  **Ela nunca volta para o navegador** — a tela só sabe se existe (`temSenha`).
+- No envio (`api/send-rebaixa-email.ts`), a conta do usuário tem **precedência**
+  sobre a configuração do servidor: a rebaixa sai da caixa de quem montou a
+  lista. Sem conta cadastrada, vale o fallback do servidor (Resend ou SMTP das
+  env vars).
+- Os **destinatários** (`email_padrao`) continuam sendo **por loja** e são
+  gerenciados pelo admin — o encarregado não altera a lista da loja.
+
+### Quem faz o quê
+
+| Ação | Admin | Encarregado |
+| --- | :---: | :---: |
+| Ver a própria conta (`my_account`) | ✅ | ✅ |
+| Salvar a própria conta (`save_account`) | ✅ | ✅ |
+| Ver as contas da loja (`list_accounts`) | ✅ | — |
+| Editar a conta de outro login (`update_account`) | ✅ | — |
+| Remover a conta de outro login (`remove_account`) | ✅ | — |
+| Destinatários e assunto/mensagem padrão | ✅ | — |
+
+Quando o admin edita a conta de outro login e deixa a senha em branco, a
+senha guardada **continua valendo** (`api/_lib/email-envio.ts`
+→ `atualizarContaDeEnvio`).
+
+## 7. O que continua igual
 
 - O catálogo (`produto`, `produto_codigos`, `produto_eans`, `categoria`,
   `produto_embalagens`, custo/PMZ) é **compartilhado** entre as lojas.
