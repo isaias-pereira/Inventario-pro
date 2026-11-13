@@ -52,6 +52,10 @@ function responderPadrao(text: string): unknown[] {
   if (text.includes('COUNT(*)::int AS c')) return [{ c: 0 }];
   if (text.includes('information_schema.columns')) return [{ column_name: 'loja' }];
   if (text.includes('MAX(numero)')) return [{ max: 0 }];
+  // O lote aberto é do próprio usuário (Inventário por login).
+  if (text.includes('FROM inventory_lotes') && text.includes("status = 'aberto'")) {
+    return [{ numero: 29 }];
+  }
   // Validação dos encarregados no cadastro/edição de usuário.
   if (text.includes('FROM public.app_users') && text.includes('username = ANY')) {
     return [{ username: 'isa', role: 'admin', loja: 103 }];
@@ -216,8 +220,12 @@ describe('escopo por loja — Consulta', () => {
 });
 
 describe('escopo por loja — Inventário', () => {
-  it('cria o lote na loja do token', async () => {
-    const { chamadas } = installSql();
+  it('cria o lote na loja do token quando o usuário ainda não tem um', async () => {
+    const { chamadas } = installSql((text) => {
+      // O usuário ainda não tem lote aberto: o endpoint cria o dele.
+      if (text.includes('FROM inventory_lotes') && text.includes("status = 'aberto'")) return [];
+      return responderPadrao(text);
+    });
     const { res } = fakeResponse();
 
     await manageInventory(request({
@@ -229,23 +237,43 @@ describe('escopo por loja — Inventário', () => {
     const lote = chamadasCom(chamadas, 'INSERT INTO inventory_lotes')[0];
     expect(lote.text).toContain('loja');
     expect(lote.params).toContain(103);
+    // O lote nasce em nome do usuário do token.
+    expect(lote.params).toContain('isa');
+  });
+
+  it('grava o item no lote aberto do próprio usuário', async () => {
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageInventory(request({
+      action: 'add',
+      item: { ean: '7891000315507', codigo: '123', descricao: 'LEITE' },
+      quantidade: 3,
+    }), res);
 
     const item = chamadasCom(chamadas, 'INSERT INTO shared_inventory')[0];
     expect(item.text).toContain('loja');
     expect(item.params).toContain(103);
+    expect(item.params).toContain(29);
+    expect(item.params).toContain('isa');
   });
 
-  it('busca o lote aberto da loja do token', async () => {
+  it('busca o lote aberto do próprio usuário na loja do token', async () => {
     const { chamadas } = installSql();
     const { res } = fakeResponse();
 
     await manageInventory(request({ action: 'list' }), res);
 
-    const aberto = chamadasCom(chamadas, "FROM inventory_lotes WHERE loja")[0];
-    expect(aberto.params).toContain(103);
+    const aberto = chamadasCom(chamadas, 'FROM inventory_lotes')
+      .find((chamada) => chamada.text.includes("status = 'aberto'"));
+    expect(aberto).toBeDefined();
+    expect(aberto?.text).toContain('loja =');
+    expect(aberto?.text).toContain('created_by =');
+    expect(aberto?.params).toContain(103);
+    expect(aberto?.params).toContain('isa');
   });
 
-  it('limpa apenas os itens da loja do token', async () => {
+  it('limpa apenas os itens do lote do próprio usuário', async () => {
     const { chamadas } = installSql();
     const { res } = fakeResponse();
 
@@ -254,6 +282,17 @@ describe('escopo por loja — Inventário', () => {
     const remocao = chamadasCom(chamadas, 'DELETE FROM shared_inventory')[0];
     expect(remocao.text).toContain('loja =');
     expect(remocao.params).toContain(103);
+    expect(remocao.params).toContain(29);
+  });
+
+  it('não abre lote de outro usuário ao listar', async () => {
+    const { chamadas } = installSql();
+    const { res } = fakeResponse();
+
+    await manageInventory(request({ action: 'list' }), res);
+
+    // A listagem só consulta o lote do próprio login — nenhum INSERT.
+    expect(chamadasCom(chamadas, 'INSERT INTO inventory_lotes')).toHaveLength(0);
   });
 });
 

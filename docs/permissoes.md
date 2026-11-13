@@ -10,7 +10,7 @@
 | Perfil | Papel |
 | --- | --- |
 | `admin` | **Root** da loja atual: vê e faz tudo. Pode trocar de loja em runtime. |
-| `encarregado` | Responsável por uma equipe (`user`, `promotor`, `col_validade`). Vê as validades dele **e as da equipe**. Tem inventário, rebaixa, e-mail e cadastro de produto. |
+| `encarregado` | Responsável por uma equipe (`user`, `promotor`, `col_validade`). Vê as validades dele **e as da equipe**. Edita/exclui os itens da equipe. Tem inventário (só o próprio), rebaixa, e-mail, cadastro de produto e cadastro de usuários da equipe. |
 | `user` | Operador de validade. **Não tem acesso ao inventário.** |
 | `promotor` | Promotor de loja. Só Validade. |
 | `col_validade` | Coletor de validade. Só Validade e vê apenas as próprias coletas. |
@@ -34,6 +34,10 @@ A loja **sempre** vem do JWT (`payload.loja`, assinado no login a partir de
 - O admin altera os vínculos na tela **Usuários** (checkbox múltiplo). As ações
   `add` e `update` de `api/manage-users.ts` recebem `newUser.encarregados: string[]`;
   sem escolha explícita, o admin que cadastra vira o responsável.
+- O **encarregado** cadastra usuários pelo mesmo endpoint, mas **sem escolher o
+  responsável**: o vínculo é automático (ele mesmo). O acesso nasce na **loja do
+  token** e só pode ser `user`, `promotor` ou `col_validade`. Ele não edita nem
+  remove acessos, e a `list` dele traz apenas a própria equipe.
 - Um usuário que muda para `admin`/`encarregado` **perde** os vínculos antigos
   (não faz sentido um supervisor vinculado a outro).
 - Código: `api/_lib/encarregados.ts` (`ensureEncarregadosSchema`,
@@ -56,19 +60,24 @@ A loja **sempre** vem do JWT (`payload.loja`, assinado no login a partir de
 O `consulta_all_items` do Arrastão (usado na Consulta por Período) também
 limita o encarregado a `scanned_by` dele + da equipe.
 
+O `list_users` do encarregado devolve o **roster da equipe** (ele + os usuários
+vinculados a ele), mesmo os que ainda não coletaram nada — é o que alimenta o
+dropdown "Coletado por" da Consulta por Período. Na tela, o encarregado **não
+vê a opção "Arrastão"** nesse dropdown (o admin vê).
+
 ## 4. Telas por perfil
 
 | Tela | `admin` | `encarregado` | `user` | `promotor` | `col_validade` |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | Consulta | ✅ | — | — | — | — |
-| Inventário | ✅ | ✅ | — | — | — |
+| Inventário | ✅ (só o próprio) | ✅ (só o próprio) | — | — | — |
 | Metas | ✅ | — | — | — | — |
 | Validade | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Rebaixa | ✅ | ✅ | — | — | — |
 | E-mail | ✅ | ✅ (destinatários: só leitura · conta de envio: edita a própria) | — | — | — |
 | Adicionar Produto | ✅ | ✅ (só cadastro) | — | — | — |
 | Base de Dados | ✅ | — | — | — | — |
-| Usuários | ✅ | — | — | — | — |
+| Usuários | ✅ | ✅ (só cadastro e lista da equipe) | — | — | — |
 | Revisão de Seções | ✅ | — | — | — | — |
 
 ## 5. Ações por endpoint
@@ -79,17 +88,21 @@ limita o encarregado a `scanned_by` dele + da equipe.
 | --- | --- | --- |
 | `list`, `list_all`, `notifications` | todos os logados | Filtro de visibilidade da seção 3 |
 | `add` | todos os logados | Grava `created_by` = usuário do token |
-| `update`, `remove` | admin | |
+| `update`, `remove` | admin, **encarregado** | O encarregado só alcança os itens **da própria equipe** (`created_by = ANY(equipe)`) |
 | `consulta_periodo` | admin, encarregado | Encarregado limitado à equipe |
-| `list_users` | admin, encarregado | Encarregado limitado à equipe |
-| `whatsapp_*` | admin, encarregado | Credenciais só no servidor; o alerta é **da loja** (não é filtrado por equipe) |
+| `list_users` | admin, encarregado | Encarregado recebe o **roster da equipe** |
+| `whatsapp_*` | **admin** | Credenciais só no servidor; o alerta é **da loja** (não é filtrado por equipe) |
 
 ### `api/manage-inventory.ts`
 
+O inventário é **por usuário**: cada login tem o seu lote aberto e só enxerga
+os lotes que criou (`inventory_lotes.created_by`). Antes o lote era único por
+loja e os itens de um login apareciam no inventário de outro.
+
 | Ação | Quem pode |
 | --- | --- |
-| `list`, `list_lotes`, `get_lote`, `list_audit`, `add`, `suspend`, `resume`, `rename`, `finalize` | admin, encarregado |
-| `update`, `remove`, `clear` | **admin** |
+| `list`, `list_lotes`, `get_lote`, `list_audit`, `add`, `suspend`, `resume`, `rename`, `finalize` | admin, encarregado (sempre no lote do próprio login) |
+| `update`, `remove`, `clear` | **admin** (só no lote aberto do próprio login) |
 
 ### `api/manage-rebaixa.ts`
 
@@ -129,7 +142,7 @@ O encarregado vê a tela **Adicionar Produto** sem o modo "Editar"
 
 | Endpoint | Regra |
 | --- | --- |
-| `api/manage-users.ts` | Todas as ações de gestão: **admin**. `list_lojas`: qualquer logado. |
+| `api/manage-users.ts` | `list`: admin (loja inteira) / **encarregado (só a equipe)**. `list_encarregados`: admin (loja) / **encarregado (só ele)**. `add`: **admin** (qualquer perfil, qualquer loja da lista) / **encarregado** (só `user`/`promotor`/`col_validade`, na loja do token, com vínculo automático nele). `update`, `delete`, `switch_loja`: **admin**. `list_lojas`: qualquer logado. |
 | `api/manage-emails.ts` | Leitura: admin, encarregado. Destinatários (`add`, `update`, `remove`, `setDefault`, `setDefaults`): **admin**. Conta de envio: `my_account`/`save_account` = o próprio login; `list_accounts`/`update_account`/`remove_account` = **admin**. |
 | `api/send-rebaixa-email.ts` | admin, encarregado. |
 | `api/manage-consulta.ts` | `list`: qualquer logado. `replace`: **admin**. |
@@ -171,7 +184,24 @@ Quando o admin edita a conta de outro login e deixa a senha em branco, a
 senha guardada **continua valendo** (`api/_lib/email-envio.ts`
 → `atualizarContaDeEnvio`).
 
-## 7. O que continua igual
+## 7. Inventário por usuário
+
+O inventário é **por login**, não por loja:
+
+- Cada login tem **um lote aberto** — `inventory_lotes.created_by` é o usuário
+  do token — e só enxerga os lotes que criou (`list`, `list_lotes`,
+  `get_lote`, `list_audit`, `rename`, `suspend`, `resume`, `finalize`).
+- O índice único parcial `idx_inventory_lotes_aberto_usuario`
+  (`(loja, created_by)` onde `status = 'aberto'`) garante a regra de um lote
+  aberto por usuário.
+- A migration `db/migrations/20261113110000_inventario_por_usuario.sql`
+  **dividiu** os lotes que tinham itens de coletores diferentes do dono: cada
+  coletor ganhou um lote próprio, com os itens dele (nada foi perdido nem
+  misturado).
+- `shared_inventory.created_by` continua sendo quem **contou** o item — é a
+  origem do split.
+
+## 8. O que continua igual
 
 - O catálogo (`produto`, `produto_codigos`, `produto_eans`, `categoria`,
   `produto_embalagens`, custo/PMZ) é **compartilhado** entre as lojas.

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { invokeFunction } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { Search, Loader2, CalendarClock, FileText, User, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +27,10 @@ function getToken(): string | null {
 }
 
 const ConsultaValidadeView = () => {
+  const { userRole } = useAuth();
+  // O Arrastão é uma sessão de contagem: só o admin consulta. O encarregado
+  // filtra pelos usuários da própria equipe.
+  const canSeeArrastao = userRole === 'admin';
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [selectedUser, setSelectedUser] = useState('todos');
@@ -130,7 +135,7 @@ const ConsultaValidadeView = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todos</SelectItem>
-              <SelectItem value="__arrastao__">Arrastão</SelectItem>
+              {canSeeArrastao && <SelectItem value="__arrastao__">Arrastão</SelectItem>}
               {users.map((u) => (
                 <SelectItem key={u} value={u}>{u}</SelectItem>
               ))}

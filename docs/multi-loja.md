@@ -32,7 +32,7 @@ validade da loja 92; a loja 92 não apaga a base de consulta da loja 103.
 | `app_users` | Usuários e o vínculo com a loja | `username` único (global), `loja` do usuário |
 | `validade_products` | Itens da Validade | id |
 | `shared_inventory` | Itens contados no Inventário | `(loja, codigo, lote_numero)` |
-| `inventory_lotes` | Lotes de contagem | `(loja, numero)` — um lote aberto por loja |
+| `inventory_lotes` | Lotes de contagem | `(loja, numero)` — um lote aberto por **(loja, usuário)** |
 | `inventory_lote_audit` | Auditoria do Inventário | — |
 | `consulta_products` | Base da Consulta (estoque/preço da loja) | `(loja, codigo)` |
 | `metas_mensais` | Meta e realizado do mês | `(loja, ano, mes, dia)` |
@@ -126,9 +126,9 @@ que eu quiser": ele só pode pedir uma loja que o servidor validou.
 
 | Action | Quem pode | O que faz |
 | --- | --- | --- |
-| `list` | admin | Lista os usuários **da loja do token** (com a loja e os encarregados vinculados) |
-| `list_encarregados` | admin | Lista encarregados/admin da loja para o seletor de vínculo |
-| `add` | admin | Cadastra um usuário (na loja do token ou na loja informada, validada) e grava os vínculos |
+| `list` | admin / **encarregado** | Admin: usuários **da loja do token** (com a loja e os encarregados vinculados). Encarregado: **só a equipe dele** |
+| `list_encarregados` | admin / **encarregado** | Admin: encarregados/admin da loja para o seletor de vínculo. Encarregado: **só ele** |
+| `add` | admin / **encarregado** | Admin: cadastra qualquer perfil (na loja do token ou na loja informada, validada) e grava os vínculos. Encarregado: só `user`/`promotor`/`col_validade`, **na loja do token**, com **vínculo automático** nele |
 | `update` | admin | Altera perfil, senha, loja e encarregados (só acessos da loja atual) |
 | `delete` | admin | Remove um usuário da loja atual |
 | `list_lojas` | qualquer logado | Lista as lojas (alimenta o seletor e o badge) |
@@ -190,9 +190,9 @@ Além do escopo de loja, a Rebaixa tem escopo de **usuário**
   alerta por loja**: digest, lista e destinatários são os da loja.
 - A idempotência é por `(loja, slot, dia)`: a loja 92 não "queima" o slot da
   loja 103 (e vice-versa).
-- A tela (botão verde na Validade, admin/encarregado) mostra a prévia e envia
+- A tela (botão verde na Validade, **só admin**) mostra a prévia e envia
   manualmente **os produtos da loja do usuário** para **os destinatários da
-  loja**.
+  loja**. O encarregado não vê o botão e o servidor recusa a ação.
 - O token e o número do remetente continuam **só no servidor** — o navegador
   nunca vê a credencial.
 
@@ -320,7 +320,8 @@ SELECT loja, role, count(*) FROM public.app_users GROUP BY loja, role;
 
 | Arquivo | O que trava |
 | --- | --- |
-| `src/test/loja-escopo.test.ts` | 23 casos: cada endpoint filtra e grava pela loja do token (Validade, Consulta, Inventário, Metas, Rebaixa, Arrastão, Usuários, E-mails), inclusive a troca de loja re-assinando o token |
+| `src/test/loja-escopo.test.ts` | 30 casos: cada endpoint filtra e grava pela loja do token (Validade, Consulta, Inventário, Metas, Rebaixa, Arrastão, Usuários, E-mails), inclusive a troca de loja re-assinando o token e o **Inventário por usuário** |
+| `src/test/encarregado-permissoes.test.ts` | O contrato do encarregado: edita/exclui só os itens da equipe, roster no "Coletado por", WhatsApp só do admin e cadastro de usuários com vínculo automático |
 | `src/test/whatsapp-validade.test.ts` | Cron por loja, destinatários por loja e prévia da tela mostrando só a loja do usuário |
 | `src/test/auth-login.test.ts` | A claim `loja` no token e o fallback para a loja padrão |
 | `src/test/header-username.test.tsx` | O selo de loja no cabeçalho — inclusive no celular (sem `hidden ... sm:inline-flex`, que sumia no mobile) |

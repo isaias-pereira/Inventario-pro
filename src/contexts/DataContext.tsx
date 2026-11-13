@@ -292,7 +292,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data } = await invokeWithToken('manage-inventory', { action: 'list' });
       if (data?.items) {
         setInventoryItemsState(data.items.map(mapInventoryItem));
-        if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
+        // O inventário é por usuário: sem lote aberto, `lote_numero` vem nulo.
+        setCurrentLote(typeof data.lote_numero === 'number' ? data.lote_numero : null);
         setCurrentLoteNome(data.lote_nome ?? null);
       }
     }

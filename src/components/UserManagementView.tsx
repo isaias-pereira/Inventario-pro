@@ -45,6 +45,16 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
 ];
 
+/**
+ * Perfis que o **encarregado** pode cadastrar. O vínculo é automático: o
+ * novo acesso fica sob a responsabilidade de quem cadastrou.
+ */
+const SUBORDINATE_ROLE_OPTIONS = [
+  { value: 'user', label: 'Usuário' },
+  { value: 'promotor', label: 'Promotor' },
+  { value: 'col_validade', label: 'Col. Validade' },
+];
+
 /** Perfis que precisam estar vinculados a um ou mais encarregados. */
 const isSubordinate = (role: string) =>
   role === 'user' || role === 'promotor' || role === 'col_validade';
@@ -106,7 +116,9 @@ const EncarregadosPicker = ({
 );
 
 const UserManagementView = () => {
-  const { getToken, loja: lojaAtual } = useAuth();
+  const { getToken, loja: lojaAtual, userRole } = useAuth();
+  // O encarregado cadastra a própria equipe (sem editar/remover acessos).
+  const isEncarregado = userRole === 'encarregado';
   const [users, setUsers] = useState<AppUser[]>([]);
   const [lojas, setLojas] = useState<Loja[]>([]);
   const [loading, setLoading] = useState(true);
@@ -185,7 +197,8 @@ const UserManagementView = () => {
           // O acesso nasce na loja em que o admin está (a loja do token).
           loja: lojaAtual ?? undefined,
           // user/promotor/col_validade precisam de ao menos um encarregado.
-          encarregados: isSubordinate(newRole) ? newEncarregados : [],
+          // O encarregado não escolhe: o vínculo com ele é automático.
+          encarregados: isEncarregado ? [] : (isSubordinate(newRole) ? newEncarregados : []),
         },
       });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao adicionar usuário'); return; }
@@ -243,10 +256,14 @@ const UserManagementView = () => {
     <div className="mx-auto max-w-2xl px-3 sm:px-4 py-6 sm:py-10">
       <div className="mb-4 sm:mb-6">
         <h2 className="mb-1 text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
-          <Users className="h-6 w-6" /> Gerenciar Usuários
+          <Users className="h-6 w-6" /> {isEncarregado ? 'Minha Equipe' : 'Gerenciar Usuários'}
         </h2>
         <p className="text-sm text-white/80">
-          Acessos de <span className="font-semibold">{nomeLojaAtual}</span> — para ver outra loja, troque de loja no menu do usuário.
+          {isEncarregado ? (
+            <>Usuários vinculados a você em <span className="font-semibold">{nomeLojaAtual}</span> — os novos acessos já nascem vinculados a você.</>
+          ) : (
+            <>Acessos de <span className="font-semibold">{nomeLojaAtual}</span> — para ver outra loja, troque de loja no menu do usuário.</>
+          )}
         </p>
       </div>
 
@@ -264,26 +281,35 @@ const UserManagementView = () => {
           <Select value={newRole} onValueChange={setNewRole}>
             <SelectTrigger className="w-full sm:w-[140px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              {(isEncarregado ? SUBORDINATE_ROLE_OPTIONS : ROLE_OPTIONS).map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Button onClick={handleAdd} disabled={adding || !newUsername.trim() || !newPassword.trim()} className="gap-2">
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Adicionar
           </Button>
         </div>
-        {isSubordinate(newRole) && (
-          <div className="mt-3">
-            <EncarregadosPicker
-              options={encarregados}
-              selected={newEncarregados}
-              onChange={setNewEncarregados}
-              emptyLabel="Nenhum encarregado cadastrado nesta loja."
-            />
-          </div>
+        {isEncarregado ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            O novo acesso fica vinculado a você automaticamente e é criado em{' '}
+            <span className="font-medium text-foreground">{nomeLojaAtual}</span>.
+          </p>
+        ) : (
+          <>
+            {isSubordinate(newRole) && (
+              <div className="mt-3">
+                <EncarregadosPicker
+                  options={encarregados}
+                  selected={newEncarregados}
+                  onChange={setNewEncarregados}
+                  emptyLabel="Nenhum encarregado cadastrado nesta loja."
+                />
+              </div>
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              O acesso é criado em <span className="font-medium text-foreground">{nomeLojaAtual}</span>.
+            </p>
+          </>
         )}
-        <p className="mt-2 text-xs text-muted-foreground">
-          O acesso é criado em <span className="font-medium text-foreground">{nomeLojaAtual}</span>.
-        </p>
       </div>
 
       {/* Users list */}
@@ -341,14 +367,16 @@ const UserManagementView = () => {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleEdit(u)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(u.username)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {!isEncarregado && (
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleEdit(u)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(u.username)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -437,7 +465,7 @@ const UserManagementView = () => {
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
-                      ) : (
+                      ) : !isEncarregado ? (
                         <div className="flex gap-1">
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEdit(u)}>
                             <Pencil className="h-4 w-4" />
@@ -446,7 +474,7 @@ const UserManagementView = () => {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                      )}
+                      ) : null}
                     </TableCell>
                   </TableRow>
                   </Fragment>

@@ -239,16 +239,26 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    // UPDATE (admin only)
+    // UPDATE (admin ou encarregado da equipe)
     if (action === 'update') {
-      if (payload.role !== 'admin') {
-        sendJson(res, { error: 'Apenas admin pode editar' }, 403);
+      if (payload.role !== 'admin' && payload.role !== 'encarregado') {
+        sendJson(res, { error: 'Acesso restrito a admin e encarregado' }, 403);
         return;
       }
       const { id, validade: newValidade, quantidade: newQuantidade } = body;
       if (!id || !newValidade) {
         sendJson(res, { error: 'Dados incompletos' }, 400);
         return;
+      }
+
+      // O encarregado só mexe nos itens coletados pela própria equipe.
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const alvo = await sql`SELECT id FROM validade_products WHERE id = ${id} AND loja = ${loja} AND created_by = ANY(${equipe}::text[]) LIMIT 1`;
+        if (alvo.length === 0) {
+          sendJson(res, { error: 'Item não encontrado' }, 404);
+          return;
+        }
       }
 
       const hasMotivo = 'motivo' in body;
@@ -269,16 +279,25 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    // REMOVE (admin only)
+    // REMOVE (admin ou encarregado da equipe)
     if (action === 'remove') {
-      if (payload.role !== 'admin') {
-        sendJson(res, { error: 'Apenas admin pode remover' }, 403);
+      if (payload.role !== 'admin' && payload.role !== 'encarregado') {
+        sendJson(res, { error: 'Acesso restrito a admin e encarregado' }, 403);
         return;
       }
       const { id } = body;
       if (!id) {
         sendJson(res, { error: 'ID obrigatório' }, 400);
         return;
+      }
+      // O encarregado só remove itens coletados pela própria equipe.
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const alvo = await sql`SELECT id FROM validade_products WHERE id = ${id} AND loja = ${loja} AND created_by = ANY(${equipe}::text[]) LIMIT 1`;
+        if (alvo.length === 0) {
+          sendJson(res, { error: 'Item não encontrado' }, 404);
+          return;
+        }
       }
       await sql`UPDATE validade_products SET status = false WHERE id = ${id} AND loja = ${loja}`;
       sendJson(res, { success: true });
@@ -351,9 +370,11 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       if (payload.role === 'encarregado') {
+        // O encarregado vê o **roster da equipe** (usuários vinculados a ele),
+        // não só quem já coletou — assim o filtro "Coletado por" já traz
+        // todos os usuários da equipe.
         const equipe = await equipeDoEncarregado(sql, username, loja);
-        const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by = ANY(${equipe}::text[]) ORDER BY created_by`;
-        sendJson(res, { users: data.map((row: any) => row.created_by) });
+        sendJson(res, { users: equipe });
         return;
       }
       const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by IS NOT NULL ORDER BY created_by`;

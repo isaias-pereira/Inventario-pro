@@ -136,9 +136,9 @@ beforeEach(() => {
 });
 
 describe('canSendWhatsapp', () => {
-  it('libera só admin e encarregado', () => {
+  it('libera só admin (o encarregado não dispara o alerta)', () => {
     expect(canSendWhatsapp('admin')).toBe(true);
-    expect(canSendWhatsapp('encarregado')).toBe(true);
+    expect(canSendWhatsapp('encarregado')).toBe(false);
     expect(canSendWhatsapp('user')).toBe(false);
     expect(canSendWhatsapp('enc_flv')).toBe(false);
     expect(canSendWhatsapp(null)).toBe(false);

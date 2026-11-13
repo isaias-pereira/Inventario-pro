@@ -12,7 +12,7 @@
  *   equivalentes a 07h e 13h em Brasília). Exige `CRON_SECRET` no cabeçalho
  *   `Authorization: Bearer <secret>` e é idempotente por slot/dia na tabela
  *   `whatsapp_envios` — se o cron repetir, a segunda chamada não reenvia.
- * - **POST** — usado pela tela da Validade (admin/encarregado), com as ações
+ * - **POST** — usado pela tela da Validade (só admin), com as ações
  *   prefixadas por `whatsapp_`:
  *   - `whatsapp_config`: estado da integração e destinatários (mascarados);
  *   - `whatsapp_preview`: resumo e lista que seriam enviados, sem enviar nada;
@@ -48,7 +48,7 @@ import {
 import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, resolveLoja } from './loja.js';
 
 /** Papéis que podem ver a configuração e disparar o alerta pela tela. */
-export const WHATSAPP_ROLES = ['admin', 'encarregado'] as const;
+export const WHATSAPP_ROLES = ['admin'] as const;
 
 export function canSendWhatsapp(role: unknown): boolean {
   return typeof role === 'string' && (WHATSAPP_ROLES as readonly string[]).includes(role);
@@ -427,7 +427,7 @@ export async function handleWhatsappPost(
     if (!payload) return;
 
     if (!canSendWhatsapp(payload.role)) {
-      sendJson(res, { error: 'Apenas admin e encarregado podem enviar alertas por WhatsApp' }, 403);
+      sendJson(res, { error: 'Apenas admin pode enviar alertas por WhatsApp' }, 403);
       return;
     }
 

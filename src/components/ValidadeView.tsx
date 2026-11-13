@@ -107,7 +107,10 @@ const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin, userRole } = useAuth();
   const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado';
   const canSendEmail = isAdmin || userRole === 'encarregado';
-  const canSendWhatsapp = isAdmin || userRole === 'encarregado';
+  // O alerta de WhatsApp é só do admin (o encarregado não dispara).
+  const canSendWhatsapp = isAdmin;
+  // Encarregado edita/exclui os itens da própria equipe (o servidor confere).
+  const canEditValidade = isAdmin || userRole === 'encarregado';
   const [code, setCode] = useState('');
   const [validade, setValidade] = useState('');
   const [product, setProduct] = useState<ProductResult | null>(null);
@@ -1190,7 +1193,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
                             <Tag className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        {isAdmin && (
+                        {canEditValidade && (
                           <>
                             <Button
                               variant="ghost"
@@ -1592,7 +1595,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
                         Enviar para rebaixa
                       </Button>
                     )}
-                    {isAdmin && (
+                    {canEditValidade && (
                       <Button
                         variant="outline"
                         size="sm"

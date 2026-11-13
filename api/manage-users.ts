@@ -7,9 +7,12 @@
  * nunca escolhe o escopo por conta própria.
  *
  * Ações (POST):
- * - `list`: lista os usuários da loja atual, com os encarregados vinculados (admin);
- * - `list_encarregados`: encarregados/admin da loja atual para o seletor (admin);
- * - `add`: cadastra um usuário numa loja (admin);
+ * - `list`: lista os usuários da loja atual, com os encarregados vinculados
+ *   (admin); o encarregado vê só a própria equipe;
+ * - `list_encarregados`: encarregados/admin da loja atual para o seletor
+ *   (admin); o encarregado vê só a si mesmo;
+ * - `add`: cadastra um usuário numa loja (admin); o encarregado cadastra
+ *   apenas usuários operacionais da própria equipe, já vinculados a ele;
  * - `update`: altera perfil, senha, loja e encarregados de um usuário (admin);
  * - `delete`: remove um usuário (admin);
  * - `list_lojas`: lista as lojas ativas (qualquer usuário logado);
@@ -31,6 +34,7 @@ import {
   isSubordinateRole,
   resolverEncarregados,
   substituirEncarregados,
+  usuariosDaEquipe,
 } from './_lib/encarregados.js';
 
 /** Perfis aceitos no cadastro/edição (o `enc_flv` não existe mais). */
@@ -61,8 +65,10 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    if (!payload.role || payload.role !== 'admin') {
-      sendJson(res, { error: 'Acesso negado. Somente administradores.' }, 403);
+    const isAdmin = payload.role === 'admin';
+    const isEncarregado = payload.role === 'encarregado';
+    if (!isAdmin && !isEncarregado) {
+      sendJson(res, { error: 'Acesso negado. Somente administradores e encarregados.' }, 403);
       return;
     }
     const adminUsername = payload.sub;
@@ -70,8 +76,12 @@ const handler: ApiHandler = async (req, res) => {
     // Tabela de vínculos e seed inicial (uma vez por instância).
     await ensureEncarregadosSchema(sql);
 
-    // Troca de loja: re-assina o token com a loja escolhida.
+    // Troca de loja: re-assina o token com a loja escolhida (só admin).
     if (action === 'switch_loja') {
+      if (!isAdmin) {
+        sendJson(res, { error: 'Acesso negado. Somente administradores.' }, 403);
+        return;
+      }
       const loja = Number((newUser as any)?.loja);
       if (!Number.isInteger(loja) || loja <= 0) {
         sendJson(res, { error: 'Loja inválida' }, 400);
@@ -104,11 +114,21 @@ const handler: ApiHandler = async (req, res) => {
       // Cada loja vê apenas os acessos dela: a lista sai da loja do token
       // (a loja que o admin está usando agora), nunca de todas as lojas.
       const loja = await resolveLoja(sql, payload);
-      const users = await sql`
-        SELECT id, username, role, loja, created_at
-          FROM app_users
-         WHERE loja = ${loja}
-         ORDER BY created_at ASC`;
+      // O encarregado enxerga só a própria equipe (ele + os vinculados).
+      const equipe = isEncarregado
+        ? [...new Set([payload.sub, ...(await usuariosDaEquipe(sql, payload.sub, loja))])]
+        : null;
+      const users = equipe
+        ? await sql`
+            SELECT id, username, role, loja, created_at
+              FROM app_users
+             WHERE loja = ${loja} AND username = ANY(${equipe}::text[])
+             ORDER BY created_at ASC`
+        : await sql`
+            SELECT id, username, role, loja, created_at
+              FROM app_users
+             WHERE loja = ${loja}
+             ORDER BY created_at ASC`;
       // Vínculos usuário → encarregado(s) da loja atual, agrupados por usuário.
       const vinculos = await sql`
         SELECT usuario, encarregado
@@ -135,11 +155,18 @@ const handler: ApiHandler = async (req, res) => {
     // vínculo da tela de Usuários.
     if (action === 'list_encarregados') {
       const loja = await resolveLoja(sql, payload);
-      const encarregados = await sql`
-        SELECT username, role, loja
-          FROM app_users
-         WHERE loja = ${loja} AND role IN ('encarregado', 'admin')
-         ORDER BY role DESC, username ASC`;
+      // O encarregado não escolhe responsável: o vínculo é automático (ele
+      // mesmo). Então a lista traz só ele.
+      const encarregados = isEncarregado
+        ? await sql`
+            SELECT username, role, loja
+              FROM app_users
+             WHERE loja = ${loja} AND username = ${payload.sub}`
+        : await sql`
+            SELECT username, role, loja
+              FROM app_users
+             WHERE loja = ${loja} AND role IN ('encarregado', 'admin')
+             ORDER BY role DESC, username ASC`;
       sendJson(res, { encarregados });
       return;
     }
@@ -156,17 +183,33 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
+      // O encarregado cadastra **apenas** usuários operacionais da própria
+      // equipe (user/promotor/col_validade) — o vínculo é automático: ele
+      // mesmo é o responsável pelo novo acesso.
+      if (isEncarregado && !isSubordinateRole(role)) {
+        sendJson(res, {
+          error: 'Encarregado só pode cadastrar usuários, promotores e coletores de validade.',
+        }, 403);
+        return;
+      }
+
       // Sem loja informada, o acesso nasce na loja do token (a loja atual do
-      // admin) — nunca na loja padrão global.
-      const loja = await lojaDoCadastro(sql, newUser.loja, await resolveLoja(sql, payload));
+      // admin) — nunca na loja padrão global. O encarregado não escolhe loja:
+      // o acesso nasce sempre na loja dele.
+      const loja = isEncarregado
+        ? await resolveLoja(sql, payload)
+        : await lojaDoCadastro(sql, newUser.loja, await resolveLoja(sql, payload));
       if (loja === null) {
         sendJson(res, { error: 'Loja inválida ou inativa' }, 400);
         return;
       }
 
       // user/promotor/col_validade precisam de ao menos um encarregado; sem
-      // escolha explícita, o admin que cadastra vira o responsável.
-      const vinculo = await resolverEncarregados(sql, role, newUser.encarregados, loja, adminUsername);
+      // escolha explícita, o admin que cadastra vira o responsável (para o
+      // encarregado, o responsável é sempre ele mesmo).
+      const vinculo = isEncarregado
+        ? { ok: true as const, value: [payload.sub] }
+        : await resolverEncarregados(sql, role, newUser.encarregados, loja, adminUsername);
       if (!vinculo.ok) {
         sendJson(res, { error: vinculo.error }, 400);
         return;
@@ -194,6 +237,10 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'update') {
+      if (!isAdmin) {
+        sendJson(res, { error: 'Acesso negado. Somente administradores.' }, 403);
+        return;
+      }
       if (!newUser?.username || !newUser?.role) {
         sendJson(res, { error: 'Usuário e perfil são obrigatórios' }, 400);
         return;
@@ -256,6 +303,10 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'delete') {
+      if (!isAdmin) {
+        sendJson(res, { error: 'Acesso negado. Somente administradores.' }, 403);
+        return;
+      }
       if (!newUser?.username) {
         sendJson(res, { error: 'Usuário é obrigatório' }, 400);
         return;

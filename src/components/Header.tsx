@@ -40,9 +40,13 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
 
   const adminItems = [
     { key: 'base' as const, label: 'Base de Dados', icon: Database },
-    { key: 'usuarios' as const, label: 'Usuários', icon: Users },
     { key: 'revisao-secoes' as const, label: 'Revisão de Seções', icon: Tags },
   ];
+
+  // Usuários: o admin gerencia os acessos da loja; o encarregado cadastra
+  // os usuários da própria equipe (sem editar/remover).
+  const usersItems = [{ key: 'usuarios' as const, label: 'Usuários', icon: Users }];
+  const showUsersItems = isAdmin || userRole === 'encarregado';
 
   // Cadastro de produto: admin e encarregado (a edição do catálogo é só admin).
   const productItems = [{ key: 'add-produto' as const, label: 'Adicionar Produto', icon: PackagePlus }];
@@ -186,6 +190,21 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
               {showProductItems && (
                 <>
                   {productItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onClick={() => handleNav(item.key)}
+                      className={`gap-2 cursor-pointer ${currentView === item.key ? 'bg-accent font-medium' : ''}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {!isAdmin && <DropdownMenuSeparator />}
+                </>
+              )}
+              {showUsersItems && (
+                <>
+                  {usersItems.map((item) => (
                     <DropdownMenuItem
                       key={item.key}
                       onClick={() => handleNav(item.key)}
