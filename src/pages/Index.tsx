@@ -44,7 +44,7 @@ const Index = () => {
     if (userRole === 'admin') return true;
     if (userRole === 'encarregado') {
       return v === 'validade' || v === 'rebaixa' || v === 'email'
-        || v === 'inventario' || v === 'add-produto';
+        || v === 'inventario' || v === 'add-produto' || v === 'usuarios';
     }
     if (userRole === 'user') return v === 'validade';
     if (userRole === 'promotor' || userRole === 'col_validade') return v === 'validade';
@@ -91,7 +91,7 @@ const Index = () => {
         {safeView === 'rebaixa' && <RebaixaView />}
         {safeView === 'email' && <EmailView />}
         {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
-        {safeView === 'usuarios' && isAdmin && <UserManagementView />}
+        {safeView === 'usuarios' && (isAdmin || userRole === 'encarregado') && <UserManagementView />}
         {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && (
           <AddProductView canEdit={isAdmin} />
         )}
