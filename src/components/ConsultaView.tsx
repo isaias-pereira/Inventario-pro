@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useData } from '@/contexts/DataContext';
 import { invokeFunction } from '@/lib/api';
-import { ScanBarcode, PackageX, AlertCircle, ShoppingBasket, AlertTriangle, Package, DollarSign, Hash, FileText, Loader2 } from 'lucide-react';
+import { ScanBarcode, PackageX, AlertCircle, ShoppingBasket, AlertTriangle, Package, DollarSign, Hash, FileText, Loader2, BookOpen } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import SecaoBadge from '@/components/SecaoBadge';
+import { guiaParaDescricao } from '@/data/guias';
 
 interface ConsultaResult {
   codigo: string;
@@ -86,6 +87,8 @@ const ConsultaView = () => {
   const hasStock = result?.estoque !== null && result?.estoque !== undefined;
   const hasPrice = result?.preco !== null && result?.preco !== undefined;
   const isNegativeStock = hasStock && result!.estoque! < 0;
+  /** Guia de Hortifrui do produto (se o setor já tiver um guia publicado). */
+  const guiaDoProduto = result ? guiaParaDescricao(result.descricao) : undefined;
 
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10">
@@ -195,6 +198,18 @@ const ConsultaView = () => {
                       <div className="mt-1.5">
                         <SecaoBadge secao={result.secao} />
                       </div>
+                    )}
+                    {/* Guia do cliente: o mesmo material que o QR da banca mostra */}
+                    {guiaDoProduto && (
+                      <a
+                        href={`/g/${guiaDoProduto.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs font-medium text-primary transition hover:bg-primary/10"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                        Guia do cliente: {guiaDoProduto.nome}
+                      </a>
                     )}
                   </div>
                 </div>

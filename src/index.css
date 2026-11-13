@@ -126,3 +126,39 @@
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   }
 }
+
+/*
+ * Guia público de Hortifrui (página que o cliente abre ao escanear o QR).
+ * A entrada dos blocos é escalonada por `animation-delay` inline.
+ */
+@keyframes guia-entra {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.guia-entra {
+  animation: guia-entra 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guia-entra {
+    animation: none;
+  }
+}
+
+/* Impressão: a folha de etiquetas não leva o cabeçalho do sistema. */
+@media print {
+  .app-header {
+    display: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
