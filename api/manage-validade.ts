@@ -34,6 +34,17 @@ function isDigits14(value: unknown): string | null {
   return /^\d{1,14}$/.test(clean) ? clean : null;
 }
 
+/**
+ * O `id` da Validade é um UUID. Sem essa checagem, um id inválido derrubava a
+ * query do Postgres (`invalid input syntax for type uuid`) e a resposta era um
+ * 500 — agora é um 400 claro.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: unknown): boolean {
+  return typeof value === 'string' && UUID_RE.test(value.trim());
+}
+
 let schemaReady = false;
 
 /** Índices e colunas criados de forma idempotente (uma vez por instância). */
@@ -250,6 +261,10 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Dados incompletos' }, 400);
         return;
       }
+      if (!isUuid(id)) {
+        sendJson(res, { error: 'ID inválido' }, 400);
+        return;
+      }
 
       // O encarregado só mexe nos itens coletados pela própria equipe.
       if (payload.role === 'encarregado') {
@@ -288,6 +303,10 @@ const handler: ApiHandler = async (req, res) => {
       const { id } = body;
       if (!id) {
         sendJson(res, { error: 'ID obrigatório' }, 400);
+        return;
+      }
+      if (!isUuid(id)) {
+        sendJson(res, { error: 'ID inválido' }, 400);
         return;
       }
       // O encarregado só remove itens coletados pela própria equipe.

@@ -33,6 +33,11 @@ import { handleWhatsappPost } from '../../api/_lib/whatsapp-endpoint';
 /** Equipe da Luana (encarregado) na loja 103. */
 const EQUIPE = ['ana', 'bob'];
 
+/** UUID de um item da equipe (o `id` da Validade é um UUID). */
+const ID_EQUIPE = '76340242-56a2-4f73-a515-d6b08e6424c3';
+/** UUID que não pertence a ninguém. */
+const ID_DESCONHECIDO = '00000000-0000-4000-8000-000000000000';
+
 interface Chamada {
   text: string;
   params: unknown[];
@@ -53,7 +58,7 @@ function responderPadrao(text: string): unknown[] {
     return EQUIPE.map((usuario) => ({ usuario }));
   }
   // Item da Validade pertence à equipe (caso padrão dos testes).
-  if (text.includes('SELECT id FROM validade_products')) return [{ id: '12' }];
+  if (text.includes('SELECT id FROM validade_products')) return [{ id: ID_EQUIPE }];
   return [];
 }
 
@@ -125,7 +130,7 @@ describe('Validade — o encarregado edita e exclui os itens da equipe', () => {
 
     await manageValidade(request({
       action: 'update',
-      id: '12',
+      id: ID_EQUIPE,
       validade: '2026-12-31',
       quantidade: 4,
     }), res);
@@ -148,7 +153,7 @@ describe('Validade — o encarregado edita e exclui os itens da equipe', () => {
 
     await manageValidade(request({
       action: 'update',
-      id: '99',
+      id: ID_DESCONHECIDO,
       validade: '2026-12-31',
     }), res);
 
@@ -156,15 +161,39 @@ describe('Validade — o encarregado edita e exclui os itens da equipe', () => {
     expect(chamadasCom(chamadas, 'UPDATE validade_products')).toHaveLength(0);
   });
 
+  it('recusa id que não é UUID (sem derrubar o servidor)', async () => {
+    const { chamadas } = installSql();
+    const { res, state } = fakeResponse();
+
+    await manageValidade(request({
+      action: 'update',
+      id: '12',
+      validade: '2026-12-31',
+    }), res);
+
+    expect(state.status).toBe(400);
+    expect(chamadasCom(chamadas, 'UPDATE validade_products')).toHaveLength(0);
+  });
+
   it('exclui um item coletado pela equipe', async () => {
+    const { chamadas } = installSql();
+    const { res, state } = fakeResponse();
+
+    await manageValidade(request({ action: 'remove', id: ID_EQUIPE }), res);
+
+    expect(state.status).toBe(200);
+    const remocao = chamadasCom(chamadas, 'SET status = false')[0];
+    expect(remocao?.params).toContain(103);
+  });
+
+  it('recusa exclusão de id que não é UUID', async () => {
     const { chamadas } = installSql();
     const { res, state } = fakeResponse();
 
     await manageValidade(request({ action: 'remove', id: '12' }), res);
 
-    expect(state.status).toBe(200);
-    const remocao = chamadasCom(chamadas, 'SET status = false')[0];
-    expect(remocao?.params).toContain(103);
+    expect(state.status).toBe(400);
+    expect(chamadasCom(chamadas, 'SET status = false')).toHaveLength(0);
   });
 
   it('recusa edição de quem não é admin nem encarregado', async () => {
@@ -172,7 +201,7 @@ describe('Validade — o encarregado edita e exclui os itens da equipe', () => {
     const { chamadas } = installSql();
     const { res, state } = fakeResponse();
 
-    await manageValidade(request({ action: 'update', id: '12', validade: '2026-12-31' }), res);
+    await manageValidade(request({ action: 'update', id: ID_EQUIPE, validade: '2026-12-31' }), res);
 
     expect(state.status).toBe(403);
     expect(chamadasCom(chamadas, 'UPDATE validade_products')).toHaveLength(0);
@@ -183,7 +212,7 @@ describe('Validade — o encarregado edita e exclui os itens da equipe', () => {
     const { chamadas } = installSql();
     const { res, state } = fakeResponse();
 
-    await manageValidade(request({ action: 'remove', id: '12' }), res);
+    await manageValidade(request({ action: 'remove', id: ID_EQUIPE }), res);
 
     expect(state.status).toBe(403);
     expect(chamadasCom(chamadas, 'SET status = false')).toHaveLength(0);
