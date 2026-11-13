@@ -1167,8 +1167,8 @@ const [filter, setFilter] = useState<FilterType>('todos');
                               title={`Coletado por ${item.created_by}`}
                             >
                               <User className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              <span className="sr-only">Coletado por</span>
                               <span className="font-semibold text-foreground">{item.created_by}</span>
-                              <span className="sr-only">— coletado por</span>
                             </span>
                           )}
                           <SecaoBadge secao={item.secao} />
