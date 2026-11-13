@@ -322,6 +322,7 @@ SELECT loja, role, count(*) FROM public.app_users GROUP BY loja, role;
 | --- | --- |
 | `src/test/loja-escopo.test.ts` | 30 casos: cada endpoint filtra e grava pela loja do token (Validade, Consulta, Inventário, Metas, Rebaixa, Arrastão, Usuários, E-mails), inclusive a troca de loja re-assinando o token e o **Inventário por usuário** |
 | `src/test/encarregado-permissoes.test.ts` | O contrato do encarregado: edita/exclui só os itens da equipe, roster no "Coletado por", WhatsApp só do admin e cadastro de usuários com vínculo automático |
+| `src/test/user-management-encarregado.test.tsx` | A tela de Usuários no modo encarregado: sem seletor de encarregado, sem editar/remover e só os perfis operacionais |
 | `src/test/whatsapp-validade.test.ts` | Cron por loja, destinatários por loja e prévia da tela mostrando só a loja do usuário |
 | `src/test/auth-login.test.ts` | A claim `loja` no token e o fallback para a loja padrão |
 | `src/test/header-username.test.tsx` | O selo de loja no cabeçalho — inclusive no celular (sem `hidden ... sm:inline-flex`, que sumia no mobile) |
