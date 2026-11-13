@@ -10,6 +10,7 @@ import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
+import { ensureEncarregadosSchema, usuariosDaEquipe } from './_lib/encarregados.js';
 import { codigoEhKg, MSG_KG_ARRASTAO } from './_lib/produto-tipo.js';
 
 let schemaReady = false;
@@ -216,6 +217,13 @@ const handler: ApiHandler = async (req, res) => {
       if (endDate) {
         params.push(endDate);
         conditions.push(`i.created_at <= $${params.length}`);
+      }
+      // O encarregado vê apenas os itens coletados por ele e pela equipe.
+      if (payload.role === 'encarregado') {
+        await ensureEncarregadosSchema(sql);
+        const equipe = [...new Set([username, ...(await usuariosDaEquipe(sql, username, loja))])];
+        params.push(equipe);
+        conditions.push(`i.scanned_by = ANY($${params.length}::text[])`);
       }
 
       const limit = startDate || endDate ? '' : ' LIMIT 500';

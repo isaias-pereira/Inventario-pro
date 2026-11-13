@@ -65,3 +65,13 @@ export function productInput(body: Record<string, unknown>, editing = false): Pr
 export function canManageProducts(role: unknown): boolean {
   return role === 'admin';
 }
+
+/**
+ * Cadastro de produto e de embalagem: admin e encarregado.
+ *
+ * A edição do catálogo (`update`, `edit_lookup`, `remove_packaging`,
+ * `set_categoria`) continua exclusiva do admin.
+ */
+export function canCreateProducts(role: unknown): boolean {
+  return role === 'admin' || role === 'encarregado';
+}

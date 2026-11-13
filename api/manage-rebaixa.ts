@@ -13,7 +13,7 @@
  * `list`, `add`, `add_many`, `update`, `remove`, `clear`, `mark_sent`,
  * `history`, `history_items`.
  *
- * Restrito a admin, encarregado e enc_flv.
+ * Restrito a admin e encarregado.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -25,7 +25,7 @@ import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 export type RebaixaTipo = 'KG' | 'UN';
 
-export const REBAIXA_ROLES = ['admin', 'encarregado', 'enc_flv'] as const;
+export const REBAIXA_ROLES = ['admin', 'encarregado'] as const;
 export const MOTIVOS_REBAIXA = ['Excesso', 'Qualidade', 'Excesso/qualidade'] as const;
 
 /** Fração do custo usada como preço sugerido e piso praticável. */
@@ -324,7 +324,7 @@ const handler: ApiHandler = async (req, res) => {
     if (!payload) return;
 
     if (!canUseRebaixa(payload.role)) {
-      sendJson(res, { error: 'Acesso restrito a admin, encarregado e enc. flv' }, 403);
+      sendJson(res, { error: 'Acesso restrito a admin e encarregado' }, 403);
       return;
     }
 

@@ -30,10 +30,10 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
 
   const allNavItems = [
     { key: 'consulta' as const, label: 'Consulta', icon: ScanBarcode, roles: ['admin'] },
-    { key: 'inventario' as const, label: 'Inventário', icon: ClipboardList, roles: ['admin', 'user', 'enc_flv'] },
+    { key: 'inventario' as const, label: 'Inventário', icon: ClipboardList, roles: ['admin', 'encarregado'] },
     { key: 'metas' as const, label: 'Metas', icon: Target, roles: ['admin'] },
-    { key: 'validade' as const, label: 'Validade', icon: CalendarClock, roles: ['admin', 'user', 'promotor', 'encarregado', 'col_validade', 'enc_flv'] },
-    { key: 'rebaixa' as const, label: 'Rebaixa', icon: Tag, roles: ['admin', 'encarregado', 'enc_flv'] },
+    { key: 'validade' as const, label: 'Validade', icon: CalendarClock, roles: ['admin', 'user', 'promotor', 'encarregado', 'col_validade'] },
+    { key: 'rebaixa' as const, label: 'Rebaixa', icon: Tag, roles: ['admin', 'encarregado'] },
   ];
 
   const mainNavItems = allNavItems.filter(item => userRole && item.roles.includes(userRole));
@@ -41,9 +41,12 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
   const adminItems = [
     { key: 'base' as const, label: 'Base de Dados', icon: Database },
     { key: 'usuarios' as const, label: 'Usuários', icon: Users },
-    { key: 'add-produto' as const, label: 'Adicionar Produto', icon: PackagePlus },
     { key: 'revisao-secoes' as const, label: 'Revisão de Seções', icon: Tags },
   ];
+
+  // Cadastro de produto: admin e encarregado (a edição do catálogo é só admin).
+  const productItems = [{ key: 'add-produto' as const, label: 'Adicionar Produto', icon: PackagePlus }];
+  const showProductItems = isAdmin || userRole === 'encarregado';
 
   // E-mail padrão das rebaixas: admin cadastra, encarregado consulta.
   const emailItems = [{ key: 'email' as const, label: 'E-Mail', icon: Mail }];
@@ -131,7 +134,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5 text-sm font-medium">
                 {user?.username}
-                {userRole && <span className="ml-1 text-xs opacity-60">({userRole === 'admin' ? 'admin' : userRole === 'encarregado' ? 'encarregado' : userRole === 'enc_flv' ? 'enc. flv' : userRole === 'promotor' ? 'promotor' : userRole === 'col_validade' ? 'col. validade' : 'usuário'})</span>}
+                {userRole && <span className="ml-1 text-xs opacity-60">({userRole === 'admin' ? 'admin' : userRole === 'encarregado' ? 'encarregado' : userRole === 'promotor' ? 'promotor' : userRole === 'col_validade' ? 'col. validade' : 'usuário'})</span>}
               </div>
               {loja !== null && (
                 <div className="px-2 pb-1.5 text-xs opacity-70">
@@ -178,6 +181,21 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
                     </DropdownMenuItem>
                   ))}
                   {isAdmin && <DropdownMenuSeparator />}
+                </>
+              )}
+              {showProductItems && (
+                <>
+                  {productItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onClick={() => handleNav(item.key)}
+                      className={`gap-2 cursor-pointer ${currentView === item.key ? 'bg-accent font-medium' : ''}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {!isAdmin && <DropdownMenuSeparator />}
                 </>
               )}
               {isAdmin && (

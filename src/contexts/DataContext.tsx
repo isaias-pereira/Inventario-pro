@@ -100,6 +100,18 @@ function clearSession() {
   window.location.reload();
 }
 
+/**
+ * O inventário é operado por admin e encarregado. O `user`, o `promotor` e o
+ * `col_validade` não têm acesso — nem devem disparar o polling (o endpoint
+ * responde 403 e o DataContext limparia a sessão).
+ */
+function podeUsarInventario(): boolean {
+  const token = getToken();
+  if (!token) return false;
+  const role = String(parseJwtPayload(token)?.role ?? '');
+  return role === 'admin' || role === 'encarregado';
+}
+
 async function invokeWithToken(functionName: string, body: Record<string, unknown>) {
   const token = getToken();
 
@@ -187,7 +199,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchInventory = useCallback(async () => {
     const token = getToken();
-    if (!token) {
+    if (!token || !podeUsarInventario()) {
       setLoading(false);
       return;
     }
@@ -294,6 +306,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // o inventário compartilhado é sincronizado por polling e quando a aba
   // volta a ficar visível.
   useEffect(() => {
+    if (!podeUsarInventario()) {
+      setInventoryItemsState([]);
+      setLoading(false);
+      return;
+    }
+
     fetchInventory();
 
     const interval = window.setInterval(fetchInventory, INVENTORY_POLL_MS);

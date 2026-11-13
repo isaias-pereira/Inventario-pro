@@ -55,7 +55,15 @@ async function productRequest(body: Record<string, unknown>) {
   return data;
 }
 
-const AddProductView = () => {
+interface AddProductViewProps {
+  /**
+   * Edição do catálogo é exclusiva do admin. O encarregado pode cadastrar
+   * produto e embalagem, mas não vê o modo "Editar".
+   */
+  canEdit?: boolean;
+}
+
+const AddProductView = ({ canEdit = true }: AddProductViewProps) => {
   const [mode, setMode] = useState<'add' | 'edit'>('add');
   const [search, setSearch] = useState('');
   const [ean, setEan] = useState('');
@@ -103,6 +111,7 @@ const AddProductView = () => {
     setExisting(null); setEditing(null); setClosedMode(false); setCategoria(undefined); resetPackagingForm();
   };
   const changeMode = (next: 'add' | 'edit') => {
+    if (next === 'edit' && !canEdit) return;
     clearFields(); setSearch(''); setMode(next); setConfirmOpen(false);
   };
   const loadProduct = (product: ExistingProduct) => {
@@ -363,10 +372,12 @@ const AddProductView = () => {
             {mode === 'add' ? <PackagePlus className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
             {mode === 'add' ? 'Adicionar Produto' : 'Editar Produto'}
           </CardTitle>
-          <div className="grid grid-cols-2 gap-2 pt-2" role="group" aria-label="Cadastro de produtos">
-            <Button type="button" size="sm" variant={mode === 'add' ? 'default' : 'outline'} onClick={() => changeMode('add')} disabled={loading} aria-pressed={mode === 'add'}><PackagePlus />Adicionar</Button>
-            <Button type="button" size="sm" variant={mode === 'edit' ? 'default' : 'outline'} onClick={() => changeMode('edit')} disabled={loading} aria-pressed={mode === 'edit'}><Pencil />Editar</Button>
-          </div>
+          {canEdit && (
+            <div className="grid grid-cols-2 gap-2 pt-2" role="group" aria-label="Cadastro de produtos">
+              <Button type="button" size="sm" variant={mode === 'add' ? 'default' : 'outline'} onClick={() => changeMode('add')} disabled={loading} aria-pressed={mode === 'add'}><PackagePlus />Adicionar</Button>
+              <Button type="button" size="sm" variant={mode === 'edit' ? 'default' : 'outline'} onClick={() => changeMode('edit')} disabled={loading} aria-pressed={mode === 'edit'}><Pencil />Editar</Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {mode === 'edit' && (

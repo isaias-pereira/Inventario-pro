@@ -105,7 +105,7 @@ const FILTER_LABELS: Record<FilterType, string> = {
 
 const ValidadeView = () => {
   const { user, getToken: authGetToken, isAdmin, userRole } = useAuth();
-  const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado' || userRole === 'enc_flv';
+  const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado';
   const canSendEmail = isAdmin || userRole === 'encarregado';
   const canSendWhatsapp = isAdmin || userRole === 'encarregado';
   const [code, setCode] = useState('');

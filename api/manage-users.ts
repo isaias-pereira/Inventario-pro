@@ -7,12 +7,16 @@
  * nunca escolhe o escopo por conta própria.
  *
  * Ações (POST):
- * - `list`: lista os usuários (admin);
+ * - `list`: lista os usuários da loja atual, com os encarregados vinculados (admin);
+ * - `list_encarregados`: encarregados/admin da loja atual para o seletor (admin);
  * - `add`: cadastra um usuário numa loja (admin);
- * - `update`: altera perfil, senha e loja de um usuário (admin);
+ * - `update`: altera perfil, senha, loja e encarregados de um usuário (admin);
  * - `delete`: remove um usuário (admin);
  * - `list_lojas`: lista as lojas ativas (qualquer usuário logado);
  * - `switch_loja`: troca a loja do token do admin (admin).
+ *
+ * O perfil `enc_flv` deixou de existir: quem tinha foi convertido em
+ * `encarregado` pela migration. Cadastro/edição com esse perfil é recusado.
  */
 
 import bcrypt from 'bcryptjs';
@@ -22,6 +26,21 @@ import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, lojaAtiva, resolveLoja } from './_lib/loja.js';
+import {
+  ensureEncarregadosSchema,
+  isSubordinateRole,
+  resolverEncarregados,
+  substituirEncarregados,
+} from './_lib/encarregados.js';
+
+/** Perfis aceitos no cadastro/edição (o `enc_flv` não existe mais). */
+export const USER_ROLES = ['admin', 'user', 'promotor', 'encarregado', 'col_validade'] as const;
+
+/** Normaliza o perfil; devolve `null` quando não é um perfil válido. */
+export function normalizeRole(value: unknown): string | null {
+  const role = String(value ?? '').trim();
+  return (USER_ROLES as readonly string[]).includes(role) ? role : null;
+}
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
@@ -47,6 +66,9 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
     const adminUsername = payload.sub;
+
+    // Tabela de vínculos e seed inicial (uma vez por instância).
+    await ensureEncarregadosSchema(sql);
 
     // Troca de loja: re-assina o token com a loja escolhida.
     if (action === 'switch_loja') {
@@ -87,13 +109,50 @@ const handler: ApiHandler = async (req, res) => {
           FROM app_users
          WHERE loja = ${loja}
          ORDER BY created_at ASC`;
-      sendJson(res, { users });
+      // Vínculos usuário → encarregado(s) da loja atual, agrupados por usuário.
+      const vinculos = await sql`
+        SELECT usuario, encarregado
+          FROM public.usuario_encarregados
+         WHERE loja = ${loja}
+         ORDER BY usuario, encarregado`;
+      const porUsuario = new Map<string, string[]>();
+      for (const row of vinculos) {
+        const usuario = String(row.usuario);
+        const lista = porUsuario.get(usuario) ?? [];
+        lista.push(String(row.encarregado));
+        porUsuario.set(usuario, lista);
+      }
+      sendJson(res, {
+        users: users.map((user) => ({
+          ...user,
+          encarregados: porUsuario.get(String(user.username)) ?? [],
+        })),
+      });
+      return;
+    }
+
+    // Encarregados (e admins, que são root) da loja atual para o seletor de
+    // vínculo da tela de Usuários.
+    if (action === 'list_encarregados') {
+      const loja = await resolveLoja(sql, payload);
+      const encarregados = await sql`
+        SELECT username, role, loja
+          FROM app_users
+         WHERE loja = ${loja} AND role IN ('encarregado', 'admin')
+         ORDER BY role DESC, username ASC`;
+      sendJson(res, { encarregados });
       return;
     }
 
     if (action === 'add') {
       if (!newUser?.username || !newUser?.password) {
         sendJson(res, { error: 'Usuário e senha são obrigatórios' }, 400);
+        return;
+      }
+
+      const role = normalizeRole(newUser.role || 'user');
+      if (!role) {
+        sendJson(res, { error: 'Perfil inválido' }, 400);
         return;
       }
 
@@ -105,12 +164,20 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
+      // user/promotor/col_validade precisam de ao menos um encarregado; sem
+      // escolha explícita, o admin que cadastra vira o responsável.
+      const vinculo = await resolverEncarregados(sql, role, newUser.encarregados, loja, adminUsername);
+      if (!vinculo.ok) {
+        sendJson(res, { error: vinculo.error }, 400);
+        return;
+      }
+
       const hashedPw = await bcrypt.hash(newUser.password, 10);
 
       try {
         await sql`
           INSERT INTO app_users (username, password, role, loja)
-          VALUES (${newUser.username}, ${hashedPw}, ${newUser.role || 'user'}, ${loja})`;
+          VALUES (${newUser.username}, ${hashedPw}, ${role}, ${loja})`;
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
         if (message.includes('duplicate') || message.includes('unique')) {
@@ -120,7 +187,9 @@ const handler: ApiHandler = async (req, res) => {
         throw error;
       }
 
-      sendJson(res, { success: true });
+      await substituirEncarregados(sql, String(newUser.username), vinculo.value, loja);
+
+      sendJson(res, { success: true, encarregados: vinculo.value });
       return;
     }
 
@@ -130,9 +199,34 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      const loja = await lojaDoCadastro(sql, newUser.loja);
+      const role = normalizeRole(newUser.role);
+      if (!role) {
+        sendJson(res, { error: 'Perfil inválido' }, 400);
+        return;
+      }
+
+      // O admin só altera acessos da loja em que está: a lista da tela já é
+      // filtrada e o servidor repete a checagem.
+      const lojaAtual = await resolveLoja(sql, payload);
+      const alvo = await sql`SELECT username, role, loja FROM app_users WHERE username = ${newUser.username} LIMIT 1`;
+      if (alvo.length === 0) {
+        sendJson(res, { error: 'Usuário não encontrado' }, 404);
+        return;
+      }
+      if (Number(alvo[0].loja) !== lojaAtual) {
+        sendJson(res, { error: 'Usuário pertence a outra loja' }, 403);
+        return;
+      }
+
+      const loja = await lojaDoCadastro(sql, newUser.loja, lojaAtual);
       if (loja === null) {
         sendJson(res, { error: 'Loja inválida ou inativa' }, 400);
+        return;
+      }
+
+      const vinculo = await resolverEncarregados(sql, role, newUser.encarregados, loja, adminUsername);
+      if (!vinculo.ok) {
+        sendJson(res, { error: vinculo.error }, 400);
         return;
       }
 
@@ -140,16 +234,24 @@ const handler: ApiHandler = async (req, res) => {
         const hashedPw = await bcrypt.hash(newUser.password, 10);
         await sql`
           UPDATE app_users
-             SET role = ${newUser.role}, loja = ${loja}, password = ${hashedPw}
+             SET role = ${role}, loja = ${loja}, password = ${hashedPw}
            WHERE username = ${newUser.username}`;
       } else {
         await sql`
           UPDATE app_users
-             SET role = ${newUser.role}, loja = ${loja}
+             SET role = ${role}, loja = ${loja}
            WHERE username = ${newUser.username}`;
       }
 
-      sendJson(res, { success: true });
+      // Perfil sem vínculo (admin/encarregado) não mantém vínculos antigos.
+      await substituirEncarregados(
+        sql,
+        String(newUser.username),
+        isSubordinateRole(role) ? vinculo.value : [],
+        loja,
+      );
+
+      sendJson(res, { success: true, encarregados: isSubordinateRole(role) ? vinculo.value : [] });
       return;
     }
 
@@ -163,7 +265,12 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      await sql`DELETE FROM app_users WHERE username = ${newUser.username}`;
+      const loja = await resolveLoja(sql, payload);
+      const removidos = await sql`DELETE FROM app_users WHERE username = ${newUser.username} AND loja = ${loja} RETURNING username`;
+      if (removidos.length === 0) {
+        sendJson(res, { error: 'Usuário não encontrado nesta loja' }, 404);
+        return;
+      }
       sendJson(res, { success: true });
       return;
     }

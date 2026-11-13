@@ -2,9 +2,12 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { invokeFunction, parseJwtPayload } from '@/lib/api';
 import { limparCacheCategorias } from '@/lib/categorias';
 
+/** Perfis do SGS-PRO (o `enc_flv` deixou de existir). */
+export type UserRole = 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade';
+
 interface User {
   username: string;
-  role: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv';
+  role: UserRole;
   /** Loja do usuário (multi-loja). Vem assinado no token. */
   loja?: number;
 }
@@ -28,7 +31,7 @@ interface AuthContextType {
   login: (username: string, password: string, remember?: boolean) => Promise<LoginResult>;
   logout: () => void;
   isAdmin: boolean;
-  userRole: 'admin' | 'user' | 'promotor' | 'encarregado' | 'col_validade' | 'enc_flv' | null;
+  userRole: UserRole | null;
   getToken: () => string | null;
   /** Loja atual do usuário (vem do token). */
   loja: number | null;
@@ -53,6 +56,14 @@ function loadSession(): { user: User; token: string } | null {
 
     const payload = parseJwtPayload(token);
     if (!payload || payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+      return null;
+    }
+
+    // O perfil `enc_flv` deixou de existir: tokens antigos são descartados
+    // para forçar um novo login (que já devolve `encarregado`).
+    if (String(payload.role) === 'enc_flv') {
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(TOKEN_KEY);
       return null;
@@ -120,7 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const u: User = {
         username: data.user.username,
-        role: data.user.role,
+        role: String(data.user.role) === 'enc_flv' ? 'encarregado' : data.user.role,
         loja: typeof data.user.loja === 'number' ? data.user.loja : undefined,
       };
       setUser(u);

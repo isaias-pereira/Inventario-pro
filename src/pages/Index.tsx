@@ -33,8 +33,8 @@ const Index = () => {
   // Determine default view based on role
   const getDefaultView = (): ViewType => {
     if (userRole === 'promotor' || userRole === 'col_validade') return 'validade';
-    if (userRole === 'user') return 'inventario';
-    if (userRole === 'enc_flv') return 'inventario';
+    // O `user` não tem mais acesso ao inventário: a tela inicial é a Validade.
+    if (userRole === 'user') return 'validade';
     if (userRole === 'encarregado') return 'validade';
     return 'consulta';
   };
@@ -42,9 +42,11 @@ const Index = () => {
   // Check if user has access to the current view
   const hasAccess = (v: ViewType): boolean => {
     if (userRole === 'admin') return true;
-    if (userRole === 'encarregado') return v === 'validade' || v === 'rebaixa' || v === 'email';
-    if (userRole === 'enc_flv') return v === 'inventario' || v === 'validade' || v === 'rebaixa';
-    if (userRole === 'user') return v === 'inventario' || v === 'validade';
+    if (userRole === 'encarregado') {
+      return v === 'validade' || v === 'rebaixa' || v === 'email'
+        || v === 'inventario' || v === 'add-produto';
+    }
+    if (userRole === 'user') return v === 'validade';
     if (userRole === 'promotor' || userRole === 'col_validade') return v === 'validade';
     return false;
   };
@@ -90,7 +92,9 @@ const Index = () => {
         {safeView === 'email' && <EmailView />}
         {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
         {safeView === 'usuarios' && isAdmin && <UserManagementView />}
-        {safeView === 'add-produto' && isAdmin && <AddProductView />}
+        {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && (
+          <AddProductView canEdit={isAdmin} />
+        )}
         {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
       </Suspense>
 

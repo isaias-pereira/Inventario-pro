@@ -121,6 +121,13 @@ const handler: ApiHandler = async (req, res) => {
     // Escopo multi-loja: tudo abaixo pertence à loja do token.
     const loja = await resolveLoja(sql, payload);
 
+    // O inventário é operado por admin e encarregado. As ações destrutivas
+    // (`update`, `remove`, `clear`) continuam exclusivas do admin, mais abaixo.
+    if (payload.role !== 'admin' && payload.role !== 'encarregado') {
+      sendJson(res, { error: 'Acesso restrito a admin e encarregado' }, 403);
+      return;
+    }
+
     // LIST current open lote items (does NOT create a lote — only created on first add)
     if (action === 'list') {
       const lote = await getOpenLote(sql, loja);

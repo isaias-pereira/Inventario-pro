@@ -62,6 +62,10 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
+    // O perfil `enc_flv` deixou de existir: o token sai como `encarregado`
+    // (a migration converte o cadastro; aqui é a rede de segurança).
+    const role = user.role === 'enc_flv' ? 'encarregado' : user.role;
+
     // Loja do usuário: vem do cadastro e vai assinado no token — é o escopo
     // que o servidor aplica em todos os dados operacionais.
     const loja = Number.isInteger(Number(user.loja)) && Number(user.loja) > 0
@@ -75,13 +79,13 @@ const handler: ApiHandler = async (req, res) => {
     const ttl = remember === true ? REMEMBER_TTL_SECONDS : SESSION_TTL_SECONDS;
     const expiresAt = now + ttl;
     const token = signJwt(
-      { sub: user.username, role: user.role, loja, iat: now, exp: expiresAt },
+      { sub: user.username, role, loja, iat: now, exp: expiresAt },
       jwtSecret(),
     );
 
     sendJson(res, {
       success: true,
-      user: { username: user.username, role: user.role, loja },
+      user: { username: user.username, role, loja },
       token,
       expiresAt,
     });

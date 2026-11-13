@@ -44,7 +44,7 @@ describe('permissões da rebaixa', () => {
   it('libera admin, encarregado e enc. flv', () => {
     expect(canUseRebaixa('admin')).toBe(true);
     expect(canUseRebaixa('encarregado')).toBe(true);
-    expect(canUseRebaixa('enc_flv')).toBe(true);
+    expect(canUseRebaixa('enc_flv')).toBe(false);
   });
 
   it('recusa os demais papéis e valores vazios', () => {

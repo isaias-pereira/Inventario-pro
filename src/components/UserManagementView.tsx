@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import { Users, Plus, Trash2, Loader2, Shield, User, UserCheck, Pencil, X, Check, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/table';
@@ -18,6 +19,8 @@ interface AppUser {
   role: string;
   /** Loja do usuário (multi-loja). */
   loja?: number;
+  /** Encarregados vinculados (user/promotor/col_validade). */
+  encarregados?: string[];
   created_at: string;
 }
 
@@ -27,23 +30,80 @@ interface Loja {
   ativo: boolean;
 }
 
+/** Encarregado (ou admin) disponível para receber um vínculo. */
+interface EncarregadoOption {
+  username: string;
+  role: string;
+  loja?: number;
+}
+
 const ROLE_OPTIONS = [
   { value: 'user', label: 'Usuário' },
   { value: 'promotor', label: 'Promotor' },
   { value: 'col_validade', label: 'Col. Validade' },
   { value: 'encarregado', label: 'Encarregado' },
-  { value: 'enc_flv', label: 'Enc. FLV' },
   { value: 'admin', label: 'Admin' },
 ];
+
+/** Perfis que precisam estar vinculados a um ou mais encarregados. */
+const isSubordinate = (role: string) =>
+  role === 'user' || role === 'promotor' || role === 'col_validade';
 
 const getRoleLabel = (role: string) => ROLE_OPTIONS.find(r => r.value === role)?.label ?? role;
 
 const RoleIcon = ({ role }: { role: string }) => {
   if (role === 'admin') return <Shield className="h-3.5 w-3.5 text-accent" />;
-  if (role === 'encarregado' || role === 'enc_flv') return <UserCheck className="h-3.5 w-3.5 text-blue-600" />;
+  if (role === 'encarregado') return <UserCheck className="h-3.5 w-3.5 text-blue-600" />;
   if (role === 'promotor' || role === 'col_validade') return <UserCheck className="h-3.5 w-3.5 text-primary" />;
   return <User className="h-3.5 w-3.5 text-gray-500" />;
 };
+
+/**
+ * Seletor múltiplo de encarregados.
+ *
+ * Um `user`, `promotor` ou `col_validade` pode estar ligado a mais de um
+ * encarregado — todos veem as validades coletadas por ele.
+ */
+const EncarregadosPicker = ({
+  options,
+  selected,
+  onChange,
+  emptyLabel,
+}: {
+  options: EncarregadoOption[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  emptyLabel: string;
+}) => (
+  <div className="space-y-1.5">
+    <p className="text-xs font-medium text-muted-foreground">Encarregado(s) responsável(is)</p>
+    {options.length === 0 ? (
+      <p className="text-xs text-muted-foreground">{emptyLabel}</p>
+    ) : (
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <label
+            key={option.username}
+            className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-2 py-1 text-sm"
+          >
+            <Checkbox
+              checked={selected.includes(option.username)}
+              onCheckedChange={() => onChange(
+                selected.includes(option.username)
+                  ? selected.filter((name) => name !== option.username)
+                  : [...selected, option.username],
+              )}
+            />
+            <span>{option.username}</span>
+            {option.role === 'admin' && (
+              <span className="text-[10px] uppercase text-muted-foreground">admin</span>
+            )}
+          </label>
+        ))}
+      </div>
+    )}
+  </div>
+);
 
 const UserManagementView = () => {
   const { getToken, loja: lojaAtual } = useAuth();
@@ -53,11 +113,14 @@ const UserManagementView = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [newEncarregados, setNewEncarregados] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editRole, setEditRole] = useState('');
   const [editLoja, setEditLoja] = useState('');
+  const [editEncarregados, setEditEncarregados] = useState<string[]>([]);
   const [editPassword, setEditPassword] = useState('');
+  const [encarregados, setEncarregados] = useState<EncarregadoOption[]>([]);
   const [saving, setSaving] = useState(false);
 
   const invokeWithToken = (body: Record<string, unknown>) => {
@@ -95,9 +158,18 @@ const UserManagementView = () => {
     } catch { /* a lista de lojas é acessória */ }
   };
 
+  /** Encarregados (e admins) da loja atual para os vínculos. */
+  const fetchEncarregados = async () => {
+    try {
+      const { data } = await invokeWithToken({ action: 'list_encarregados' });
+      if (Array.isArray(data?.encarregados)) setEncarregados(data.encarregados);
+    } catch { /* a lista é acessória */ }
+  };
+
   useEffect(() => {
     fetchUsers();
     fetchLojas();
+    fetchEncarregados();
   }, []);
 
   const handleAdd = async () => {
@@ -112,11 +184,13 @@ const UserManagementView = () => {
           role: newRole,
           // O acesso nasce na loja em que o admin está (a loja do token).
           loja: lojaAtual ?? undefined,
+          // user/promotor/col_validade precisam de ao menos um encarregado.
+          encarregados: isSubordinate(newRole) ? newEncarregados : [],
         },
       });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao adicionar usuário'); return; }
       toast.success('Usuário adicionado com sucesso!');
-      setNewUsername(''); setNewPassword(''); setNewRole('user');
+      setNewUsername(''); setNewPassword(''); setNewRole('user'); setNewEncarregados([]);
       fetchUsers();
     } catch { toast.error('Erro ao adicionar usuário'); }
     finally { setAdding(false); }
@@ -126,6 +200,7 @@ const UserManagementView = () => {
     setEditingUser(u.username);
     setEditRole(u.role);
     setEditLoja(u.loja ? String(u.loja) : '');
+    setEditEncarregados(u.encarregados ?? []);
     setEditPassword('');
   };
 
@@ -133,6 +208,7 @@ const UserManagementView = () => {
     setEditingUser(null);
     setEditRole('');
     setEditLoja('');
+    setEditEncarregados([]);
     setEditPassword('');
   };
 
@@ -143,6 +219,7 @@ const UserManagementView = () => {
       const payload: Record<string, unknown> = { username: editingUser, role: editRole };
       if (editLoja) payload.loja = Number(editLoja);
       if (editPassword.trim()) payload.password = editPassword.trim();
+      if (isSubordinate(editRole)) payload.encarregados = editEncarregados;
       const { data, error } = await invokeWithToken({ action: 'update', newUser: payload });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao atualizar usuário'); return; }
       toast.success('Usuário atualizado!');
@@ -194,6 +271,16 @@ const UserManagementView = () => {
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Adicionar
           </Button>
         </div>
+        {isSubordinate(newRole) && (
+          <div className="mt-3">
+            <EncarregadosPicker
+              options={encarregados}
+              selected={newEncarregados}
+              onChange={setNewEncarregados}
+              emptyLabel="Nenhum encarregado cadastrado nesta loja."
+            />
+          </div>
+        )}
         <p className="mt-2 text-xs text-muted-foreground">
           O acesso é criado em <span className="font-medium text-foreground">{nomeLojaAtual}</span>.
         </p>
@@ -223,6 +310,14 @@ const UserManagementView = () => {
                         {lojas.map(l => <SelectItem key={l.codigo} value={String(l.codigo)}>{l.nome}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {isSubordinate(editRole) && (
+                      <EncarregadosPicker
+                        options={encarregados}
+                        selected={editEncarregados}
+                        onChange={setEditEncarregados}
+                        emptyLabel="Nenhum encarregado cadastrado nesta loja."
+                      />
+                    )}
                     <Input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Nova senha (opcional)" />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSaveEdit} disabled={saving} className="gap-1">
@@ -240,6 +335,11 @@ const UserManagementView = () => {
                       <p className="text-xs text-gray-600 mt-0.5">
                         {getRoleLabel(u.role)} · {nomeLoja(u.loja)} · {new Date(u.created_at).toLocaleDateString('pt-BR')}
                       </p>
+                      {u.encarregados && u.encarregados.length > 0 && (
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          Encarregado(s): {u.encarregados.join(', ')}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-1">
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleEdit(u)}>
@@ -262,6 +362,7 @@ const UserManagementView = () => {
                 <TableRow>
                   <TableHead>Usuário</TableHead>
                   <TableHead>Perfil</TableHead>
+                  <TableHead>Encarregado(s)</TableHead>
                   <TableHead>Loja</TableHead>
                   <TableHead>Criado em</TableHead>
                   <TableHead className="w-24" />
@@ -270,12 +371,13 @@ const UserManagementView = () => {
               <TableBody>
                 {users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-sm text-gray-500 py-8">
+                    <TableCell colSpan={6} className="text-center text-sm text-gray-500 py-8">
                       Nenhum acesso cadastrado em {nomeLojaAtual} ainda.
                     </TableCell>
                   </TableRow>
                 ) : users.map((u) => (
-                  <TableRow key={u.id}>
+                  <Fragment key={u.id}>
+                  <TableRow>
                     <TableCell className="font-medium text-gray-900">{u.username}</TableCell>
                     <TableCell>
                       {editingUser === u.username ? (
@@ -291,6 +393,20 @@ const UserManagementView = () => {
                       ) : (
                         <span className="inline-flex items-center gap-1 text-sm">
                           <RoleIcon role={u.role} /> {getRoleLabel(u.role)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingUser === u.username && isSubordinate(editRole) ? (
+                        <EncarregadosPicker
+                          options={encarregados}
+                          selected={editEncarregados}
+                          onChange={setEditEncarregados}
+                          emptyLabel="Nenhum encarregado nesta loja."
+                        />
+                      ) : (
+                        <span className="text-sm text-gray-700">
+                          {u.encarregados && u.encarregados.length > 0 ? u.encarregados.join(', ') : '—'}
                         </span>
                       )}
                     </TableCell>
@@ -333,6 +449,7 @@ const UserManagementView = () => {
                       )}
                     </TableCell>
                   </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>

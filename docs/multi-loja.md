@@ -125,12 +125,22 @@ que eu quiser": ele só pode pedir uma loja que o servidor validou.
 
 | Action | Quem pode | O que faz |
 | --- | --- | --- |
-| `list` | admin | Lista os usuários **da loja do token** (com a loja) |
-| `add` | admin | Cadastra um usuário (na loja informada ou, sem valor, na loja do token) |
-| `update` | admin | Altera perfil, senha e loja |
-| `delete` | admin | Remove um usuário |
+| `list` | admin | Lista os usuários **da loja do token** (com a loja e os encarregados vinculados) |
+| `list_encarregados` | admin | Lista encarregados/admin da loja para o seletor de vínculo |
+| `add` | admin | Cadastra um usuário (na loja do token ou na loja informada, validada) e grava os vínculos |
+| `update` | admin | Altera perfil, senha, loja e encarregados (só acessos da loja atual) |
+| `delete` | admin | Remove um usuário da loja atual |
 | `list_lojas` | qualquer logado | Lista as lojas (alimenta o seletor e o badge) |
 | `switch_loja` | admin | Troca a loja do token |
+
+### Vínculo com encarregados
+
+Cada `user`, `promotor` ou `col_validade` pode estar ligado a **um ou mais**
+encarregados (`public.usuario_encarregados`, N:N). O encarregado vê as
+validades dele **e as da equipe**; o admin é root e vê tudo da loja atual.
+O seed inicial liga os usuários existentes ao(s) admin(s) e roda uma única vez
+(`app_schema_flags.encarregados_admin_seed`). Detalhes em
+`docs/permissoes.md`.
 
 ---
 

@@ -1,7 +1,7 @@
 import { createSql, type BatchResult, type Statement } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
-import { identifier, productInput, canManageProducts } from './_lib/product-validation.js';
+import { identifier, productInput, canCreateProducts, canManageProducts } from './_lib/product-validation.js';
 import { buildProductUpdateQueries } from './_lib/product-update.js';
 import { packagingInput } from './_lib/packaging-validation.js';
 
@@ -65,8 +65,12 @@ const handler: ApiHandler = async (req, res) => {
       sendJson(res, { error: 'Ação inválida' }, 400);
       return;
     }
-    if (['insert', 'update', 'edit_lookup', 'add_packaging', 'remove_packaging', 'set_categoria'].includes(String(action)) && !canManageProducts(payload.role)) {
+    if (['update', 'edit_lookup', 'remove_packaging', 'set_categoria'].includes(String(action)) && !canManageProducts(payload.role)) {
       sendJson(res, { error: 'Apenas administradores podem gerenciar produtos' }, 403);
+      return;
+    }
+    if (['insert', 'add_packaging'].includes(String(action)) && !canCreateProducts(payload.role)) {
+      sendJson(res, { error: 'Apenas admin e encarregado podem cadastrar produtos' }, 403);
       return;
     }
 

@@ -52,6 +52,10 @@ function responderPadrao(text: string): unknown[] {
   if (text.includes('COUNT(*)::int AS c')) return [{ c: 0 }];
   if (text.includes('information_schema.columns')) return [{ column_name: 'loja' }];
   if (text.includes('MAX(numero)')) return [{ max: 0 }];
+  // Validação dos encarregados no cadastro/edição de usuário.
+  if (text.includes('FROM public.app_users') && text.includes('username = ANY')) {
+    return [{ username: 'isa', role: 'admin', loja: 103 }];
+  }
   return [];
 }
 

@@ -39,8 +39,9 @@ previsão seria ficção. O ganho real é:
 E-mail, Base de Dados, Usuários, Adicionar Produto.
 
 **Backend**: 11 Functions em `api/` (Neon/Postgres serverless, JWT HS256, tudo POST +
-`invokeFunction` do frontend). Roles: `admin`, `encarregado`, `enc_flv`, `promotor`,
-`col_validade`, `user`.
+`invokeFunction` do frontend). Roles: `admin`, `encarregado`, `promotor`,
+`col_validade`, `user` (o `enc_flv` foi removido; a matriz está em
+`docs/permissoes.md`).
 
 **Dados que existem**:
 

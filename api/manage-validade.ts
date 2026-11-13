@@ -4,9 +4,21 @@ import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/htt
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
 import { ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
+import { ensureEncarregadosSchema, usuariosDaEquipe } from './_lib/encarregados.js';
 import { codigoEhKg, MSG_KG_VALIDADE } from './_lib/produto-tipo.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
+
+/**
+ * Usuários cujas validades um encarregado enxerga: ele mesmo + a equipe
+ * vinculada (tabela `usuario_encarregados`, sempre na loja do token).
+ * O admin é root e vê tudo da loja atual.
+ */
+async function equipeDoEncarregado(sql: Sql, username: string, loja: number): Promise<string[]> {
+  await ensureEncarregadosSchema(sql);
+  const equipe = await usuariosDaEquipe(sql, username, loja);
+  return [...new Set([username, ...equipe])];
+}
 
 /** Motivo do rebaixa para produtos de balança (KG). Vazio ou nulo = sem motivo. */
 function normalizeMotivo(value: unknown): { ok: true; value: string | null } | { ok: false } {
@@ -91,6 +103,19 @@ const handler: ApiHandler = async (req, res) => {
 
     // LIST - items expiring within 2 days
     if (action === 'list') {
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+            WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+              AND v.created_by = ANY($2::text[])
+            ORDER BY v.validade ASC`,
+          [loja, equipe],
+        );
+        sendJson(res, { items: data });
+        return;
+      }
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
@@ -131,12 +156,26 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      if (userRole === 'user' || userRole === 'encarregado' || userRole === 'enc_flv') {
+      if (userRole === 'encarregado') {
+        // O encarregado vê as próprias validades e as da equipe vinculada.
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+            WHERE v.loja = $1 AND v.status = true AND v.created_by = ANY($2::text[])
+            ORDER BY v.validade ASC`,
+          [loja, equipe],
+        );
+        sendJson(res, { items: data });
+        return;
+      }
+
+      if (userRole === 'user') {
         const data = await sql(
           `SELECT v.*, ${SECAO_COLUNAS}
              FROM validade_products v ${secaoJoin('v')}
              INNER JOIN app_users u ON v.created_by = u.username
-            WHERE v.loja = $1 AND v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'enc_flv', 'col_validade')
+            WHERE v.loja = $1 AND v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'col_validade')
             ORDER BY v.validade ASC`,
           [loja],
         );
@@ -267,6 +306,12 @@ const handler: ApiHandler = async (req, res) => {
       const conditions: string[] = [];
       const params: unknown[] = [];
       conditions.push(filtroLoja(params, loja, 'v'));
+      // Encarregado: a consulta por período também fica limitada à equipe.
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        params.push(equipe);
+        conditions.push(`v.created_by = ANY($${params.length}::text[])`);
+      }
       if (startDate) {
         params.push(startDate);
         conditions.push(`v.created_at >= $${params.length}`);
@@ -305,6 +350,12 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Acesso restrito' }, 403);
         return;
       }
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by = ANY(${equipe}::text[]) ORDER BY created_by`;
+        sendJson(res, { users: data.map((row: any) => row.created_by) });
+        return;
+      }
       const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by IS NOT NULL ORDER BY created_by`;
       const users = data.map((row: any) => row.created_by);
       sendJson(res, { users });
@@ -313,6 +364,19 @@ const handler: ApiHandler = async (req, res) => {
 
     // NOTIFICATIONS
     if (action === 'notifications') {
+      if (payload.role === 'encarregado') {
+        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const data = await sql(
+          `SELECT v.*, ${SECAO_COLUNAS}
+             FROM validade_products v ${secaoJoin('v')}
+            WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+              AND v.created_by = ANY($2::text[])
+            ORDER BY v.validade ASC`,
+          [loja, equipe],
+        );
+        sendJson(res, { items: data });
+        return;
+      }
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
