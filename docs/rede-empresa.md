@@ -7,10 +7,8 @@ login" em uma rede corporativa e o que fazer para resolver.
 
 São dois fatores somados — um do projeto e um da rede:
 
-1. **Sessão salva (projeto).** O app guarda o token em `localStorage`. Sem
-   "Lembrar-me", a sessão dura **6 h**; com "Lembrar-me", o servidor emite um
-   token de **7 dias** e o app abre direto na tela principal por esse período,
-   **sem pedir senha**. Passado esse prazo, o app volta a pedir o login — e é
+1. **Sessão salva (projeto).** O app guarda o token em `localStorage` e a
+   sessão dura **6 h**. Passado esse prazo, o app volta a pedir o login — e é
    exatamente aí que a rede corporativa bloqueada trava. Por isso o sistema
    parecia funcionar "aleatoriamente": nos momentos em que a sessão ainda
    estava viva, ele abria; nos outros, ficava no login.

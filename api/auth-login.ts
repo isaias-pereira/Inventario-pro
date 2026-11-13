@@ -6,18 +6,17 @@ import { signJwt } from './_lib/jwt.js';
 import { dbTimeoutMs, TimeoutError, withTimeout } from './_lib/timeout.js';
 import { DEFAULT_LOJA, ensureLojaSchema } from './_lib/loja.js';
 
-/** Duração padrão da sessão (6 h) e da sessão com "Lembrar-me" (7 dias). */
+/** Duração da sessão: 6 h. */
 export const SESSION_TTL_SECONDS = 6 * 3600;
-export const REMEMBER_TTL_SECONDS = 7 * 24 * 3600;
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
 
   try {
-    const { username, password, remember } = await readJsonBody<{
+    // A sessão é sempre de 6 h: o "Lembrar-me" (7 dias) foi removido.
+    const { username, password } = await readJsonBody<{
       username?: string;
       password?: string;
-      remember?: boolean;
     }>(req);
     if (!username || !password) {
       sendJson(res, { error: 'Usuário e senha são obrigatórios' }, 400);
@@ -73,11 +72,7 @@ const handler: ApiHandler = async (req, res) => {
       : DEFAULT_LOJA;
 
     const now = Math.floor(Date.now() / 1000);
-    // Com "Lembrar-me" a sessão dura 7 dias: assim o app abre direto no
-    // computador da empresa sem passar pelo login (o caminho frágil quando a
-    // rede corporativa bloqueia o domínio).
-    const ttl = remember === true ? REMEMBER_TTL_SECONDS : SESSION_TTL_SECONDS;
-    const expiresAt = now + ttl;
+    const expiresAt = now + SESSION_TTL_SECONDS;
     const token = signJwt(
       { sub: user.username, role, loja, iat: now, exp: expiresAt },
       jwtSecret(),

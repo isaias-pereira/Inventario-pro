@@ -28,7 +28,7 @@ interface LoginResult {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string, remember?: boolean) => Promise<LoginResult>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   isAdmin: boolean;
   userRole: UserRole | null;
@@ -46,8 +46,6 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const TOKEN_KEY = 'estoque_pro_token';
 const SESSION_KEY = 'estoque_pro_session';
-/** Janela da sessão com "Lembrar-me" (7 dias, igual ao token do servidor). */
-const REMEMBER_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function loadSession(): { user: User; token: string } | null {
   try {
@@ -69,7 +67,8 @@ function loadSession(): { user: User; token: string } | null {
       return null;
     }
 
-    // Optional "remember me" expiry window
+    // Janela legada do "Lembrar-me" antigo (7 dias): serve só para limpar o
+    // estado que sobrou no navegador. A validade real é a do token (6 h).
     const raw = localStorage.getItem(SESSION_KEY);
     if (raw) {
       try {
@@ -105,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(() => loadSession()?.user ?? null);
   const [lojas, setLojas] = useState<Loja[]>([]);
 
-  const login = useCallback(async (username: string, password: string, remember = false): Promise<LoginResult> => {
+  const login = useCallback(async (username: string, password: string): Promise<LoginResult> => {
     try {
       // Timeout menor que o padrão: no login a espera é curta e a mensagem
       // de rede ajuda a identificar proxy/firewall corporativo. Uma nova
@@ -118,7 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         expiresAt?: number;
         user?: User;
       }>('auth-login', {
-        body: { username, password, remember },
+        body: { username, password },
         timeoutMs: 15000,
         retries: 1,
         retryDelayMs: 1200,
@@ -139,17 +138,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Store only the JWT token — role/username are derived from its signed payload
       localStorage.setItem(TOKEN_KEY, data.token);
 
-      // Com "Lembrar-me", a sessão vale 7 dias (o servidor emite o token com
-      // essa validade). Sem ele, a sessão segue o token (6 h) e a chave antiga
-      // é removida para não manter uma janela de login maior que a do token.
-      if (remember) {
-        const expiresAt = data.expiresAt
-          ? data.expiresAt * 1000
-          : Date.now() + REMEMBER_DURATION_MS;
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ expiresAt }));
-      } else {
-        localStorage.removeItem(SESSION_KEY);
-      }
+      // A sessão vale 6 h (o token do servidor). A chave antiga do
+      // "Lembrar-me" é removida para não sobrar janela maior que a do token.
+      localStorage.removeItem(SESSION_KEY);
       return { ok: true };
     } catch (error) {
       return {

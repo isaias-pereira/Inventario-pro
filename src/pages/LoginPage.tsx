@@ -3,7 +3,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Lock, User, Loader2, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import loginBg from '@/assets/login-bg.jpg';
 
 /** Mensagens de rede: a tela mostra o que fazer em vez de "Entrando..." infinito. */
@@ -23,7 +22,6 @@ const LoginPage = () => {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -33,7 +31,7 @@ const LoginPage = () => {
     setError('');
     setOffline(false);
     setLoading(true);
-    const result = await login(username, password, remember);
+    const result = await login(username, password);
     if (!result.ok) {
       const message = result.error || 'Não foi possível entrar.';
       setError(message);
@@ -95,17 +93,6 @@ const LoginPage = () => {
                 />
               </div>
             </div>
-          </div>
-
-          <div className="mb-4 flex items-center gap-2">
-            <Checkbox
-              id="remember"
-              checked={remember}
-              onCheckedChange={(checked) => setRemember(checked === true)}
-            />
-            <label htmlFor="remember" className="text-sm text-card-foreground cursor-pointer select-none">
-              Lembrar-me
-            </label>
           </div>
 
           {error && (

@@ -119,7 +119,7 @@ describe('POST /api/auth-login', () => {
     expect(state.status).toBe(400);
   });
 
-  it('emite token de 6 horas sem "Lembrar-me"', async () => {
+  it('emite token de 6 horas', async () => {
     createSqlMock.mockReturnValue(() => Promise.resolve([
       { username: 'isa', password: HASH, role: 'admin' },
     ]));
@@ -133,7 +133,7 @@ describe('POST /api/auth-login', () => {
     expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));
   });
 
-  it('emite token de 7 dias com "Lembrar-me"', async () => {
+  it('ignora a opção "lembrar-me" e mantém o token de 6 horas', async () => {
     createSqlMock.mockReturnValue(() => Promise.resolve([
       { username: 'isa', password: HASH, role: 'admin' },
     ]));
@@ -143,7 +143,7 @@ describe('POST /api/auth-login', () => {
 
     const payload = decodeJwt(String(state.body?.token));
     const duracao = Number(payload.exp) - Number(payload.iat);
-    expect(duracao).toBe(7 * 24 * 3600);
+    expect(duracao).toBe(6 * 3600);
     expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));
   });
 });
