@@ -23,7 +23,9 @@ vi.mock('@/lib/analytics', () => ({
 }));
 
 const ICONES: IconePasso[] = ['olho', 'toque', 'cheiro', 'peso', 'som', 'casca', 'folha', 'talo'];
-const CHAVES: ChaveEstagio[] = ['espere', 'no-ponto', 'passou'];
+const CHAVES_VALIDAS: ChaveEstagio[] = ['espere', 'guardar', 'no-ponto', 'passou'];
+/** Produtos que não amadurecem na banca: ficaram com 2 estágios. */
+const DOIS_ESTAGIOS = ['cebola', 'cenoura', 'repolho'];
 
 beforeEach(() => {
   cleanup();
@@ -69,15 +71,43 @@ describe('conteúdo dos guias', () => {
     }
   });
 
-  it('tem os 3 estágios (espere / no ponto / passou) com veredito', () => {
+  it('tem os estágios coerentes com a regra de maturação', () => {
     for (const guia of GUIAS) {
-      expect(guia.estagios).toHaveLength(3);
-      expect(guia.estagios.map((e) => e.chave)).toEqual(CHAVES);
+      const chaves = guia.estagios.map((e) => e.chave);
+      for (const chave of chaves) expect(CHAVES_VALIDAS).toContain(chave);
+      expect(new Set(chaves).size).toBe(chaves.length);
+
+      if (DOIS_ESTAGIOS.includes(guia.slug)) {
+        // não amadurecem na banca: "pode guardar" + "passou"
+        expect(chaves).toEqual(['guardar', 'passou']);
+      } else {
+        expect(chaves).toHaveLength(3);
+        expect(['espere', 'guardar']).toContain(chaves[0]);
+        expect(chaves[1]).toBe('no-ponto');
+        expect(chaves[2]).toBe('passou');
+      }
+
       for (const estagio of guia.estagios) {
         expect(estagio.nome.trim().length).toBeGreaterThan(2);
         expect(estagio.veredito.trim().length).toBeGreaterThan(2);
         expect(estagio.descricao.trim().length).toBeGreaterThan(20);
       }
+    }
+  });
+
+  it('nunca manda o cliente embora da loja', () => {
+    // regra do encarregado: o guia ajuda a escolher melhor, não recusa a compra
+    const proibido = /não leve|não levar|não compre|não pegue|não leve|avoid/i;
+    for (const guia of GUIAS) {
+      for (const estagio of guia.estagios) {
+        expect(estagio.veredito).not.toMatch(proibido);
+        expect(estagio.descricao).not.toMatch(proibido);
+      }
+      for (const passo of guia.passos) {
+        expect(passo.texto).not.toMatch(proibido);
+      }
+      expect(guia.dica).not.toMatch(proibido);
+      expect(guia.armazenamento).not.toMatch(proibido);
     }
   });
 
@@ -159,7 +189,14 @@ describe('página pública (sem login)', () => {
     // os três estágios aparecem com o veredito
     expect(screen.getByText('Espere 2 a 3 dias')).toBeInTheDocument();
     expect(screen.getByText('Lever hoje')).toBeInTheDocument();
-    expect(screen.getByText('Não leve')).toBeInTheDocument();
+    expect(screen.getByText('Prefira outro')).toBeInTheDocument();
+  });
+
+  it('usa "pode guardar" nos produtos que não amadurecem na banca', () => {
+    renderPublico('batata');
+    expect(screen.getByText('Pode guardar')).toBeInTheDocument();
+    expect(screen.getByText('Cozinhe hoje')).toBeInTheDocument();
+    expect(screen.getByText('Prefira outra')).toBeInTheDocument();
   });
 
   it('explica o que fazer quando o guia não existe', () => {

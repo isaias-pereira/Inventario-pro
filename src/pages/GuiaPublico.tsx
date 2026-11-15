@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Clock, Check, AlertTriangle, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, Check, AlertTriangle, Sparkles, Package } from 'lucide-react';
 import { buscarGuia, GUIAS, type ChaveEstagio } from '@/data/guias';
 import { IlustracaoProduto } from '@/components/guias/IlustracaoProduto';
 import { IlustracaoPasso } from '@/components/guias/IlustracaoPasso';
@@ -15,7 +15,14 @@ import { trackEvent } from '@/lib/analytics';
  * estoque ou validade sai daqui.
  */
 
-/** Cores de cada estágio: espere / no ponto / passou. */
+/**
+ * Cores de cada estágio.
+ * - espere  (âmbar): ainda não está no ponto, ripa em casa
+ * - guardar (azul):   não amadurece na banca — pode guardar para depois
+ * - no-ponto (verde): o estado ideal
+ * - passou  (rust):   passou do ponto — o veredito sempre convida a
+ *                     escolher **outra peça da banca**, nunca a recusar a compra
+ */
 const ESTAGIO: Record<
   ChaveEstagio,
   { chip: string; linha: string; icone: typeof Clock; rotulo: string }
@@ -25,6 +32,12 @@ const ESTAGIO: Record<
     linha: 'bg-[#D9A441]',
     icone: Clock,
     rotulo: 'Ainda não',
+  },
+  guardar: {
+    chip: 'bg-[#E1EBF6] text-[#2C5A86] border-[#B5CCE2]',
+    linha: 'bg-[#4A7FB5]',
+    icone: Package,
+    rotulo: 'Pode guardar',
   },
   'no-ponto': {
     chip: 'bg-[#DFEDD8] text-[#275C33] border-[#A9CBA0]',
@@ -211,7 +224,7 @@ export default function GuiaPublico() {
             {guia.estagios.map((estagio, i) => {
               const estilo = ESTAGIO[estagio.chave];
               const Icone = estilo.icone;
-              const indiceEstagio = i as 0 | 1 | 2;
+              const indiceEstagio = estagio.ilustracao ?? (i as 0 | 1 | 2);
               return (
                 <article
                   key={estagio.chave}
@@ -227,6 +240,7 @@ export default function GuiaPublico() {
                     />
                   </div>
                   <p
+                    title={`${estilo.rotulo}: ${estagio.veredito}`}
                     className={`mt-3 inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${estilo.chip}`}
                   >
                     <Icone className="h-3.5 w-3.5" aria-hidden="true" />

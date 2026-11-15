@@ -56,8 +56,8 @@ export interface PassoGuia {
   texto: string;
 }
 
-/** Os três estágios de um produto: ainda não, no ponto, passou. */
-export type ChaveEstagio = 'espere' | 'no-ponto' | 'passou';
+/** Os estágios de um produto: ainda não, pode guardar, no ponto, passou. */
+export type ChaveEstagio = 'espere' | 'guardar' | 'no-ponto' | 'passou';
 
 export interface EstagioGuia {
   chave: ChaveEstagio;
@@ -65,6 +65,12 @@ export interface EstagioGuia {
   /** Veredito curto, aparece em destaque. */
   veredito: string;
   descricao: string;
+  /**
+   * Qual desenho mostrar: 0 = ainda cru, 1 = no ponto, 2 = passado.
+   * Por padrão usa a posição do estágio; produtos que não amadurecem
+   * (batata, cebola, laranja…) apontam para o desenho "no ponto".
+   */
+  ilustracao?: 0 | 1 | 2;
 }
 
 export const GUIAS: GuiaProduto[] = [
@@ -79,12 +85,12 @@ export const GUIAS: GuiaProduto[] = [
       { icone: 'olho', titulo: 'Olhe a cor', texto: 'O ombro alaranjado ou vermelho é o sinal de que está maduro. Se ainda tem um verde no alto, ele ripa em casa.' },
       { icone: 'toque', titulo: 'Toque de leve', texto: 'A pele deve ceder um pouco, sem estar mole. Pele lisa, sem rugas.' },
       { icone: 'cheiro', titulo: 'Cheire o talo', texto: 'Cheiro forte e doce é tomate no ponto. Sem cheiro nenhum? Ainda está verde.' },
-      { icone: 'peso', titulo: 'See o peso', texto: 'Dentro do mesmo tamanho, escolha o mais pesado: é o mais cheio de água e de sabor.' },
+      { icone: 'peso', titulo: 'Sinta o peso', texto: 'Dentro do mesmo tamanho, escolha o mais pesado: é o mais cheio de água e de sabor.' },
     ],
     estagios: [
       { chave: 'espere', nome: 'Verde e firme', veredito: 'Espere 2 a 3 dias', descricao: 'Ombro ainda verde, casca dura e sem cheiro. Deixe em cima da pia, fora da geladeira, até amadurecer.' },
       { chave: 'no-ponto', nome: 'Alaranjado e firme', veredito: 'Lever hoje', descricao: 'Cor uniforme e viva, cede um pouco ao toque e tem cheiro de tomate. Perfeito para hoje.' },
-      { chave: 'passou', nome: 'Mole ou manchado', veredito: 'Não leve', descricao: 'Escureceu, enrugou ou está mole demais. Machucado é porta aberta para bactéria: use apenas se for consumir na hora.' },
+      { chave: 'passou', nome: 'Mole ou manchado', veredito: 'Prefira outro', descricao: 'Escureceu, enrugou ou está mole demais: o sabor já passou. Machucado demais pode trazer bactéria — nesse caso, escolha outro da banca.' },
     ],
     dica: 'Tomate maduro nunca vai para a geladeira: o frio mata o sabor. Guarde virado para baixo, em cima da pia.',
     armazenamento: 'Em cima da pia, virado para baixo e longe da luz. Depois de cortado, na geladeira por até 3 dias.',
@@ -105,7 +111,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'espere', nome: 'Verde', veredito: 'Espere 3 a 5 dias', descricao: 'Verde e dura. Ripa em cima da mesa, fora da geladeira. (A geladeira escurece a casca, mas não segura o amadurecimento.)' },
       { chave: 'no-ponto', nome: 'Amarela com pintas', veredito: 'Lever hoje', descricao: 'Amarelo vivo com umas pintas marrons: doce e macia. Perfeita para comer hoje ou deixar amadurecer mais um dia.' },
-      { chave: 'passou', nome: 'Muito amarela e mole', veredito: 'Use logo', descricao: 'Escureceu e ficou mole: ainda rende bolo, bolo de banana e vitamina, mas não está boa para comer in natura.' },
+      { chave: 'passou', nome: 'Muito amarela e mole', veredito: 'Use logo', descricao: 'Escureceu e ficou mole: ainda rende bolo e vitamina, mas já passou do ponto para comer in natura.' },
     ],
     dica: 'Banana com pintas é a melhor para hoje. Banana verde é a melhor para esperar a semana toda.',
     armazenamento: 'Em cima da mesa, fora da geladeira. A banana madura descascada pode ser congelada para bolo e vitamina.',
@@ -125,7 +131,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'espere', nome: 'Verde e duro', veredito: 'Espere 3 a 5 dias', descricao: 'Verde, firme e sem cheiro. Deixe em cima da mesa até amadurecer.' },
       { chave: 'no-ponto', nome: 'Meio amarelo, cheiro doce', veredito: 'Coma hoje', descricao: 'Metade amarela, cheiro doce e toque macio: está no ponto.' },
-      { chave: 'passou', nome: 'Muito amarelo e mole', veredito: 'Use logo', descricao: 'Muito macio, com pontos fundidos: rende vitamina e bolo. Se estiver com cheiro forte, melhor não levar.' },
+      { chave: 'passou', nome: 'Muito amarelo e mole', veredito: 'Use logo', descricao: 'Muito macio, com pontos fundidos: rende vitamina e bolo. Se estiver com cheiro forte, prefira outro da banca.' },
     ],
     dica: 'Mamão é fruta de poucos dias: compre quando ainda estiver firme e deixe em casa, na temperatura ambiente.',
     armazenamento: 'Em cima da mesa até amadurecer. Depois, na geladeira por 2 a 3 dias — ou corte e congele.',
@@ -145,7 +151,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'espere', nome: 'Verde e duro', veredito: 'Espere 3 a 4 dias', descricao: 'Verde escuro e firme: ripe em cima da mesa. Para acelerar, coloque ao lado de uma banana.' },
       { chave: 'no-ponto', nome: 'Cede um pouco ao toque', veredito: 'Lever hoje', descricao: 'Macio no ponto certo, sem marcas: perfeito para hoje — em fatia, no molho ou no guacamole.' },
-      { chave: 'passou', nome: 'Muito mole ou manchado', veredito: 'Não leve', descricao: 'Amassado, com fibras marrons ou cheiro forte: use logo ou deixe para fora.' },
+      { chave: 'passou', nome: 'Muito mole ou manchado', veredito: 'Use logo', descricao: 'Passou do ponto: ainda rende vitamina e guacamole, mas o sabor mudou. Com fibras marrons ou cheiro forte, escolha outro da banca.' },
     ],
     dica: 'Quer amadurecer rápido? Coloque o abacate ao lado de uma banana: o gás que a banana solta acelera o processo.',
     armazenamento: 'Em cima da mesa até amadurecer. Depois, na geladeira por 3 a 4 dias.',
@@ -159,14 +165,14 @@ export const GUIAS: GuiaProduto[] = [
     palavras: ['maca', 'maçã', 'maca gala', 'maçã gala', 'maca fuji', 'maçã fuji'],
     passos: [
       { icone: 'olho', titulo: 'Olhe a cor', texto: 'Prefira cor viva e uniforme. Maçã com cara de amarela e sem brilho costuma ser mais fraca.' },
-      { icone: 'toque', titulo: 'Toque na casca', texto: 'Firme ao toque, sem ceder. Se afundar com o dedo, não está boa.' },
+      { icone: 'toque', titulo: 'Toque na casca', texto: 'Firme ao toque, sem ceder. Se afundar com o dedo, já passou do ponto.' },
       { icone: 'casca', titulo: 'Procure amassados', texto: 'Sem marcas de queda, sem pontos escuros e sem casca enrugada.' },
       { icone: 'peso', titulo: 'Escolha a mais pesada', texto: 'Maçã boa pesa na mão. Na dúvida, leve a mais pesada do mesmo tamanho.' },
     ],
     estagios: [
       { chave: 'espere', nome: 'Firme e sem brilho', veredito: 'Espere 1 a 2 dias', descricao: 'Dura e sem brilho: ainda sem açúcar. Deixe fora da geladeira por um ou dois dias.' },
       { chave: 'no-ponto', nome: 'Firme e com brilho', veredito: 'Lever hoje', descricao: 'Firme, pesada na mão e com brilho na casca: doce e crocante — o melhor estado.' },
-      { chave: 'passou', nome: 'Moles ou com manchas', veredito: 'Use logo', descricao: 'Murcha, amassa ao toque ou tem manchas: use logo ou não leve.' },
+      { chave: 'passou', nome: 'Moles ou com manchas', veredito: 'Use logo', descricao: 'Murcha, amassa ao toque ou tem manchas: o sabor já passou. Ainda dá para bolo e compota — cozinhe logo.' },
     ],
     dica: 'Maçã boa pesa na mão. Dentro da mesma caixa, a mais pesada é quase sempre a mais doce.',
     armazenamento: 'Na geladeira, dentro de um saco perfurado ou na caixa da gaveta: dura até 2 semanas.',
@@ -181,12 +187,12 @@ export const GUIAS: GuiaProduto[] = [
     passos: [
       { icone: 'peso', titulo: 'Escolha a mais pesada', texto: 'Do mesmo tamanho, a laranja mais pesada é a mais cheia de suco.' },
       { icone: 'casca', titulo: 'Veja a casca', texto: 'Casca lisa e firme, sem áreas enrugadas ou pontos escuros.' },
-      { icone: 'toque', titulo: 'Toque de leve', texto: 'Firme, com uma leve elasticidade. Frouxa demais já está passa do ponto.' },
+      { icone: 'toque', titulo: 'Toque de leve', texto: 'Firme, com uma leve elasticidade. Frouxa demais já passou do ponto.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Firme e sem brilho', veredito: 'Espere 1 a 2 dias', descricao: 'Ainda dura e sem brilho: deixe na fruteira por um ou dois dias até ficar mais doce.' },
-      { chave: 'no-ponto', nome: 'Pesada e perfumada', veredito: 'Esprema hoje', descricao: 'Pesada na mão, firme e com cheiro forte na casca: está cheia de suco.' },
-      { chave: 'passou', nome: 'Murcha ou com bolhas', veredito: 'Use logo', descricao: 'Murcha, com casca frouxa ou bolhas de mofo: use logo (suco) ou não leve.' },
+      { chave: 'guardar', nome: 'Firme e sem brilho', veredito: 'Pode guardar', descricao: 'Firme e sem brilho: dura bem e aguenta alguns dias na fruteira. Guarde em cima da mesa, longe do sol.', ilustracao: 1 },
+      { chave: 'no-ponto', nome: 'Pesada e perfumada', veredito: 'Esprema hoje', descricao: 'Pesada na mão, firme e com cheiro forte na casca: está cheia de suco.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Murcha ou com bolhas', veredito: 'Use logo', descricao: 'Murcha ou com casca frouxa: rende suco na hora. Se tiver bolhas de mofo, escolha outra.', ilustracao: 2 },
     ],
     dica: 'Laranja com casca e pele é sempre melhor para suco. Descascada, é para comer na hora.',
     armazenamento: 'Em cima da mesa por até 3 dias. Na geladeira, com as folhas, dura 2 a 3 semanas.',
@@ -204,9 +210,9 @@ export const GUIAS: GuiaProduto[] = [
       { icone: 'peso', titulo: 'Escolha a mais pesada', texto: 'Melancia boa pesa para o tamanho. Leve as mais pesadas, sem rachaduras.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Verde e clara embaixo', veredito: 'Espere 2 a 3 dias', descricao: 'Casca verde marcada e parte de baixo ainda clara: costuma estar sem doçura. Deixe amadurecer em casa.' },
+      { chave: 'espere', nome: 'Verde e clara embaixo', veredito: 'Prefira outra', descricao: 'Casca verde marcada e parte de baixo ainda clara: essa costuma ter pouca doçura. Escolha outra da banca, com a sola já amarelada.' },
       { chave: 'no-ponto', nome: 'Verde com sola amarela', veredito: 'Corte e sirva', descricao: 'A casca tem o verde listrado e embaixo já amareleceu: doce e suculenta. Corte ao meio para conferir.' },
-      { chave: 'passou', nome: 'Muito amarela, mole ou rachada', veredito: 'Não leve', descricao: 'Passou do ponto: casca muito amarelada, rachada ou estalos ao bater. A textura fica parecendo água.' },
+      { chave: 'passou', nome: 'Muito amarela, mole ou rachada', veredito: 'Prefira outra', descricao: 'Passou do ponto: casca muito amarelada, rachada ou estalos ao bater — a textura fica parecendo água. Escolha outra firme.' },
     ],
     dica: 'Bata com o dedo: "tum" grave é ponto certo, "toc" metálico é melancia passando do ponto.',
     armazenamento: 'Em temperatura ambiente por até 2 dias. Depois, na geladeira por 3 a 4 dias — corte só o que for comer.',
@@ -226,7 +232,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'espere', nome: 'Casca verde', veredito: 'Espere 2 a 4 dias', descricao: 'Ainda verde: guarde em cima da mesa, com a ponta para baixo, até dourar.' },
       { chave: 'no-ponto', nome: 'Dourado, folha viva', veredito: 'Lever hoje', descricao: 'Casca dourada, folha verde e cheiro doce: pronto para comer hoje.' },
-      { chave: 'passou', nome: 'Escuro e mole', veredito: 'Não leve', descricao: 'Escureceu, amoleceu ou tem cheiro forte de fermento: não leve.' },
+      { chave: 'passou', nome: 'Escuro e mole', veredito: 'Prefira outro', descricao: 'Escureceu ou amoleceu: o sabor já passou e o cheiro fica forte demais. Escolha outro, mais dourado e firme.' },
     ],
     dica: 'Abacaxi maduro cheira a mel na base. Se o cheiro for adocicado demais, passou do ponto.',
     armazenamento: 'Em cima da mesa até dourar. Depois, na geladeira por até 3 dias.',
@@ -239,14 +245,14 @@ export const GUIAS: GuiaProduto[] = [
     tipo: 'batata',
     palavras: ['batata'],
     passos: [
-      { icone: 'olho', titulo: 'Procure partes verdes', texto: 'Qualquer área verde ou broto é sinal de que ficou muito tempo guardada. Se tiver, não leve.' },
+      { icone: 'olho', titulo: 'Procure partes verdes', texto: 'Qualquer área verde ou broto é sinal de que ficou muito tempo guardada. Se tiver, prefira outra.' },
       { icone: 'toque', titulo: 'Aperte de leve', texto: 'Firme e dura. Batata que afunda com o dedo está velha e murcha.' },
-      { icone: 'casca', titulo: 'Olhe os "olhos"', texto: 'Olhos pequenos e fundos, sem broto, é o ideal. Evite os olhos fundos e escuros.' },
+      { icone: 'casca', titulo: 'Olhe os "olhos"', texto: 'Olhos pequenos e fundos, sem broto, é o ideal. Olhos fundos e escuros são de batata velha: prefira outra.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Firme e sem broto', veredito: 'Guarde até 3 dias', descricao: 'Ainda dura e sem broto: pode ficar em local fresco e escuro. Cozinhe em 2 a 3 dias para melhor textura.' },
-      { chave: 'no-ponto', nome: 'Firme e de casca lisa', veredito: 'Cozinhe hoje', descricao: 'Firme, sem broto verde e sem marcas de umidade: boa para cozinhar ou fritar hoje.' },
-      { chave: 'passou', nome: 'Murcha ou brotada', veredito: 'Não leve', descricao: 'Murcha, com broto ou áreas verdes: a solanina (gosto amargo) aumenta. Descarte as partes verdes e brotadas.' },
+      { chave: 'guardar', nome: 'Firme e sem broto', veredito: 'Pode guardar', descricao: 'Firme, sem broto e sem partes escuras: aguenta bem guardado. Deixe em local fresco, escuro e arejado e use nos próximos dias.', ilustracao: 1 },
+      { chave: 'no-ponto', nome: 'Firme e de casca lisa', veredito: 'Cozinhe hoje', descricao: 'Firme, sem broto verde e sem marcas de umidade: boa para cozinhar ou fritar hoje.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Murcha ou brotada', veredito: 'Prefira outra', descricao: 'Brotou, murchou ou tem partes verdes: o gosto fica amargo e a parte verde não deve ser consumida. Escolha uma batata firme, sem broto.', ilustracao: 2 },
     ],
     dica: 'Guarde a batata longe da luz e da cebola: a luz gera broto verde e a cebola faz a batata murchar mais rápido.',
     armazenamento: 'Em local fresco, escuro e arejado — dentro de um saco de papel, nunca na geladeira.',
@@ -264,9 +270,8 @@ export const GUIAS: GuiaProduto[] = [
       { icone: 'olho', titulo: 'Olhe o topo', texto: 'Sem broto verde no topo: com broto, o sabor fica mais forte e amargo.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Firme e sem broto', veredito: 'Guarde até 2 semanas', descricao: 'Bem fechada, seca e sem broto: dura de boa na gaveta. Se já começou a brotar, use logo.' },
-      { chave: 'no-ponto', nome: 'Firme e sem cheiro forte', veredito: 'Use hoje ou guarde', descricao: 'Firme, com casca lisa e sem cheiro forte: boa para temperar e para guardar.' },
-      { chave: 'passou', nome: 'Brotada, mole ou com mofo', veredito: 'Não leve', descricao: 'Com broto, murcha ou com mofo no fundo: descarte, não leva.' },
+      { chave: 'guardar', nome: 'Firme, seca e sem broto', veredito: 'Pode guardar', descricao: 'Casca lisa, firme e sem broto no topo: é a cebola para temperar hoje ou para guardar na gaveta. Guarde em local seco, arejado e escuro — nunca junto com a batata.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Brotada, mole ou com mofo', veredito: 'Prefira outra', descricao: 'Com broto, murcha ou mofo no fundo: o sabor fica forte e amargo. Escolha outra cebola firme e seca.', ilustracao: 2 },
     ],
     dica: 'Cebola com cheiro forte e olhos secos é velha: guarde a última no fundo da gaveta, longe das outras.',
     armazenamento: 'Em local seco, arejado e escuro, fora da geladeira. Nunca guarde junto com a batata.',
@@ -281,13 +286,12 @@ export const GUIAS: GuiaProduto[] = [
     passos: [
       { icone: 'olho', titulo: 'Veja a cor', texto: 'Laranja viva e uniforme. Parte branca ou amarelada no topo é sinal de que perdeu doçura.' },
       { icone: 'toque', titulo: 'Aperte de leve', texto: 'Firme, sem ceder. Cenoura mole e ressecada perdeu o açúcar.' },
-      { icone: 'casca', titulo: 'Procure rachaduras', texto: 'Rachaduras, marcas de faca ou pontos escuros: avoid — a cenoura apodrece mais rápido ali.' },
+      { icone: 'casca', titulo: 'Procure rachaduras', texto: 'Rachaduras, marcas de faca ou pontos escuros: prefira outra — a cenoura apodrece mais rápido ali.' },
       { icone: 'folha', titulo: 'Veja se tem folha', texto: 'Com folha verde, foi colhida recentemente e está mais doce.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Firme e sem folha', veredito: 'Guarde até 2 semanas', descricao: 'Firme, cor viva e sem folha: dura bem. Tire a folha se for guardar — ela puxa a umidade da raiz.' },
-      { chave: 'no-ponto', nome: 'Firme e cor viva', veredito: 'Use hoje', descricao: 'Firme, sem rachaduras e com laranja vivo: doce, boa para raw ou cozida.' },
-      { chave: 'passou', nome: 'Murcha ou ressecada', veredito: 'Use logo', descricao: 'Murcha, com pontas ressecadas ou desbotadas: perdeu o açúcar. Rende sopa e purê, mas não está boa crua.' },
+      { chave: 'guardar', nome: 'Firme e cor viva', veredito: 'Pode guardar', descricao: 'Firme, sem rachaduras e com laranja vivo: pode guardar na geladeira por até 2 semanas. Se vier com folha, tire antes de guardar — ela puxa a umidade da raiz.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Murcha ou ressecada', veredito: 'Use logo', descricao: 'Murcha, com pontas ressecadas ou desbotadas: perdeu o açúcar, mas ainda rende sopa e purê. Cozinhe logo.', ilustracao: 2 },
     ],
     dica: 'Cenoura com folha verde é a melhor: a folha mostra que foi colhida há pouco.',
     armazenamento: 'Na geladeira, dentro de um saco plástico e sem a folha, por até 2 semanas.',
@@ -301,13 +305,12 @@ export const GUIAS: GuiaProduto[] = [
     palavras: ['repolho', 'repolho branco', 'repolho roxo'],
     passos: [
       { icone: 'peso', titulo: 'Escolha o mais pesado', texto: 'Do mesmo tamanho, o mais pesado é o mais firme e com mais folha dentro.' },
-      { icone: 'folha', titulo: 'Olhe as folhas de fora', texto: 'Firmes, verdes e grudadas na cabeça: o repolho está fresco. Folhas frouxas ou amareladas já é velho.' },
+      { icone: 'folha', titulo: 'Olhe as folhas de fora', texto: 'Firmes, verdes e grudadas na cabeça: o repolho está fresco. Folhas frouxas ou amareladas? Prefira outro.' },
       { icone: 'casca', titulo: 'Veja a base cortada', texto: 'A base (o talo) deve estar branca e firme, sem escurecimento.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Bem fechado e duro', veredito: 'Guarde até 10 dias', descricao: 'Cabeça fechada, firme e pesada: conserva bem. Corte só a parte que for usar.' },
-      { chave: 'no-ponto', nome: 'Firme e crocante', veredito: 'Use hoje', descricao: 'Folhas coladas, firmes e crocantes: o melhor ponto para salada, refogado ou capeado.' },
-      { chave: 'passou', nome: 'Folhas amareladas e frouxas', veredito: 'Não leve', descricao: 'Cabeça frouxa, folhas externas amareladas ou marrons: use logo ou não leve.' },
+      { chave: 'guardar', nome: 'Bem fechado e firme', veredito: 'Melhor para guardar', descricao: 'Cabeça fechada, firme e pesada: é o melhor estado para guardar. Na geladeira dura até 10 dias — corte só o que for usar.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Folhas amareladas e frouxas', veredito: 'Prefira outra', descricao: 'Cabeça frouxa, folhas externas amareladas ou marrons: já passou. Escolha outro repolho mais fechado e pesado.', ilustracao: 2 },
     ],
     dica: 'Corte o repolho pela metade, não em gomos: as folhas de fora continuam protegendo o miolo por mais tempo.',
     armazenamento: 'Na geladeira, em saco ou pote, por até 10 dias. O miolo cortado dura menos.',
@@ -320,14 +323,14 @@ export const GUIAS: GuiaProduto[] = [
     tipo: 'alface',
     palavras: ['alface', 'alface crespa', 'alface americana', 'alface romana'],
     passos: [
-      { icone: 'folha', titulo: 'See as folhas', texto: 'Firmes, verdes e abertas de leve: alface fresca. Folhas murchas e caída não voltam.' },
+      { icone: 'folha', titulo: 'Veja as folhas', texto: 'Firmes, verdes e abertas de leve: alface fresca. Folhas murchas e caídas não voltam.' },
       { icone: 'casca', titulo: 'Olhe a borda', texto: 'Borda sem marrom ou preto. A borda é a primeira parte a passar do ponto.' },
-      { icone: 'cheiro', titulo: 'Cheire a base', texto: 'Cheiro fresco e leve. Se a base já estiver escurecida ou com cheiro estranho, troque.' },
+      { icone: 'cheiro', titulo: 'Cheire a base', texto: 'Cheiro fresco e leve. Se a base já estiver escurecida ou com cheiro estranho, prefira outra.' },
     ],
     estagios: [
-      { chave: 'espere', nome: 'Fechada e firme', veredito: 'Use em 1 a 2 dias', descricao: 'Bem fechada, folhas firmes: aguenta 1 a 2 dias na geladeira. Se só for usar amanhã, esta é a melhor compra.' },
-      { chave: 'no-ponto', nome: 'Folhas crocantes e claras', veredito: 'Use hoje', descricao: 'Folhas soltas, crocantes, de cor viva e sem marcas: está no ponto, o melhor estado para salada.' },
-      { chave: 'passou', nome: 'Murcha ou com borda marrom', veredito: 'Não leve', descricao: 'Murcha, com borda marrom ou base escurecida: alface murchada não revive — melhor não levar.' },
+      { chave: 'guardar', nome: 'Fechada e firme', veredito: 'Melhor para guardar', descricao: 'Bem fechada, de folhas firmes: é o melhor estado para guardar — crocante e durável. Na geladeira aguenta 3 a 5 dias.', ilustracao: 1 },
+      { chave: 'no-ponto', nome: 'Folhas crocantes e claras', veredito: 'Use hoje', descricao: 'Folhas soltas, crocantes, de cor viva e sem marcas: está no ponto para salada hoje.', ilustracao: 1 },
+      { chave: 'passou', nome: 'Murcha ou com borda marrom', veredito: 'Prefira outra', descricao: 'Murcha, com borda marrom ou base escurecida: alface murchada não revive. Escolha outra, com as folhas firmes.', ilustracao: 2 },
     ],
     dica: 'Lave a alface só na hora de usar: ela guarda melhor seca na geladeira.',
     armazenamento: 'Na geladeira, dentro de um pote ou de um saco com papel toalha, por 3 a 5 dias.',
