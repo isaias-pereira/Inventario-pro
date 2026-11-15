@@ -11,6 +11,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://inventario-pro-one.vercel.app/g/creditos</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  <url>
     <loc>https://inventario-pro-one.vercel.app/g/tomate</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>

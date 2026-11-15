@@ -33,6 +33,7 @@ A rota `/g` (índice com todos os produtos) existe como destino alternativo
 |---|---|---|
 | `/g/:slug` | **público** (sem login) | cliente que escaneou o QR |
 | `/g` | **público** | índice de todos os guias |
+| `/g/creditos` | **público** | crédito das fotos (CC BY / CC BY-SA) |
 | `/` → menu "Guias & QR" | admin e encarregado | impressão das etiquetas |
 
 As rotas públicas ficam **fora** do `Index` (em `src/App.tsx`), que é a parte
@@ -55,21 +56,86 @@ Não há migration nem endpoint: o que está no arquivo é o que vai para produ�
 no deploy. Para **ajustar um texto** ou **adicionar um produto**, edite o
 arquivo, rode `npm test` e faça o deploy.
 
-## 4. Ilustrações
+## 4. Fotos dos produtos
 
-As ilustrações são **SVG gerados em código** (`src/components/guias/IlustracaoProduto.tsx`):
-cada produto tem uma silhueta e **3 paletas**, uma por estado (ainda cru / no
-ponto / passado), mais as manchas do estágio "passou".
+O cliente vê **foto de verdade**, não desenho. A primeira versão usava imagens
+geradas por IA e o resultado foi reprovado na revisão: o tomate da capa não
+parecia tomate e alguns estados saíram errados (fruta verde no lugar de
+madura). Desde então o guia usa **fotos reais, de produto inteiro**, com o
+estado bem visível.
 
-- Vantagens: zero arquivo de imagem, ~2 kB por ilustração, escala sem perder
-  nitidez, estilo uniforme e cor controlável por estágio.
-- Para trocar por **foto real** (fase futura): o campo `tipo` do guia aponta
-  para o desenho; basta criar um componente que devolva `<img>` no lugar do SVG.
+- As fotos ficam em `public/guias/<slug>-<n>.webp` (800×600, WebP ~40 kB) e
+  são **versionadas no repositório**: nada é baixado de fora em produção, o
+  app funciona offline e a etiqueta impressa é sempre a mesma.
+- Uma foto por **estado visual**: `tomate-1` (verde), `tomate-2` (no ponto),
+  `tomate-3` (passou). Produtos que não amadurecem na banca (cebola, cenoura,
+  repolho) têm só dois estados: "pode guardar" e "passou".
+- Os **desenhos SVG antigos** continuam no código (`IlustracaoProduto`) só
+  como **reserva**: se a foto não carregar, a página mostra o desenho e nunca
+  quebra (`src/components/guias/FotoProduto.tsx`).
+- Para trocar uma foto pela foto real da banca, basta substituir o arquivo
+  `.webp` de mesmo nome — ou pela foto tirada pelo celular do encarregado —
+  **e subir `VERSAO_FOTOS`** em `src/lib/fotos.ts`.
+- **Por que existe a versão:** quando a foto é substituída mantendo o nome, o
+  navegador pode continuar mostrando a imagem antiga que já tem em cache (foi
+  o que aconteceu na troca das fotos de IA pelas reais: a tela ainda mostrava
+  o tomate gerado). `fotoVersionada()` soma `?v=` na URL, o que cria um
+  endereço novo e obriga o navegador a baixar a foto nova.
 
-Os ícones dos passos (olhar, tocar, cheirar, pesar, som, casca, folha, talo)
-estão em `src/components/guias/IlustracaoPasso.tsx`.
+### De onde vêm as fotos
 
-## 5. Tela interna (Guias & QR)
+Do **Wikimedia Commons**, com licença livre (CC0, domínio público, CC BY ou
+CC BY-SA). As que exigem atribuição (CC BY / CC BY-SA) aparecem na página
+pública `/g/creditos`, com autor, licença e link do arquivo original — o
+crédito é gerado junto com o download.
+
+O fluxo é:
+
+1. `scripts/buscar-fotos-guias.mjs` procura candidatas no Commons por
+   produto/estado e salva os metadados;
+2. `scripts/conferir-candidatas.mjs <lista.json>` monta `dist/candidatas.html`
+   com as candidatas já recortadas em 800×600, para escolher olhando;
+3. `scripts/fotos-escolhidas.json` guarda o arquivo escolhido para cada
+   estado (`tomate-1`, `tomate-2`, …);
+4. `scripts/baixar-fotos-guias.mjs` baixa as escolhidas, recorta em 4:3
+   (`sharp`, `npm i sharp --no-save`), grava os `.webp` e reescreve
+   `src/data/fotos-creditos.ts`.
+
+```bash
+node scripts/baixar-fotos-guias.mjs            # todas as escolhidas
+node scripts/baixar-fotos-guias.mjs tomate-2   # uma foto só
+```
+
+O Commons aplica limite de requisições (HTTP 429); os scripts esperam e
+tentam de novo, então uma execução completa pode levar alguns minutos.
+
+**Estados difíceis de fotografar**: "fruta/verdura passada" quase não existe em
+banco de imagens livre. O que foi feito:
+
+- **abacaxi**: nenhuma foto real de abacaxi escurecido/mole — o guia ficou com
+  **2 estágios** (espere → no ponto) e o alerta de "passou" (cheiro fermentado,
+  casca escura e mole) vive na dica do encarregado;
+- **alface passada** e **cenoura ressecada**: usam a **melhor foto real
+  disponível** (alface com podridão da cabeça, cenouras de feira) e o texto
+  explica o defeito. Nesses dois o ideal é substituir pela foto tirada na
+  própria banca, com o mesmo nome de arquivo.
+
+## 5. Página pública: feita para o celular
+
+O cliente abre a página no celular, na banca, com uma mão só. Por isso:
+
+- coluna estreita (`max-w-md`), **fundo branco** e tipografia de sistema
+  (sem gradiente, sem "vidro", sem serifa/mono decorativo);
+- **foto do produto** como imagem principal, logo abaixo do nome;
+- "Como escolher" em linhas compactas (ícone + título + uma frase);
+- "Está no ponto?" em **linhas com miniatura da foto** (não cartões grandes),
+  com o selo do estado (âmbar / azul / verde / laranja);
+- dica e "como guardar" em duas caixas curtas no fim.
+
+No total, o conteúdo cabe em pouco mais de uma tela de celular — o cliente
+lê sem rolar a página inteira.
+
+## 6. Tela interna (Guias & QR)
 
 `src/components/GuiasAdminView.tsx` — admin e encarregado:
 
@@ -85,7 +151,7 @@ Na impressão, o cabeçalho do sistema sai fora: o `Header` ganhou a classe
 `app-header` e o `index.css` esconde `.app-header` e `.no-print` em
 `@media print`.
 
-## 6. Guia também na tela interna
+## 7. Guia também na tela interna
 
 Na **Consulta** (admin), quando o produto consultado tem guia, aparece o
 botão **"Guia do cliente"**, que abre a mesma página pública em outra aba — a
@@ -94,20 +160,20 @@ equipe segue exatamente o mesmo critério que o cliente lê.
 > A correspondência é por palavra-chave na descrição (`palavras` do guia), então
 > é uma aproximação: "BANANA NANICA" cai no guia de banana prata.
 
-## 7. Métricas
+## 8. Métricas
 
 `trackEvent('guia_view', { slug })` e `trackEvent('guia_indice')` no Vercel
 Analytics: dá para saber **qual guia é mais consultado** (e se algum QR não
 está sendo usado). Nenhum dado pessoal do cliente é coletado.
 
-## 8. Testes
+## 9. Testes
 
-`src/test/guias.test.tsx` (16 casos): integridade do conteúdo (13 produtos,
+`src/test/guias.test.tsx` (18 casos): integridade do conteúdo (13 produtos,
 slugs únicos, coerência dos estágios, passos com ícone válido), busca de guia,
 URL pública, ligação com a descrição do catálogo, desenho de todas as
-ilustrações e a página pública renderizando **sem login**.
+ilustrações de reserva e a página pública renderizando **sem login**.
 
-Dois casos travam as **regras de conteúdo** (ver seção 9):
+Dois casos travam as **regras de conteúdo** (ver seção 10):
 
 - `tem os estágios coerentes com a regra de maturação` — produtos que não
   amadurecem na banca têm 2 estágios (`guardar` + `passou`); os demais têm 3
@@ -116,7 +182,14 @@ Dois casos travam as **regras de conteúdo** (ver seção 9):
   dica ou texto de armazenamento pode conter "não leve / não levar / não compre
   / avoid".
 
-## 9. Regras de conteúdo (revisão do encarregado)
+E dois travam as **fotos**:
+
+- `todos os estágios têm foto e o arquivo existe no projeto` — cada estágio
+  aponta para `/guias/<slug>-<n>.webp` e o arquivo precisa estar em
+  `public/guias/` (senão a banca receberia uma página sem foto);
+- `a foto de capa é a do estado "no ponto"`.
+
+## 10. Regras de conteúdo (revisão do encarregado)
 
 O guia é material do **cliente final**. As regras validadas na revisão:
 
@@ -134,6 +207,9 @@ O guia é material do **cliente final**. As regras validadas na revisão:
    é `Melhor para guardar`, não "use em 1 a 2 dias".
 5. **Cebola, cenoura e repolho** têm 2 estágios — os dois primeiros eram
    quase idênticos e foram fundidos.
+6. **Abacaxi** tem 2 estágios (`espere` → `no ponto`): não existe foto real de
+   abacaxi "passado" em banco livre, então o alerta (cheiro fermentado, casca
+   escura e mole) fica na dica do encarregado.
 6. **Prazos de maturação mantidos**: banana e mamão 3 a 5 dias, abacate 3 a 4
    dias, tomate 2 a 3 dias, abacaxi 2 a 4 dias, maçã 1 a 2 dias.
 7. **Tom de voz em 2ª pessoa** ("leve", "espere", "escolha") e **concordância de
@@ -152,19 +228,21 @@ O guia é material do **cliente final**. As regras validadas na revisão:
 | `Prefira outro` / `Prefira outra` | escolha outra peça da banca | rust (Passou do ponto) |
 | `Corte e sirva` | corte ao meio para conferir (melancia) | verde |
 
-O estágio `guardar` usa o campo `ilustracao` para mostrar o desenho do
-produto **no estado bom** (o padrão seria o desenho "cru").
+O estágio `guardar` usa o campo `ilustracao` só para o **desenho de reserva**
+(caso a foto não carregue): ele mostra o produto no estado bom, não no "cru".
 
-## 10. Cuidados
+## 11. Cuidados
 
 - O conteúdo é **do setor**: revisar os textos com o encarregado antes de
   imprimir as etiquetas — o material vai para o cliente final.
-- As ilustrações são **estilizadas**, não são fotos: servem para ensinar o
-  critério, não para "mostrar o produto exato da banca".
+- As fotos são **reais e de banco livre**, não são fotos da banca: servem para
+  ensinar o critério, não para "mostrar o produto exato da banca". Para trocar
+  por uma foto tirada na loja, basta substituir o arquivo de `public/guias/`
+  mantendo o mesmo nome (e atualizar o crédito em `fotos-creditos.ts`).
 - Para trocar o conteúdo de um produto, edite `src/data/guias.ts` e reimprima
   a etiqueta — o QR não muda (o slug é a chave).
 
-## 11. Estado atual (ponto de parada)
+## 12. Estado atual (ponto de parada)
 
 **Branch:** `feature/guias-hortifrui` (worktree em
 `C:\Users\isaia\AppData\Local\Temp\opencode\guias-hortifrui`, fora do OneDrive
@@ -176,11 +254,16 @@ para o build minificado funcionar).
   laranja, melancia, abacaxi, batata, cebola, cenoura, repolho, alface);
 - **conteúdo revisado com o encarregado** (regras da seção 9): nenhum veredito
   manda o cliente embora da loja, estágio novo `guardar` (selo azul), melancia
-  e allace com 1º estágio corrigido, cebola/cenoura/repolho com 2 estágios,
-  concordância de gênero e tom em 2ª pessoa;
-- rotas públicas `/g/:slug` e `/g` funcionando **sem login** ( conferidas no
-  navegador, sem erro de console);
-- ilustrações SVG dos 13 produtos × 3 estágios + 8 ícones de passo;
+  e alface com 1º estágio corrigido, cebola/cenoura/repolho/abacaxi com 2
+  estágios, concordância de gênero e tom em 2ª pessoa;
+- rotas públicas `/g/:slug`, `/g` e `/g/creditos` funcionando **sem login**
+  (conferidas no navegador, sem erro de console);
+- **35 fotos reais** (Wikimedia Commons, licenças livres) em `public/guias/`,
+  no lugar das imagens geradas por IA — a capa de cada guia é a foto do estado
+  "no ponto";
+- página de créditos `/g/creditos` com autor, licença e link de cada foto;
+- bustador de cache em `src/lib/fotos.ts` (`VERSAO_FOTOS`) para a foto nova
+  aparecer na hora de substituir um arquivo pelo mesmo nome;
 - tela interna "Guias & QR" (menu do usuário → admin e encarregado) com busca,
   QR gerado no navegador, copiar link e folha A4 (13 etiquetas conferidas no
   DOM: a folha está fora do container `no-print` e o `app-header` some no
@@ -188,10 +271,10 @@ para o build minificado funcionar).
 - botão "Guia do cliente" na Consulta interna;
 - `sitemap.xml` com as 15 URLs públicas (base trocada para o domínio de
   produção);
-- validações: `npm run typecheck` **sem erros**, `npm test` **544 testes
-  verdes** (53 arquivos, 16 em `src/test/guias.test.tsx`),
-  `npx eslint` limpo nos arquivos do módulo, `npm run build` **minificado OK**
-  (rodado fora do OneDrive).
+- validações: `npm run typecheck` **sem erros**, `npx vitest run
+  src/test/guias.test.tsx` **19 testes verdes**, `npx eslint` limpo nos
+  arquivos do módulo e `vite build` **minificado OK** (rodado fora do
+  OneDrive).
 
 **Pendente (para quando voltarmos):**
 
@@ -203,9 +286,10 @@ para o build minificado funcionar).
    etiquetas **depois** do deploy).
 3. **Impressão de prova**: gerar a folha, imprimir em A4 e testar a leitura do
    QR com o celular antes de colar nas bancas.
-4. Opcional (fases futuras): fotos reais no lugar das ilustrações, guia por
-   bancada com vários produtos, edição do conteúdo pelo admin, contagem de
-   acessos por guia no Analytics.
+4. Opcional (fases futuras): trocar as fotos de banco pelas fotos da própria
+   banca (tiradas pelo celular do encarregado), guia por bancada com vários
+   produtos, edição do conteúdo pelo admin e contagem de acessos por guia no
+   Analytics.
 
 **Como retomar localmente:**
 

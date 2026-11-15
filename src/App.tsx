@@ -12,6 +12,7 @@ import NotFound from "./pages/NotFound";
 // tem login). Ficam fora do `Index`, que é a parte autenticada do sistema.
 import GuiaPublico from "./pages/GuiaPublico";
 import GuiasIndice from "./pages/GuiasIndice";
+import CreditosFotos from "./pages/CreditosFotos";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,8 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/g" element={<GuiasIndice />} />
+                {/* Rota fixa antes de `/g/:slug` (o Router casa na ordem). */}
+                <Route path="/g/creditos" element={<CreditosFotos />} />
                 <Route path="/g/:slug" element={<GuiaPublico />} />
                 <Route path="/" element={<Index />} />
                 <Route path="*" element={<NotFound />} />

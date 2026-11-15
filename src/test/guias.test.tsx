@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   GUIAS,
   buscarGuia,
+  fotoPrincipal,
   guiaParaDescricao,
   normalizarTexto,
   urlGuia,
@@ -12,6 +15,7 @@ import {
 } from '../data/guias';
 import { IlustracaoProduto } from '../components/guias/IlustracaoProduto';
 import { IlustracaoPasso } from '../components/guias/IlustracaoPasso';
+import { fotoVersionada } from '../lib/fotos';
 import GuiaPublico from '../pages/GuiaPublico';
 import GuiasIndice from '../pages/GuiasIndice';
 
@@ -26,6 +30,11 @@ const ICONES: IconePasso[] = ['olho', 'toque', 'cheiro', 'peso', 'som', 'casca',
 const CHAVES_VALIDAS: ChaveEstagio[] = ['espere', 'guardar', 'no-ponto', 'passou'];
 /** Produtos que não amadurecem na banca: ficaram com 2 estágios. */
 const DOIS_ESTAGIOS = ['cebola', 'cenoura', 'repolho'];
+/**
+ * Produto sem foto real do estado "passou" nos bancos livres: o guia ficou
+ * com "espere" + "no ponto" e o alerta de passado vive na dica.
+ */
+const SEM_PASSADO = ['abacaxi'];
 
 beforeEach(() => {
   cleanup();
@@ -80,6 +89,9 @@ describe('conteúdo dos guias', () => {
       if (DOIS_ESTAGIOS.includes(guia.slug)) {
         // não amadurecem na banca: "pode guardar" + "passou"
         expect(chaves).toEqual(['guardar', 'passou']);
+      } else if (SEM_PASSADO.includes(guia.slug)) {
+        // sem foto real do estado passado: "espere" + "no ponto"
+        expect(chaves).toEqual(['espere', 'no-ponto']);
       } else {
         expect(chaves).toHaveLength(3);
         expect(['espere', 'guardar']).toContain(chaves[0]);
@@ -171,6 +183,26 @@ describe('ilustrações', () => {
   });
 });
 
+describe('fotos dos produtos', () => {
+  it('todos os estágios têm foto e o arquivo existe no projeto', () => {
+    for (const guia of GUIAS) {
+      for (const estagio of guia.estagios) {
+        expect(estagio.foto, `sem foto: ${guia.slug}/${estagio.chave}`).toBeTruthy();
+        expect(estagio.foto).toMatch(/^\/guias\/[a-z-]+-\d+\.webp$/);
+        const arquivo = resolve(process.cwd(), 'public', estagio.foto.replace(/^\//, ''));
+        expect(existsSync(arquivo), `foto ausente: ${estagio.foto}`).toBe(true);
+      }
+    }
+  });
+
+  it('a foto de capa é a do estado "no ponto"', () => {
+    for (const guia of GUIAS) {
+      const noPonto = guia.estagios.find((e) => e.chave === 'no-ponto') ?? guia.estagios[0];
+      expect(fotoPrincipal(guia)).toBe(noPonto.foto);
+    }
+  });
+});
+
 describe('página pública (sem login)', () => {
   const renderPublico = (slug: string) =>
     render(
@@ -202,6 +234,16 @@ describe('página pública (sem login)', () => {
   it('explica o que fazer quando o guia não existe', () => {
     renderPublico('nao-existe');
     expect(screen.getByText('Não encontramos esse guia')).toBeInTheDocument();
+  });
+
+  it('mostra a foto do produto (e não um desenho)', () => {
+    renderPublico('tomate');
+    const capa = screen.getByAltText('Tomate no ponto certo');
+    expect(capa).toHaveAttribute('src', fotoVersionada('/guias/tomate-2.webp'));
+    expect(screen.getByAltText('Tomate: Verde e firme')).toHaveAttribute(
+      'src',
+      fotoVersionada('/guias/tomate-1.webp'),
+    );
   });
 
   it('lista todos os produtos no índice público', () => {

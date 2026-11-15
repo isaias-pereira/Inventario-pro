@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Printer, Search, QrCode, CheckSquare, Square } from 'lucide-react';
 import { toast } from 'sonner';
-import { GUIAS, urlGuia, type GuiaProduto } from '@/data/guias';
-import { IlustracaoProduto } from '@/components/guias/IlustracaoProduto';
+import { GUIAS, fotoPrincipal, urlGuia, type GuiaProduto } from '@/data/guias';
+import { FotoProduto } from '@/components/guias/FotoProduto';
 import { gerarQrDataUrl } from '@/lib/qr';
 
 /**
@@ -132,8 +132,14 @@ export default function GuiasAdminView() {
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-muted/40">
-                  <IlustracaoProduto tipo={guia.tipo} estagio={1} className="h-14 w-14" />
+                <div className="h-16 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/40">
+                  <FotoProduto
+                    src={fotoPrincipal(guia)}
+                    alt={guia.nome}
+                    tipo={guia.tipo}
+                    estagio={1}
+                    className="h-full w-full object-cover"
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold leading-tight">{guia.nome}</p>
@@ -214,17 +220,28 @@ export default function GuiasAdminView() {
           {paraImprimir.map((guia) => (
             <div
               key={guia.slug}
-              className="flex items-center gap-3 rounded-lg border border-black/70 p-2"
+              className="flex items-center gap-2 rounded-lg border border-black/70 p-2"
             >
-              <div className="h-20 w-20 shrink-0">
+              <div className="h-[22mm] w-[22mm] shrink-0 overflow-hidden rounded border border-black/30">
+                <FotoProduto
+                  src={fotoPrincipal(guia)}
+                  alt={guia.nome}
+                  tipo={guia.tipo}
+                  estagio={1}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold leading-tight">{guia.nome}</p>
+                <p className="text-[10px] leading-tight">{guia.resumo}</p>
+                <p className="mt-1 text-[9px] uppercase tracking-wide">
+                  Aponte a câmera · SGS-PRO
+                </p>
+              </div>
+              <div className="h-[22mm] w-[22mm] shrink-0">
                 {qrs[guia.slug] && (
                   <img src={qrs[guia.slug]} alt="" className="h-full w-full" />
                 )}
-              </div>
-              <div className="min-w-0">
-                <p className="text-lg font-bold leading-tight">{guia.nome}</p>
-                <p className="text-xs">Aponte a câmera e veja como escolher</p>
-                <p className="font-mono text-[10px]">SGS-PRO · Hortifrui</p>
               </div>
             </div>
           ))}
