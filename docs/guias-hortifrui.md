@@ -19,7 +19,7 @@ Cliente (celular, SEM login)
   └─ escaneia o QR → abre  https://inventario-pro-one.vercel.app/g/tomate
        ├─ "Como escolher"  → 3 a 4 passos ilustrados
        ├─ "Está no ponto?"  → estágios (ainda não / pode guardar / no ponto / passou)
-       ├─ "Dica do encarregado"
+       ├─ "Dica Importante"
        └─ "Como guardar em casa"
 ```
 
@@ -114,7 +114,7 @@ banco de imagens livre. O que foi feito:
 
 - **abacaxi**: nenhuma foto real de abacaxi escurecido/mole — o guia ficou com
   **2 estágios** (espere → no ponto) e o alerta de "passou" (cheiro fermentado,
-  casca escura e mole) vive na dica do encarregado;
+  casca escura e mole) vive na dica importante;
 - **alface passada** e **cenoura ressecada**: usam a **melhor foto real
   disponível** (alface com podridão da cabeça, cenouras de feira) e o texto
   explica o defeito. Nesses dois o ideal é substituir pela foto tirada na
@@ -209,7 +209,7 @@ O guia é material do **cliente final**. As regras validadas na revisão:
    quase idênticos e foram fundidos.
 6. **Abacaxi** tem 2 estágios (`espere` → `no ponto`): não existe foto real de
    abacaxi "passado" em banco livre, então o alerta (cheiro fermentado, casca
-   escura e mole) fica na dica do encarregado.
+   escura e mole) fica na dica importante.
 6. **Prazos de maturação mantidos**: banana e mamão 3 a 5 dias, abacate 3 a 4
    dias, tomate 2 a 3 dias, abacaxi 2 a 4 dias, maçã 1 a 2 dias.
 7. **Tom de voz em 2ª pessoa** ("leve", "espere", "escolha") e **concordância de

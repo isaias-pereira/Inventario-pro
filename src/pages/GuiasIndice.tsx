@@ -34,7 +34,7 @@ export default function GuiasIndice() {
             Como escolher no ponto certo
           </h1>
           <p className="mt-1.5 text-sm text-neutral-600">
-            Toque no produto para ver os passos, os estágios e a dica do encarregado.
+            Toque no produto para ver os passos, os estágios e a dica importante.
           </p>
         </section>
 

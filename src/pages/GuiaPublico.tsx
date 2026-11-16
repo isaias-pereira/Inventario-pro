@@ -194,7 +194,7 @@ export default function GuiaPublico() {
         <section className="mt-6 space-y-2">
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
             <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">
-              Dica do encarregado
+              Dica Importante
             </p>
             <p className="mt-1 text-[13px] leading-snug text-amber-950">{guia.dica}</p>
           </div>
