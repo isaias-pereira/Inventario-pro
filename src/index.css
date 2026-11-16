@@ -126,3 +126,14 @@
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   }
 }
+
+/* Impressão: a folha de etiquetas não leva o cabeçalho do sistema. */
+@media print {
+  .app-header {
+    display: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

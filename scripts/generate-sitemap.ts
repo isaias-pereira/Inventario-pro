@@ -2,8 +2,10 @@
 
 import { writeFileSync } from "fs"
 import { resolve } from "path"
+// NodeNext (tsconfig.api.json) exige a extensão no import; o tsx resolve o .js -> .ts
+import { GUIAS } from "../src/data/guias.js"
 
-const BASE_URL = "https://iventario-pro.lovable.app"
+const BASE_URL = "https://inventario-pro-one.vercel.app"
 
 interface SitemapEntry {
   path: string
@@ -14,6 +16,14 @@ interface SitemapEntry {
 
 const entries: SitemapEntry[] = [
   { path: "/", changefreq: "weekly", priority: "1.0" },
+  // Guia público de Hortifrui: o cliente chega aqui pelo QR da banca.
+  { path: "/g", changefreq: "weekly", priority: "0.8" },
+  { path: "/g/creditos", changefreq: "yearly", priority: "0.2" },
+  ...GUIAS.map((guia) => ({
+    path: `/g/${guia.slug}`,
+    changefreq: "monthly" as const,
+    priority: "0.7",
+  })),
 ]
 
 function generateSitemap(entries: SitemapEntry[]) {

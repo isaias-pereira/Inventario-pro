@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags, Store, Loader2 } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags, Store, Loader2, QrCode } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
-export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email' | 'revisao-secoes';
+export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email' | 'revisao-secoes' | 'guias';
 
 interface HeaderProps {
   currentView: ViewType;
@@ -56,6 +56,10 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
   const emailItems = [{ key: 'email' as const, label: 'E-Mail', icon: Mail }];
   const showEmailItems = isAdmin || userRole === 'encarregado';
 
+  // Guias de Hortifrui + QR das bancas: admin e encarregado do setor.
+  const guiasItems = [{ key: 'guias' as const, label: 'Guias & QR', icon: QrCode }];
+  const showGuiasItems = isAdmin || userRole === 'encarregado';
+
   const handleNav = (view: ViewType) => {
     onNavigate(view);
   };
@@ -74,7 +78,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
   };
 
   return (
-    <header className="border-b border-primary/20 bg-primary shadow-lg">
+    <header className="app-header border-b border-primary/20 bg-primary shadow-lg">
       <div className="mx-auto flex h-14 sm:h-16 max-w-5xl items-center justify-between px-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button onClick={() => handleNav('consulta')} className="whitespace-nowrap text-base sm:text-lg font-bold text-primary-foreground hover:opacity-80 transition-opacity cursor-pointer" aria-label="SGS-PRO — ir para a página inicial">SGS-PRO</button>
@@ -190,6 +194,21 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
               {showProductItems && (
                 <>
                   {productItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onClick={() => handleNav(item.key)}
+                      className={`gap-2 cursor-pointer ${currentView === item.key ? 'bg-accent font-medium' : ''}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {!isAdmin && <DropdownMenuSeparator />}
+                </>
+              )}
+              {showGuiasItems && (
+                <>
+                  {guiasItems.map((item) => (
                     <DropdownMenuItem
                       key={item.key}
                       onClick={() => handleNav(item.key)}

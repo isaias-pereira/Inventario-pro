@@ -18,6 +18,7 @@ const ValidadeView = lazy(() => import('@/components/ValidadeView'));
 const RebaixaView = lazy(() => import('@/components/RebaixaView'));
 const EmailView = lazy(() => import('@/components/EmailView'));
 const RevisaoSecoesView = lazy(() => import('@/components/RevisaoSecoesView'));
+const GuiasAdminView = lazy(() => import('@/components/GuiasAdminView'));
 
 const ViewFallback = () => (
   <div className="flex flex-1 items-center justify-center py-16" role="status" aria-live="polite">
@@ -44,7 +45,7 @@ const Index = () => {
     if (userRole === 'admin') return true;
     if (userRole === 'encarregado') {
       return v === 'validade' || v === 'rebaixa' || v === 'email'
-        || v === 'inventario' || v === 'add-produto' || v === 'usuarios';
+        || v === 'inventario' || v === 'add-produto' || v === 'usuarios' || v === 'guias';
     }
     if (userRole === 'user') return v === 'validade';
     if (userRole === 'promotor' || userRole === 'col_validade') return v === 'validade';
@@ -72,6 +73,7 @@ const Index = () => {
     usuarios: 'Gerenciamento de Usuários',
     'add-produto': 'Adicionar Produto',
     'revisao-secoes': 'Revisão de Seções',
+    'guias': 'Guias & QR Code',
   };
 
   return (
@@ -96,6 +98,7 @@ const Index = () => {
           <AddProductView canEdit={isAdmin} />
         )}
         {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
+        {safeView === 'guias' && (isAdmin || userRole === 'encarregado') && <GuiasAdminView />}
       </Suspense>
 
     </div>
