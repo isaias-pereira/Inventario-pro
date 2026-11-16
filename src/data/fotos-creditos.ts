@@ -22,10 +22,10 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "abacate-2",
-    "arquivo": "Avocado Hass - single and halved.jpg",
-    "autor": "Ivar Leidus",
-    "licenca": "CC BY-SA 4.0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Avocado_Hass_-_single_and_halved.jpg"
+    "arquivo": "Persea americana from Canadian supermarket.jpg",
+    "autor": "Wilfredor",
+    "licenca": "CC0",
+    "pagina": "https://commons.wikimedia.org/wiki/File:Persea_americana_from_Canadian_supermarket.jpg"
   },
   {
     "chave": "abacate-3",
@@ -99,10 +99,10 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "batata-2",
-    "arquivo": "Irish potatoes 01.jpg",
-    "autor": "Ssemmanda will",
+    "arquivo": "Potato cv Dejima.jpg",
+    "autor": "Fk",
     "licenca": "CC BY-SA 4.0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Irish_potatoes_01.jpg"
+    "pagina": "https://commons.wikimedia.org/wiki/File:Potato_cv_Dejima.jpg"
   },
   {
     "chave": "batata-3",
@@ -127,10 +127,10 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "cenoura-1",
-    "arquivo": "Vegetable-Carrot-Bundle-wStalks.jpg",
-    "autor": "Evan-Amos",
-    "licenca": "Public domain",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Vegetable-Carrot-Bundle-wStalks.jpg"
+    "arquivo": "Carrot-fb.jpg",
+    "autor": "Collegestudent33",
+    "licenca": "CC BY-SA 4.0",
+    "pagina": "https://commons.wikimedia.org/wiki/File:Carrot-fb.jpg"
   },
   {
     "chave": "cenoura-2",
