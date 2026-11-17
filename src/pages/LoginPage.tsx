@@ -18,6 +18,9 @@ function isNetworkProblem(message: string): boolean {
   return NETWORK_HINTS.some((hint) => lower.includes(hint));
 }
 
+/** Sitekey pública do Turnstile (quando configurada na Vercel). */
+const TURNSTILE_SITEKEY = (import.meta.env.VITE_TURNSTILE_SITEKEY as string | undefined) || '';
+
 /** Carrega o script do Turnstile uma vez. */
 function loadTurnstileScript(): Promise<void> {
   if (document.querySelector('script[src*="turnstile"]')) return Promise.resolve();
@@ -44,6 +47,9 @@ const LoginPage = () => {
   const turnstileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Sem sitekey o widget não é renderizado nem o script é carregado — o
+    // backend também ignora a verificação quando não há TURNSTILE_SECRET_KEY.
+    if (!TURNSTILE_SITEKEY) return;
     loadTurnstileScript()
       .then(() => {
         // O widget será renderizado automaticamente pelo script quando o DOM estiver pronto
@@ -124,12 +130,12 @@ const LoginPage = () => {
             </div>
           </div>
 
-          {/* Turnstile CAPTCHA (invisível ou checkbox) */}
-          {turnstileReady && (
+          {/* Turnstile CAPTCHA (renderiza só quando a sitekey está configurada) */}
+          {TURNSTILE_SITEKEY && turnstileReady && (
             <div className="mb-4" ref={turnstileRef}>
               <div
                 className="cf-turnstile"
-                data-sitekey={import.meta.env.VITE_TURNSTILE_SITEKEY || ''}
+                data-sitekey={TURNSTILE_SITEKEY}
                 data-callback={(token: string) => setTurnstileToken(token)}
                 data-expired-callback={() => setTurnstileToken('')}
                 data-theme="light"
