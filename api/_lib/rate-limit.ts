@@ -18,9 +18,19 @@ interface KvClient {
 }
 
 let kv: KvClient | null = null;
+let kvResolved = false;
 
 async function getKv(): Promise<KvClient | null> {
-  if (kv) return kv;
+  if (kvResolved) return kv;
+  kvResolved = true;
+
+  // Sem as variáveis do KV o SDK lança na primeira operação (não no import):
+  // checa antes para o fallback em memória assumir sem derrubar o login.
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+    kv = null;
+    return null;
+  }
+
   try {
     const mod = await import('@vercel/kv');
     // @vercel/kv exports `kv` with get/set/del methods
@@ -63,23 +73,27 @@ export async function checkRateLimit(key: string): Promise<RateLimitResult> {
   const cutoff = now() - WINDOW_MS;
 
   if (client) {
-    // --- Vercel KV (persistente cross-instâncias) ---
-    const raw = await client.get(`ratelimit:${key}`);
-    let attempts: number[] = raw ? JSON.parse(raw) : [];
-    attempts = attempts.filter((ts) => ts > cutoff);
+    try {
+      // --- Vercel KV (persistente cross-instâncias) ---
+      const raw = await client.get(`ratelimit:${key}`);
+      let attempts: number[] = raw ? JSON.parse(raw) : [];
+      attempts = attempts.filter((ts) => ts > cutoff);
 
-    if (attempts.length >= MAX_ATTEMPTS) {
-      const oldest = attempts[0];
-      return {
-        ok: false,
-        retryAfter: Math.ceil((oldest + WINDOW_MS - now()) / 1000),
-        remaining: 0,
-      };
+      if (attempts.length >= MAX_ATTEMPTS) {
+        const oldest = attempts[0];
+        return {
+          ok: false,
+          retryAfter: Math.ceil((oldest + WINDOW_MS - now()) / 1000),
+          remaining: 0,
+        };
+      }
+
+      attempts.push(now());
+      await client.set(`ratelimit:${key}`, JSON.stringify(attempts), { ex: Math.ceil(WINDOW_MS / 1000) + 60 });
+      return { ok: true, remaining: MAX_ATTEMPTS - attempts.length };
+    } catch {
+      // KV indisponível no runtime: cai para a memória local.
     }
-
-    attempts.push(now());
-    await client.set(`ratelimit:${key}`, JSON.stringify(attempts), { ex: Math.ceil(WINDOW_MS / 1000) + 60 });
-    return { ok: true, remaining: MAX_ATTEMPTS - attempts.length };
   }
 
   // --- Memória local (fallback) ---
@@ -101,8 +115,12 @@ export async function checkRateLimit(key: string): Promise<RateLimitResult> {
 export async function resetRateLimit(key: string): Promise<void> {
   const client = await getKv();
   if (client) {
-    await client.del(`ratelimit:${key}`);
-  } else {
-    memoryStore.delete(key);
+    try {
+      await client.del(`ratelimit:${key}`);
+      return;
+    } catch {
+      // KV indisponível: limpa a memória local e segue.
+    }
   }
+  memoryStore.delete(key);
 }
