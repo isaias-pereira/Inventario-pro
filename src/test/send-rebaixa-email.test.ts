@@ -220,7 +220,11 @@ describe('endpoint de envio por e-mail', () => {
     expect(sent.to).toBe('comercial@empresa.com');
     expect(sent.cc).toBe('copia@empresa.com');
     expect(sent.subject).toBe('Solicitação de rebaixa / perecíveis — 04/11/2026');
-    expect(sent.text).toBe('Segue a planilha de rebaixa com 12 produto(s)');
+    // A mensagem vai com a assinatura do SGS-PRO no fim.
+    expect(sent.text).toContain('Segue a planilha de rebaixa com 12 produto(s)');
+    expect(sent.text).toContain('Isaias Pereira da Silva');
+    expect(sent.text).toContain('(65) 2128-2558');
+    expect(sent.html).toContain('COMPER');
     expect(sent.attachment.filename).toBe('solicitacao-rebaixa-2026-11-04.ods');
     expect(sent.attachment.contentType).toBe('application/vnd.oasis.opendocument.spreadsheet');
     expect(Buffer.from(sent.attachment.content).toString('utf8')).toBe('conteudo-da-planilha');

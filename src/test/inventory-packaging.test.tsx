@@ -78,6 +78,21 @@ beforeEach(() => {
 });
 
 describe('InventarioView — embalagem fechada', () => {
+  it('não mostra mais o filtro de seção do catálogo', () => {
+    inventoryState.items = [{
+      ean: '7890000000000',
+      codigo: '631613',
+      descricao: 'BANANA PRATA UN',
+      quantidade: 2,
+      secao: 'Hortifruti',
+    }];
+
+    render(<InventarioView />);
+
+    expect(screen.queryByLabelText('Filtrar por seção')).not.toBeInTheDocument();
+    expect(screen.queryByText('Todas as seções')).not.toBeInTheDocument();
+  });
+
   it('converts the package count into total kg when Contar is clicked', async () => {
     invoke.mockResolvedValueOnce(found(packagedProduct));
 

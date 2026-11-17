@@ -149,6 +149,12 @@ describe('toSpreadsheetItems', () => {
     expect(row).not.toHaveProperty('precoFinal');
     expect(row).not.toHaveProperty('oferta');
   });
+
+  it('leva o preço ajustado pelo usuário para a coluna PREÇO SUGERIDO', () => {
+    const [row] = toSpreadsheetItems([item({ preco_sugerido: 3.25 })]);
+
+    expect(row.precoSugerido).toBe(3.25);
+  });
 });
 
 describe('mapas da planilha', () => {

@@ -49,6 +49,8 @@ export interface MailMessage {
   cc?: string;
   subject: string;
   text: string;
+  /** Corpo em HTML (quando existe, o `text` vira a alternativa em texto puro). */
+  html?: string;
   attachment?: MailAttachment;
 }
 
@@ -120,6 +122,9 @@ export function buildResendPayload(message: MailMessage, config: MailConfig): Re
     subject: message.subject,
     text: message.text,
   };
+  if (message.html) {
+    payload.html = message.html;
+  }
   if (message.cc) {
     payload.cc = message.cc
       .split(/[,;]/)
@@ -231,6 +236,7 @@ async function enviarSmtp(
     cc: message.cc,
     subject: message.subject,
     text: message.text,
+    html: message.html,
     attachments: message.attachment
       ? [
           {

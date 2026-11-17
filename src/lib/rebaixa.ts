@@ -211,6 +211,8 @@ export function toSpreadsheetItems(items: RebaixaItem[]): ValidadeSpreadsheetIte
     tipo: item.tipo,
     // O lado COMERCIAL da planilha fica em branco: só o comercial preenche.
     motivo: item.tipo === 'KG' ? item.motivo : null,
+    // Preço já ajustado pelo usuário: a planilha usa esse valor.
+    precoSugerido: item.preco_sugerido,
   }));
 }
 

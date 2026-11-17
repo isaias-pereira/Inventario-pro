@@ -23,6 +23,7 @@
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { copyNotInTo, mailerConfig, sendMail, validateRecipients } from './_lib/mailer.js';
+import { buildSignatureHtml, buildSignatureText, escapeHtml, signatureEnabled } from './_lib/email-signature.js';
 import { contaSmtpDoUsuario } from './_lib/email-envio.js';
 import { createSql, type Sql } from './_lib/db.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
@@ -209,11 +210,26 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
+    // Assinatura do SGS-PRO (nome, cargo, contato e logos) no fim da mensagem.
+    // O e-mail do remetente tem prioridade: quem tem conta própria (`email_envio`)
+    // mostra o endereço dessa caixa.
+    const assinaturaEmail = conta?.from ?? config.from ?? null;
+    const comAssinatura = signatureEnabled();
+    const textoFinal = comAssinatura
+      ? `${text}\n\n---\n${buildSignatureText({ email: assinaturaEmail })}`
+      : text;
+    const htmlFinal = comAssinatura
+      ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;">${escapeHtml(text)}</div>`
+        + `<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;" />`
+        + buildSignatureHtml({ email: assinaturaEmail })
+      : undefined;
+
     await sendMail({
       to,
       cc: cc ?? undefined,
       subject,
-      text,
+      text: textoFinal,
+      ...(htmlFinal ? { html: htmlFinal } : {}),
       attachment: {
         filename,
         contentType: filename.toLowerCase().endsWith('.csv') ? CSV_MIME : ODS_MIME,

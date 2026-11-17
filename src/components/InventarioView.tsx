@@ -24,9 +24,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import BarcodeScanner from '@/components/BarcodeScanner';
 import SecaoBadge from '@/components/SecaoBadge';
-import SecaoFilter from '@/components/SecaoFilter';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 interface PackagingInfo {
   ean_fechado: string;
@@ -54,8 +53,6 @@ const InventarioView = () => {
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [loteNameInput, setLoteNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
-  /** Filtro por seção do catálogo (vazio = todas). */
-  const [secaoFiltro, setSecaoFiltro] = useState('');
   const isViewing = !!viewingLote;
   const readOnly = isViewing;
 
@@ -385,7 +382,6 @@ const InventarioView = () => {
   };
 
   const sortedItems = [...inventoryItems]
-    .filter((item) => !secaoFiltro || item.secao === secaoFiltro)
     .sort((a, b) => {
       switch (sortOrder) {
         case 'alpha': return a.descricao.localeCompare(b.descricao, 'pt-BR');
@@ -449,9 +445,6 @@ const InventarioView = () => {
                   <SelectItem value="qty-asc">Menor qtd</SelectItem>
                 </SelectContent>
               </Select>
-            )}
-            {hasInventory && (
-              <SecaoFilter value={secaoFiltro} onChange={setSecaoFiltro} id="filtro-secao-inventario" className="w-[170px]" />
             )}
             {isViewing && (
               <Button onClick={exitViewLote} variant="outline" size="sm" className="h-8 gap-1.5 text-xs">

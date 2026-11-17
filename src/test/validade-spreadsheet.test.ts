@@ -240,6 +240,29 @@ describe('custo, sugestão e margem na planilha de rebaixa', () => {
     expect(banana.precoSugerido).toBe(0.99);
   });
 
+  it('usa o preço que o usuário ajustou na Rebaixa (a sugestão é só o valor inicial)', () => {
+    const [banana] = buildSpreadsheetRows(
+      [{ ...items[1], codigo: '631612', precoSugerido: 3.25 }],
+      { '631612': 'KG' },
+      103,
+      { '631612': 5 },
+    );
+
+    expect(banana.pmz).toBe(5);
+    expect(banana.precoSugerido).toBe(3.25);
+  });
+
+  it('ignora preço ajustado inválido e volta para a sugestão', () => {
+    const [banana] = buildSpreadsheetRows(
+      [{ ...items[1], codigo: '631612', precoSugerido: -1 }],
+      { '631612': 'KG' },
+      103,
+      { '631612': 5 },
+    );
+
+    expect(banana.precoSugerido).toBe(2.5);
+  });
+
   it('mantém as colunas vazias quando o produto não tem custo', () => {
     const [semCusto] = buildSpreadsheetRows([items[0]], { '123': 'UN' }, 103, {});
 

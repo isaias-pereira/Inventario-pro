@@ -217,6 +217,22 @@ describe('payload do Resend', () => {
 
     expect(payload.cc).toBeUndefined();
   });
+
+  it('manda o corpo em HTML quando existe (assinatura da rebaixa)', () => {
+    const comHtml = buildResendPayload(
+      { ...message, html: '<p>Segue a planilha</p>' },
+      config,
+    ) as { html?: string; text: string };
+
+    expect(comHtml.html).toBe('<p>Segue a planilha</p>');
+    expect(comHtml.text).toBe(message.text);
+  });
+
+  it('omite o HTML quando a mensagem é só texto', () => {
+    const payload = buildResendPayload(message, config) as { html?: string };
+
+    expect(payload.html).toBeUndefined();
+  });
 });
 
 describe('envio pelo Resend', () => {

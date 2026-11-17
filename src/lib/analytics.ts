@@ -14,7 +14,7 @@ import { inject, pageview, track } from '@vercel/analytics';
 let started = false;
 
 /** Ambientes que não devem contar como tráfego real. */
-function isPreviewEnvironment(): boolean {
+export function isPreviewEnvironment(): boolean {
   if (typeof window === 'undefined') return true;
   try {
     if (window.self !== window.top) return true;

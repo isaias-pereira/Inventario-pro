@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { invokeFunction } from '@/lib/api';
 import {
-  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, ChevronDown, Boxes, CalendarDays, User, Check, Mail, Tag, MessageCircle,
+  ScanBarcode, PackageX, AlertCircle, ShoppingBasket, Loader2, CalendarClock, Trash2, Bell, AlertTriangle, Clock, Pencil, Filter, Brush, Share2, FileSpreadsheet, FileText, Scale, ChevronRight, Boxes, CalendarDays, User, Check, Mail, Tag, MessageCircle,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
@@ -107,9 +107,7 @@ const ValidadeView = () => {
   const [items, setItems] = useState<ValidadeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<ValidadeItem[]>([]);
-  // Lista de produtos que vencem hoje só aparece ao tocar na seta.
-  const [showTodayAlerts, setShowTodayAlerts] = useState(false);
-const [filter, setFilter] = useState<FilterType>('todos');
+  const [filter, setFilter] = useState<FilterType>('todos');
   /** Filtro por seção do catálogo (vazio = todas). */
   const [secaoFiltro, setSecaoFiltro] = useState('');
   const [quantidade, setQuantidade] = useState('');
@@ -153,7 +151,9 @@ const [filter, setFilter] = useState<FilterType>('todos');
     try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : DEFAULT_ALERT_DAYS; } catch { return DEFAULT_ALERT_DAYS; }
   });
   const [showAlertConfig, setShowAlertConfig] = useState(false);
-  const [tempAlertDays, setTempAlertDays] = useState(alertDays);
+  // Campo livre: o usuário pode apagar tudo e digitar outro número.
+  // Se ficar vazio, o padrão aplicado ao salvar é 1 dia.
+  const [tempAlertDays, setTempAlertDays] = useState(String(alertDays));
   const [showWhatsapp, setShowWhatsapp] = useState(false);
 
   const fetchItems = useCallback(async () => {
@@ -827,7 +827,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
             <button
               type="button"
               className="ml-2 h-8 w-8 inline-flex flex-col items-center justify-center gap-0.5 rounded-md bg-white border border-border text-black cursor-pointer hover:bg-white/90 transition-colors shadow-sm"
-              onClick={() => { setTempAlertDays(alertDays); setShowAlertConfig(true); }}
+              onClick={() => { setTempAlertDays(String(alertDays)); setShowAlertConfig(true); }}
               title={`Alerta de validade: ${alertDays} dia(s)`}
               aria-label={`Configurar alerta de validade: ${alertDays} dia(s)`}
             >
@@ -991,65 +991,6 @@ const [filter, setFilter] = useState<FilterType>('todos');
             </div>
           )}
         </div>
-
-        {/* Notifications banner */}
-        {notifications.length > 0 && (() => {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const expiringToday = notifications.filter(i => {
-            const d = new Date(i.validade);
-            d.setHours(0, 0, 0, 0);
-            return d.getTime() === today.getTime();
-          });
-          const expiringSoon = notifications.filter(i => {
-            const d = new Date(i.validade);
-            d.setHours(0, 0, 0, 0);
-            return d.getTime() > today.getTime();
-          });
-          return (
-            <div className="mt-4 rounded-2xl border border-red-200 bg-gradient-to-br from-red-50 to-white shadow-sm p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-100 text-red-700">
-                  <Bell className="h-4 w-4" />
-                </div>
-                <span className="font-semibold text-red-700 text-sm">Alertas de Validade</span>
-              </div>
-              {expiringToday.length > 0 && (
-                <div className="mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowTodayAlerts((open) => !open)}
-                    aria-expanded={showTodayAlerts}
-                    className="flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-red-50/70"
-                  >
-                    <span className="text-xs font-semibold text-red-700">
-                      Vencem HOJE • {expiringToday.length} item{expiringToday.length > 1 ? 's' : ''}
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 text-red-700 transition-transform ${showTodayAlerts ? 'rotate-180' : ''}`}
-                      aria-hidden="true"
-                    />
-                  </button>
-                  {showTodayAlerts && (
-                    <ul className="mt-1.5 space-y-1 pl-4 text-xs text-muted-foreground list-disc">
-                      {expiringToday.map((i) => (
-                        <li key={i.id}><span className="font-medium text-foreground">{i.descricao}</span> <span className="text-muted-foreground">• Qtd: {i.quantidade}</span></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-              {expiringSoon.length > 0 && (
-                <div className="rounded-xl border border-rose-100 bg-white p-3 flex items-start gap-2">
-                  <span className="mt-0.5">🟡</span>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {expiringSoon.length} produto{expiringSoon.length > 1 ? 's' : ''} {expiringSoon.length > 1 ? 'vencem' : 'vence'} em até {alertDays} dia{alertDays > 1 ? 's' : ''}.
-                  </p>
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Filter buttons: os 4 períodos ficam em uma linha no celular */}
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1464,22 +1405,23 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 </p>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Dias de antecedência</label>
+                  <label htmlFor="alert-days" className="text-sm font-medium">Dias de antecedência</label>
                   <div className="relative">
                     <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      id="alert-days"
                       type="number"
                       min={1}
                       max={90}
                       value={tempAlertDays}
-                      onChange={(e) => setTempAlertDays(Math.max(1, parseInt(e.target.value) || 1))}
+                      onChange={(e) => setTempAlertDays(e.target.value.replace(/[^0-9]/g, ''))}
                       className="pl-9 pr-12"
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">dias</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[2, 3, 5].map((d) => (
-                      <Button key={d} variant="outline" size="sm" onClick={() => setTempAlertDays(d)}>
+                      <Button key={d} variant="outline" size="sm" onClick={() => setTempAlertDays(String(d))}>
                         {d} dias
                       </Button>
                     ))}
@@ -1489,11 +1431,14 @@ const [filter, setFilter] = useState<FilterType>('todos');
                 <div className="flex justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setShowAlertConfig(false)}>Cancelar</Button>
                   <Button onClick={() => {
-                    setAlertDays(tempAlertDays);
-                    try { localStorage.setItem('validade_alert_days', String(tempAlertDays)); } catch { /* ignore storage errors */ }
+                    // Campo vazio ou inválido → 1 dia (o padrão do sistema).
+                    const parsed = parseInt(tempAlertDays, 10);
+                    const dias = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 90) : 1;
+                    setAlertDays(dias);
+                    try { localStorage.setItem('validade_alert_days', String(dias)); } catch { /* ignore storage errors */ }
                     setShowAlertConfig(false);
                     fetchItems();
-                    toast.success(`Alerta configurado para ${tempAlertDays} dia(s)`);
+                    toast.success(`Alerta configurado para ${dias} dia(s)`);
                   }}>
                     Salvar
                     <Check className="ml-1 h-4 w-4" />

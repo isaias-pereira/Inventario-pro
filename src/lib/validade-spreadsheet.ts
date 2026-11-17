@@ -39,6 +39,13 @@ export interface ValidadeSpreadsheetItem {
   tipo?: string | null;
   /** Motivo da rebaixa (KG); vai para VENCIMENTO DO PRODUTO, nunca para o lado comercial. */
   motivo?: string | null;
+  /**
+   * Preço da rebaixa já definido pelo usuário (Rebaixa → "Preço da rebaixa").
+   *
+   * Quando vem preenchido, é ele que vai para a planilha: a sugestão de 50%
+   * do custo é só o valor inicial. Sem esse campo, a planilha usa a sugestão.
+   */
+  precoSugerido?: number | null;
 }
 
 export interface ValidadeSpreadsheetRow {
@@ -206,6 +213,13 @@ export function buildSpreadsheetRows(
     const custo = custos[codigo];
     const temCusto = typeof custo === 'number' && Number.isFinite(custo) && custo > 0;
     const motivo = typeof item.motivo === 'string' ? item.motivo.trim() : '';
+    // Preço definido pelo usuário tem prioridade: a sugestão (50% do custo)
+    // é só o valor inicial do campo "Preço da rebaixa".
+    const precoDefinido = typeof item.precoSugerido === 'number'
+      && Number.isFinite(item.precoSugerido)
+      && item.precoSugerido >= 0
+      ? item.precoSugerido
+      : null;
 
     return {
       loja: store,
@@ -214,8 +228,10 @@ export function buildSpreadsheetRows(
       descricao: item.descricao,
       // PMZ recebe o custo do catálogo; sem custo a coluna fica vazia.
       pmz: temCusto ? custo : '',
-      // Sugestão é sempre 50% do custo (banana 5,00 → 2,50).
-      precoSugerido: temCusto ? suggestedPrice(custo!) : '',
+      // Preço da rebaixa: o que o usuário ajustou ou, na falta, 50% do custo.
+      precoSugerido: precoDefinido !== null
+        ? precoDefinido
+        : (temCusto ? suggestedPrice(custo!) : ''),
       // Margem calculada pela própria planilha, assim o comercial pode ajustar a sugestão.
       margem: temCusto ? marginFormula(FIRST_DATA_ROW + index) : '',
       // VENCIMENTO DO PRODUTO: KG recebe o motivo; UN recebe a validade.
