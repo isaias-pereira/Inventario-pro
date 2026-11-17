@@ -46,10 +46,7 @@ const decimal = (value: string) => {
 };
 
 async function productRequest(body: Record<string, unknown>) {
-  const token = localStorage.getItem('estoque_pro_token');
-  const { data, error } = await invokeFunction('query-product', {
-    body, headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const { data, error } = await invokeFunction('query-product', { body });
   if (error) throw new Error(error.message);
   if (data?.error) throw new Error(data.error);
   return data;
@@ -192,10 +189,8 @@ const AddProductView = ({ canEdit = true }: AddProductViewProps) => {
     toast.info('Lendo a etiqueta… isso pode levar até 40 segundos.');
     try {
       const image = await prepareImage(file);
-      const token = localStorage.getItem('estoque_pro_token');
       const { data, error } = await invokeFunction('ai-assist', {
         body: { action: 'read_label', image: image.base64, mimeType: image.mimeType },
-        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
       });
       if (error || !data) {
         const status = (error as { context?: { status?: number } } | null)?.context?.status;

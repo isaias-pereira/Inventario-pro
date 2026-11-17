@@ -31,11 +31,10 @@ describe('revisarSecoes', () => {
       error: null,
     } as never);
 
-    const resultado = await revisarSecoes({ limite: 20, token: 'abc' });
+    const resultado = await revisarSecoes({ limite: 20 });
 
     expect(invokeMock).toHaveBeenCalledWith('ai-assist', expect.objectContaining({
       body: { action: 'review_categorias', limite: 20 },
-      headers: { Authorization: 'Bearer abc' },
     }));
     expect(resultado.propostas).toHaveLength(1);
     expect(resultado.propostas[0].secaoCodigo).toBe('3');

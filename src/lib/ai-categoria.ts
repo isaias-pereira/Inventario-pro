@@ -37,11 +37,10 @@ export interface RevisaoSecoes {
  * continua funcionando — a tela apenas avisa que a revisão não saiu.
  */
 export async function revisarSecoes(
-  options: { limite?: number; token?: string | null } = {},
+  options: { limite?: number } = {},
 ): Promise<RevisaoSecoes> {
   const { data, error } = await invokeFunction<RevisaoSecoes & { error?: string }>('ai-assist', {
     body: { action: 'review_categorias', limite: options.limite },
-    ...(options.token ? { headers: { Authorization: `Bearer ${options.token}` } } : {}),
   });
   if (error) throw error;
   if (data?.error) throw new Error(String(data.error));

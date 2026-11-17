@@ -83,6 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Hydration: restaura sessão do cookie no primeiro render
   useEffect(() => {
     let cancelado = false;
+    // Sessão legada: o token agora vive só no cookie HttpOnly.
+    localStorage.removeItem('estoque_pro_token');
     void (async () => {
       const u = await fetchMe();
       if (!cancelado) {
@@ -125,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(u);
       localStorage.setItem(USER_KEY, JSON.stringify(u));
+      localStorage.removeItem('estoque_pro_token');
       return { ok: true };
     } catch (error) {
       return {
@@ -141,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setLojas([]);
       localStorage.removeItem(USER_KEY);
+      localStorage.removeItem('estoque_pro_token');
       limparCacheCategorias();
     }
   }, []);
