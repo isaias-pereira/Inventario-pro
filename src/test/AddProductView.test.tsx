@@ -5,17 +5,22 @@ import AddProductView from '@/components/AddProductView';
 import { invokeFunction } from '@/lib/api';
 import { toast } from 'sonner';
 
-// A câmera não existe no jsdom: o mock guarda o callback de leitura para
+// A câmera não existe no jsdom: o mock guarda os callbacks de leitura para
 // simular a leitura de um código de barras.
-const { scanCallback } = vi.hoisted(() => ({
-  scanCallback: { current: null as null | ((text: string) => void) },
+//
+// Cada leitor registra o seu callback numa lista — e a lista é zerada a cada
+// teste. Com um único callback compartilhado, o teste do EAN fechado podia
+// acabar chamando o leitor do teste anterior (corrida): no CI o `start()` do
+// leitor novo resolve depois da asserção e o campo ficava vazio.
+const { scanCallbacks } = vi.hoisted(() => ({
+  scanCallbacks: [] as Array<(text: string) => void>,
 }));
 
 vi.mock('html5-qrcode', () => ({
   Html5Qrcode: class {
     isScanning = false;
     async start(_camera: unknown, _config: unknown, onSuccess: (text: string) => void) {
-      scanCallback.current = onSuccess;
+      scanCallbacks.push(onSuccess);
     }
     async stop() {}
     async clear() {}
@@ -65,6 +70,7 @@ describe('AddProductView', () => {
     cleanup();
     vi.clearAllMocks();
     respostas.length = 0;
+    scanCallbacks.length = 0;
     localStorage.setItem('estoque_pro_token', 'test-token');
     invokeMock.mockImplementation(async (_fn: string, options?: { body?: { action?: string } }) => {
       const action = options?.body?.action;
@@ -147,9 +153,9 @@ describe('AddProductView', () => {
     render(<AddProductView />);
 
     await user.click(screen.getByRole('button', { name: 'Escanear EAN do produto' }));
-    await waitFor(() => expect(scanCallback.current).toBeTruthy());
+    await waitFor(() => expect(scanCallbacks.length).toBeGreaterThan(0));
 
-    await act(async () => { scanCallback.current?.('7891234567890'); });
+    await act(async () => { scanCallbacks[scanCallbacks.length - 1]('7891234567890'); });
 
     await waitFor(() => expect(screen.getByLabelText('EAN')).toHaveValue('7891234567890'));
     // O botão do leitor é type="button": não pode enviar o formulário.
@@ -162,9 +168,9 @@ describe('AddProductView', () => {
 
     await user.click(screen.getByRole('checkbox', { name: /Embalagem fechada/ }));
     await user.click(screen.getByRole('button', { name: 'Escanear EAN fechado' }));
-    await waitFor(() => expect(scanCallback.current).toBeTruthy());
+    await waitFor(() => expect(scanCallbacks.length).toBeGreaterThan(0));
 
-    await act(async () => { scanCallback.current?.('7895555555555'); });
+    await act(async () => { scanCallbacks[scanCallbacks.length - 1]('7895555555555'); });
 
     await waitFor(() => expect(screen.getByLabelText('EAN fechado')).toHaveValue('7895555555555'));
     expect(invokeMock).not.toHaveBeenCalledWith('query-product', expect.objectContaining({ body: { action: 'insert' } }));
