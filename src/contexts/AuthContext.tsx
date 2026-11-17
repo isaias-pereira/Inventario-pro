@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { invokeFunction, parseJwtPayload } from '@/lib/api';
+import { invokeFunction } from '@/lib/api';
 import { limparCacheCategorias } from '@/lib/categorias';
 
 /** Perfis do SGS-PRO (o `enc_flv` deixou de existir). */
@@ -28,11 +28,10 @@ interface LoginResult {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => Promise<LoginResult>;
+  login: (username: string, password: string, turnstileToken?: string) => Promise<LoginResult>;
   logout: () => void;
   isAdmin: boolean;
   userRole: UserRole | null;
-  getToken: () => string | null;
   /** Loja atual do usuário (vem do token). */
   loja: number | null;
   /** Lojas cadastradas (preenchido para o admin). */
@@ -44,87 +43,76 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const TOKEN_KEY = 'estoque_pro_token';
-const SESSION_KEY = 'estoque_pro_session';
+const USER_KEY = 'estoque_pro_user';
 
-function loadSession(): { user: User; token: string } | null {
+function loadUser(): User | null {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return null;
-
-    const payload = parseJwtPayload(token);
-    if (!payload || payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(TOKEN_KEY);
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    const user = JSON.parse(raw) as User;
+    // O perfil `enc_flv` deixou de existir: limpa sessão antiga.
+    if (String(user.role) === 'enc_flv') {
+      localStorage.removeItem(USER_KEY);
       return null;
     }
-
-    // O perfil `enc_flv` deixou de existir: tokens antigos são descartados
-    // para forçar um novo login (que já devolve `encarregado`).
-    if (String(payload.role) === 'enc_flv') {
-      localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(TOKEN_KEY);
-      return null;
-    }
-
-    // Janela legada do "Lembrar-me" antigo (7 dias): serve só para limpar o
-    // estado que sobrou no navegador. A validade real é a do token (6 h).
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (raw) {
-      try {
-        const session = JSON.parse(raw);
-        if (session.expiresAt && Date.now() > session.expiresAt) {
-          localStorage.removeItem(SESSION_KEY);
-          localStorage.removeItem(TOKEN_KEY);
-          return null;
-        }
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
-      }
-    }
-
-    // Derive identity strictly from the cryptographically signed JWT —
-    // never from unsigned localStorage JSON (prevents role forgery).
-    return {
-      user: {
-        username: payload.sub,
-        role: payload.role as User['role'],
-        loja: typeof payload.loja === 'number' ? payload.loja : undefined,
-      },
-      token,
-    };
+    return user;
   } catch {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+}
+
+/** Chama /api/auth-me para restaurar a sessão a partir do cookie HttpOnly. */
+async function fetchMe(): Promise<User | null> {
+  try {
+    const { data, error } = await invokeFunction<{ user: User | null }>('auth-me');
+    if (error || !data?.user) return null;
+    return data.user;
+  } catch {
     return null;
   }
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => loadSession()?.user ?? null);
+  const [user, setUser] = useState<User | null>(() => loadUser());
   const [lojas, setLojas] = useState<Loja[]>([]);
+  const [hydrated, setHydrated] = useState(false);
 
-  const login = useCallback(async (username: string, password: string): Promise<LoginResult> => {
+  // Hydration: restaura sessão do cookie no primeiro render
+  useEffect(() => {
+    let cancelado = false;
+    void (async () => {
+      const u = await fetchMe();
+      if (!cancelado) {
+        if (u) {
+          setUser(u);
+          localStorage.setItem(USER_KEY, JSON.stringify(u));
+        } else {
+          setUser(null);
+          localStorage.removeItem(USER_KEY);
+        }
+        setHydrated(true);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, []);
+
+  const login = useCallback(async (username: string, password: string, turnstileToken?: string): Promise<LoginResult> => {
     try {
-      // Timeout menor que o padrão: no login a espera é curta e a mensagem
-      // de rede ajuda a identificar proxy/firewall corporativo. Uma nova
-      // tentativa é segura aqui (consultar credenciais não grava nada) e
-      // ajuda quando o domínio resolve para um IP bloqueado na rede.
       const { data, error } = await invokeFunction<{
         success?: boolean;
         error?: string;
-        token?: string;
         expiresAt?: number;
         user?: User;
-      }>('auth-login', {
-        body: { username, password },
+      }>('auth', {
+        body: { action: 'login', username, password, turnstileToken },
         timeoutMs: 15000,
         retries: 1,
         retryDelayMs: 1200,
       });
 
       if (error) return { ok: false, error: error.message };
-      if (!data?.success || !data?.token || !data?.user) {
+      if (!data?.success || !data?.user) {
         return { ok: false, error: data?.error || 'Usuário ou senha inválidos.' };
       }
 
@@ -134,13 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loja: typeof data.user.loja === 'number' ? data.user.loja : undefined,
       };
       setUser(u);
-
-      // Store only the JWT token — role/username are derived from its signed payload
-      localStorage.setItem(TOKEN_KEY, data.token);
-
-      // A sessão vale 6 h (o token do servidor). A chave antiga do
-      // "Lembrar-me" é removida para não sobrar janela maior que a do token.
-      localStorage.removeItem(SESSION_KEY);
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
       return { ok: true };
     } catch (error) {
       return {
@@ -150,13 +132,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    setLojas([]);
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-    // A taxonomia de seções fica em memória: a próxima sessão recarrega.
-    limparCacheCategorias();
+  const logout = useCallback(async () => {
+    try {
+      await invokeFunction('auth', { body: { action: 'logout' } });
+    } finally {
+      setUser(null);
+      setLojas([]);
+      localStorage.removeItem(USER_KEY);
+      limparCacheCategorias();
+    }
   }, []);
 
   /**
@@ -171,23 +155,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data, error } = await invokeFunction<{
         success?: boolean;
         error?: string;
-        token?: string;
         user?: User;
       }>('manage-users', {
         body: { action: 'switch_loja', newUser: { loja: codigo } },
       });
 
       if (error) return { ok: false, error: error.message };
-      if (!data?.success || !data?.token || !data?.user) {
+      if (!data?.success || !data?.user) {
         return { ok: false, error: data?.error || 'Não foi possível trocar a loja.' };
       }
 
-      localStorage.setItem(TOKEN_KEY, data.token);
-      setUser({
+      const u: User = {
         username: data.user.username,
         role: data.user.role,
         loja: typeof data.user.loja === 'number' ? data.user.loja : codigo,
-      });
+      };
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
+      setUser(u);
       // Recarrega para limpar os dados da loja anterior em memória.
       window.location.reload();
       return { ok: true };
@@ -212,42 +196,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (!cancelado && Array.isArray(data?.lojas)) setLojas(data.lojas);
     })();
-    return () => {
-      cancelado = true;
-    };
+    return () => { cancelado = true; };
   }, [user?.role]);
 
-  const getToken = useCallback((): string | null => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return null;
+  // Não expõe getToken: o token está no cookie HttpOnly e o navegador o envia automaticamente.
+  // Se algum código legado chamar getToken(), retorna null (força migração).
+  const getToken = useCallback((): string | null => null, []);
 
-    // Check expiry
-    const payload = parseJwtPayload(token);
-    if (!payload || payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(SESSION_KEY);
-      setUser(null);
-      return null;
-    }
-
-    return token;
-  }, []);
-
-  // Check session expiry periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const token = localStorage.getItem(TOKEN_KEY);
-      if (token) {
-        const payload = parseJwtPayload(token);
-        if (!payload || payload.exp * 1000 < Date.now()) {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(SESSION_KEY);
-          setUser(null);
-        }
-      }
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, []);
+  // Não renderiza filhos até a hidratação terminar (evita flash de "não logado").
+  if (!hydrated) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider
@@ -257,7 +220,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         isAdmin: user?.role === 'admin',
         userRole: user?.role ?? null,
-        getToken,
         loja: user?.loja ?? null,
         lojas,
         switchLoja,

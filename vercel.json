@@ -13,6 +13,9 @@
     },
     "api/manage-validade.ts": {
       "maxDuration": 60
+    },
+    "api/auth.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
