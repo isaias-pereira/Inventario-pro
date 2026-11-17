@@ -119,7 +119,7 @@ const InventarioView = () => {
     toast.success(`Lote nomeado: ${nome}`);
   };
 
-  const { isAdmin, user, getToken } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [code, setCode] = useState('');
   const [quantidade, setQuantidade] = useState('');
   const [product, setProduct] = useState<ProductResult | null>(null);
@@ -200,11 +200,7 @@ const InventarioView = () => {
   };
 
   const queryProduct = async (codigo: string) => {
-    const token = getToken();
-    const { data, error } = await invokeFunction('query-product', {
-      body: { codigo },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    });
+    const { data, error } = await invokeFunction('query-product', { body: { codigo } });
     return { data, error };
   };
 

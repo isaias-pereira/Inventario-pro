@@ -30,12 +30,9 @@ function writeTipoCache(cache: Record<string, string>): void {
   }
 }
 
-async function fetchTipo(codigo: string, token: string | null): Promise<string | null> {
+async function fetchTipo(codigo: string): Promise<string | null> {
   try {
-    const { data, error } = await invokeFunction('query-product', {
-      body: { codigo },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    });
+    const { data, error } = await invokeFunction('query-product', { body: { codigo } });
     if (error || !data?.found || !data.product?.tipo) return null;
     const tipo = String(data.product.tipo).trim().toUpperCase();
     return tipo || null;
@@ -48,7 +45,7 @@ async function fetchTipo(codigo: string, token: string | null): Promise<string |
  * Busca o tipo (KG/UN) de cada código no catálogo, com cache local e concorrência limitada.
  * Códigos não encontrados ficam fora do mapa e são tentados de novo na próxima exportação.
  */
-export async function fetchProductTipos(codigos: string[], token: string | null): Promise<Record<string, string>> {
+export async function fetchProductTipos(codigos: string[]): Promise<Record<string, string>> {
   const cache = readTipoCache();
   const result: Record<string, string> = { ...cache };
 
@@ -61,7 +58,7 @@ export async function fetchProductTipos(codigos: string[], token: string | null)
     while (index < missing.length) {
       const codigo = missing[index];
       index += 1;
-      const tipo = await fetchTipo(codigo, token);
+      const tipo = await fetchTipo(codigo);
       if (tipo) result[codigo] = tipo;
     }
   };

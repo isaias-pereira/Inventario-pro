@@ -56,11 +56,10 @@ describe('aplicarSecao', () => {
   it('grava a seção pela action set_categoria', async () => {
     invokeMock.mockResolvedValue({ data: { success: true }, error: null } as never);
 
-    await aplicarSecao('111', '3', 'abc');
+    await aplicarSecao('111', '3');
 
     expect(invokeMock).toHaveBeenCalledWith('query-product', {
       body: { action: 'set_categoria', codigo: '111', categoriaCodigo: '3' },
-      headers: { Authorization: 'Bearer abc' },
     });
   });
 

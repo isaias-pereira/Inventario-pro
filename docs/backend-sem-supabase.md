@@ -35,7 +35,7 @@ Navegador (React/Vite)
 
 | Rota | Substitui | O que faz |
 |---|---|---|
-| `POST /api/auth-login` | `auth-login` | login (bcrypt) + emite JWT |
+| `POST /api/auth` (action `login`/`logout`/`me`) | `auth-login` | login (bcrypt) + cookie HttpOnly, logout e sessão atual |
 | `POST /api/query-product` | `query-product` | catálogo: buscar, cadastrar, editar (lock transacional) |
 | `POST /api/manage-inventory` | `manage-inventory` | lotes do inventário, auditoria, finalizar/suspender |
 | `POST /api/manage-users` | `manage-users` | usuários (admin) |
@@ -45,7 +45,7 @@ Navegador (React/Vite)
 | `POST /api/manage-validade` | `manage-validade` | validade/rebaixa (motivo Excesso/Qualidade) |
 | `POST /api/send-rebaixa-email` | `send-rebaixa-email` | envio da planilha `.ods` por e-mail (só admin) |
 
-Todas exigem `Authorization: Bearer <token>` (exceto `auth-login`).
+Todas usam o cookie HttpOnly `estoque_pro_token` (o login é quem o define).
 
 ## Variáveis de ambiente (Vercel → Settings → Environment Variables)
 
@@ -122,12 +122,12 @@ Rodando as funções localmente com o banco real (`vercel dev` lê `.env.local`)
 ```sh
 npx vercel dev --listen 3001 --yes
 
-# login (bcrypt no Neon + JWT HS256)
-curl -X POST localhost:3001/api/auth-login \
+# login (bcrypt no Neon + cookie HttpOnly)
+curl -X POST localhost:3001/api/auth \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"<senha>"}'
+  -d '{"action":"login","username":"admin","password":"<senha>"}'
 
-# demais rotas exigem o token
+# demais rotas usam o cookie devolvido no login (guardado pelo navegador)
 curl -X POST localhost:3001/api/manage-validade \
   -H 'Content-Type: application/json' -H "Authorization: Bearer <token>" \
   -d '{"action":"list_all"}'

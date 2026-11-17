@@ -22,7 +22,6 @@ const CONCURRENCIA_GRAVACAO = 5;
  * `set_categoria`, que valida a seção na taxonomia.
  */
 const RevisaoSecoesView = () => {
-  const { getToken } = useAuth();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -40,17 +39,13 @@ const RevisaoSecoesView = () => {
     carregarCategorias()
       .then(lista => { if (ativo) setCategorias(lista); })
       .catch(() => { if (ativo) setCategorias([]); });
-    const token = getToken();
-    void invokeFunction('ai-assist', {
-      body: { action: 'config' },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    })
+    void invokeFunction('ai-assist', { body: { action: 'config' } })
       .then(({ data, error }) => {
         if (ativo && !error) setAiEnabled(Boolean(data?.enabled));
       })
       .catch(() => undefined);
     return () => { ativo = false; };
-  }, [getToken]);
+  }, []);
 
   const propostas = useMemo(() => revisao?.propostas ?? [], [revisao]);
   const marcadas = useMemo(
@@ -61,8 +56,7 @@ const RevisaoSecoesView = () => {
   const pedirRevisao = useCallback(async () => {
     setCarregando(true);
     try {
-      const token = getToken();
-      const resultado = await revisarSecoes({ token });
+      const resultado = await revisarSecoes({});
       setRevisao(resultado);
       setSelecionados(Object.fromEntries(resultado.propostas.map((item) => [item.codigo, true])));
       setEscolhas(Object.fromEntries(resultado.propostas.map((item) => [item.codigo, item.secaoCodigo])));
@@ -81,14 +75,13 @@ const RevisaoSecoesView = () => {
     } finally {
       setCarregando(false);
     }
-  }, [getToken]);
+  }, []);
 
   const aplicar = async () => {
     if (marcadas.length === 0) {
       toast.error('Selecione ao menos um produto para aplicar.');
       return;
     }
-    const token = getToken();
     setAplicando(true);
     setProgresso(0);
     let aplicadas = 0;
@@ -105,7 +98,7 @@ const RevisaoSecoesView = () => {
         const secaoCodigo = escolhas[item.codigo];
         if (!secaoCodigo) continue;
         try {
-          await aplicarSecao(item.codigo, secaoCodigo, token);
+          await aplicarSecao(item.codigo, secaoCodigo);
           aplicadas += 1;
         } catch (error) {
           falhas.push(`${item.codigo}: ${error instanceof Error ? error.message : 'erro'}`);

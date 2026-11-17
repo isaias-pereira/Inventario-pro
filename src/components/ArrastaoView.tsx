@@ -54,22 +54,10 @@ interface ProductResult {
   embalagem?: PackagingInfo | null;
 }
 
-function getToken(): string | null {
-  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
-}
-
-async function invoke(action: string, body: Record<string, unknown> = {}) {
-  const token = getToken();
-  return invokeFunction('manage-arrastao', {
-    body: { action, ...body },
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
 interface Props { open: boolean; onOpenChange: (v: boolean) => void; onFinalizeRefresh?: () => void }
 
 const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
-  const { user, getToken: authGetToken, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const username = user?.username || '';
 
   const [tab, setTab] = useState<'list' | 'session' | 'log'>('list');
@@ -103,17 +91,17 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
   const pollRef = useRef<number | null>(null);
 
   const fetchSessions = useCallback(async () => {
-    const { data } = await invoke('list_active');
+    const { data } = await invokeFunction('manage-arrastao', { body: { action: 'list_active' } });
     if (data?.sessions) setSessions(data.sessions);
   }, []);
 
   const fetchLogs = useCallback(async () => {
-    const { data } = await invoke('list_log');
+    const { data } = await invokeFunction('manage-arrastao', { body: { action: 'list_log' } });
     if (data?.sessions) setLogs(data.sessions);
   }, []);
 
   const fetchItems = useCallback(async (sessionId: string) => {
-    const { data } = await invoke('list_items', { session_id: sessionId });
+    const { data } = await invokeFunction('manage-arrastao', { body: { action: 'list_items', session_id: sessionId } });
     if (data?.items) setItems(data.items);
   }, []);
 
@@ -129,7 +117,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
       if (tab === 'session' && activeSession) {
         fetchItems(activeSession.id);
         // refresh participants list + detect finalization
-        invoke('list_active').then(({ data }) => {
+        invokeFunction('manage-arrastao', { body: { action: 'list_active' } }).then(({ data }) => {
           if (data?.sessions) {
             const updated = (data.sessions as ArrastaoSession[]).find(s => s.id === activeSession.id);
             if (updated) setActiveSession(updated);
@@ -160,7 +148,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
   const handleStart = async () => {
     if (!newCorredor.trim()) { toast.error('Informe o corredor'); return; }
     setStarting(true);
-    const { data, error } = await invoke('start', { corredor: newCorredor.trim() });
+    const { data, error } = await invokeFunction('manage-arrastao', { body: { action: 'start', corredor: newCorredor.trim() } });
     setStarting(false);
     if (error || data?.error) { toast.error(data?.error || 'Erro ao iniciar'); return; }
     toast.success('Arrastão iniciado');
@@ -176,7 +164,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
       return;
     }
     if (!s.participants.includes(username)) {
-      const { data, error } = await invoke('join', { session_id: s.id });
+      const { data, error } = await invokeFunction('manage-arrastao', { body: { action: 'join', session_id: s.id } });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao participar'); return; }
       toast.success('Você entrou no arrastão');
       setActiveSession(data.session);
@@ -188,11 +176,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
 
   // Product search
   const queryProduct = async (codigo: string) => {
-    const token = authGetToken();
-    return invokeFunction('query-product', {
-      body: { codigo },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    });
+    return invokeFunction('query-product', { body: { codigo } });
   };
 
   const searchProduct = async (c: string) => {
@@ -234,14 +218,17 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
       return;
     }
     setSubmitting(true);
-    const { data, error } = await invoke('add_item', {
-      session_id: activeSession.id,
-      item: {
-        ean: Number(product.ean),
-        codigo: Number(product.codigo),
-        descricao: product.descricao,
-        validade: new Date(validade + 'T23:59:59').toISOString(),
-        quantidade: total,
+    const { data, error } = await invokeFunction('manage-arrastao', {
+      body: {
+        action: 'add_item',
+        session_id: activeSession.id,
+        item: {
+          ean: Number(product.ean),
+          codigo: Number(product.codigo),
+          descricao: product.descricao,
+          validade: new Date(validade + 'T23:59:59').toISOString(),
+          quantidade: total,
+        },
       },
     });
     setSubmitting(false);
@@ -260,7 +247,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
 
   const handleRemoveItem = async (id: string) => {
     if (!activeSession) return;
-    const { data, error } = await invoke('remove_item', { session_id: activeSession.id, item_id: id });
+    const { data, error } = await invokeFunction('manage-arrastao', { body: { action: 'remove_item', session_id: activeSession.id, item_id: id } });
     if (error || data?.error) { toast.error(data?.error || 'Erro'); return; }
     fetchItems(activeSession.id);
   };
@@ -268,7 +255,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
   const handleFinalize = async () => {
     if (!activeSession) return;
     setFinalizing(true);
-    const { data, error } = await invoke('finalize', { session_id: activeSession.id });
+    const { data, error } = await invokeFunction('manage-arrastao', { body: { action: 'finalize', session_id: activeSession.id } });
     setFinalizing(false);
     if (error || data?.error) { toast.error(data?.error || 'Erro'); return; }
     toast.success(`Arrastão finalizado. ${data.transferred || 0} item(ns) enviado(s) à Validade.`);
@@ -280,7 +267,7 @@ const ArrastaoView = ({ open, onOpenChange, onFinalizeRefresh }: Props) => {
   const ensureItems = async (s: ArrastaoSession) => {
     if (!logItems[s.id]) {
       setLoadingLogItems(s.id);
-      const { data } = await invoke('list_items', { session_id: s.id });
+      const { data } = await invokeFunction('manage-arrastao', { body: { action: 'list_items', session_id: s.id } });
       setLogItems((p) => ({ ...p, [s.id]: data?.items || [] }));
       setLoadingLogItems(null);
     }

@@ -181,13 +181,21 @@ function createDriver() {
   }
 }
 
-export function createSql(): Sql {
+/** Cria uma instância `sql` que injeta `SET LOCAL app.current_loja` em transações. */
+export function createSql(loja?: number): Sql {
   const driver = createDriver();
 
-  // O driver Neon devolve as linhas diretamente (QueryRows) quando fullResults
-  // está desligado; o gateway devolve { rows, rowCount }.
   const driverRows = (result: unknown): Record<string, unknown>[] =>
     (Array.isArray(result) ? result : []) as Record<string, unknown>[];
+
+  /** Injeta o SET LOCAL no início de uma transação (batch). */
+  function withLojaSetting(queries: Statement[]): Statement[] {
+    if (!loja) return queries;
+    return [
+      { query: 'SET LOCAL app.current_loja = $1', params: [loja] },
+      ...queries,
+    ];
+  }
 
   const run = async (...args: unknown[]): Promise<unknown> => {
     const call = resolveSqlCall(args);
@@ -205,11 +213,11 @@ export function createSql(): Sql {
     }
 
     if (call.kind === 'batch') {
+      const queriesWithLoja = withLojaSetting(call.queries);
       if (driver) {
         try {
-          // Uma transação: se qualquer comando falhar, tudo é revertido.
           const results = await driver.transaction((txn) =>
-            call.queries.map((statement) => txn.query(statement.query, statement.params ?? [])),
+            queriesWithLoja.map((statement) => txn.query(statement.query, statement.params ?? [])),
           );
           return {
             results: results.map((result) => ({
@@ -221,7 +229,7 @@ export function createSql(): Sql {
           throw driverError(error);
         }
       }
-      return gatewayQuery(call.queries, call.write);
+      return gatewayQuery(queriesWithLoja, call.write);
     }
 
     if (driver) {

@@ -17,7 +17,7 @@ const emailSchema = z.string().trim().email().toLowerCase().max(254);
 const phoneSchema = z.string().trim().regex(/^\+?[1-9]\d{1,14}$/); // E.164
 
 // ──────────────────────────────────────────────────────────────
-// auth-login
+// auth (action login)
 // ──────────────────────────────────────────────────────────────
 export const loginSchema = z.object({
   username: nonEmptyString.max(100),

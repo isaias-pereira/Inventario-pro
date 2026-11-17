@@ -12,10 +12,7 @@ const TIMEOUT_MS = 20000;
  * Busca o custo (PMZ) de vários códigos no catálogo de produtos.
  * Códigos sem custo ficam fora do mapa — a planilha segue com a coluna vazia.
  */
-export async function fetchProductCustos(
-  codigos: string[],
-  token: string | null,
-): Promise<CustoMap> {
+export async function fetchProductCustos(codigos: string[]): Promise<CustoMap> {
   const unique = [...new Set(codigos.map((codigo) => String(codigo).trim()).filter(Boolean))];
   const result: CustoMap = {};
   if (unique.length === 0) return result;
@@ -33,7 +30,6 @@ export async function fetchProductCustos(
         try {
           const { data, error } = await invokeFunction<{ costs?: Record<string, unknown> }>('query-product', {
             body: { action: 'costs', codigos: chunk },
-            ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
           });
           if (error || !data?.costs) return;
           for (const [codigo, valor] of Object.entries(data.costs)) {

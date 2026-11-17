@@ -86,17 +86,8 @@ function mapInventoryItem(d: InventoryItemRow): InventoryItem {
 /** Intervalo de sincronização do inventário compartilhado (sem realtime). */
 const INVENTORY_POLL_MS = 15_000;
 
-function getToken(): string | null {
-  try {
-    return localStorage.getItem('estoque_pro_token');
-  } catch {
-    return null;
-  }
-}
-
 function clearSession() {
-  localStorage.removeItem('estoque_pro_token');
-  localStorage.removeItem('estoque_pro_session');
+  localStorage.removeItem('estoque_pro_user');
   window.location.reload();
 }
 
@@ -105,48 +96,16 @@ function clearSession() {
  * `col_validade` não têm acesso — nem devem disparar o polling (o endpoint
  * responde 403 e o DataContext limparia a sessão).
  */
-function podeUsarInventario(): boolean {
-  const token = getToken();
-  if (!token) return false;
-  const role = String(parseJwtPayload(token)?.role ?? '');
-  return role === 'admin' || role === 'encarregado';
-}
-
-async function invokeWithToken(functionName: string, body: Record<string, unknown>) {
-  const token = getToken();
-
-  // If no token at all, force re-login
-  if (!token) {
-    clearSession();
-    return { data: null, error: new Error('No token') };
-  }
-
-  // Check token expiry client-side before calling
+async function podeUsarInventario(): Promise<boolean> {
   try {
-    const payload = parseJwtPayload(token);
-    if (!payload || payload.exp * 1000 < Date.now()) {
-      clearSession();
-      return { data: null, error: new Error('Token expired') };
-    }
+    const { data, error } = await invokeFunction<{ user: { role: string } | null }>('auth', {
+      body: { action: 'me' },
+    });
+    if (error || !data?.user) return false;
+    return data.user.role === 'admin' || data.user.role === 'encarregado';
   } catch {
-    clearSession();
-    return { data: null, error: new Error('Invalid token') };
+    return false;
   }
-
-  const result = await invokeFunction(functionName, {
-    body,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  // Also handle server-side 401/403
-  if (result.error) {
-    const ctx = (result.error as any)?.context;
-    if (ctx?.status === 401 || ctx?.status === 403) {
-      clearSession();
-    }
-  }
-
-  return result;
 }
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -162,15 +121,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Load consulta products from DB on init
   const fetchConsultaProducts = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      setProductsLoading(false);
-      return;
-    }
     try {
-      const { data, error } = await invokeWithToken('manage-consulta', { action: 'list' });
+      const { data, error } = await invokeFunction('manage-consulta', { body: { action: 'list' } });
       if (!error && data?.items?.length > 0) {
-        setProducts(data.items.map((p: any) => ({
+        type ConsultaItem = {
+          codigo?: string | number;
+          descricao?: string;
+          estoque?: number | string;
+          preco?: number | string;
+          categoria_codigo?: number | null;
+          secao?: string | null;
+        };
+        setProducts(data.items.map((p: ConsultaItem) => ({
           codigo: p.codigo,
           descricao: p.descricao,
           estoque: Number(p.estoque) || 0,
@@ -188,18 +150,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const saveProducts = useCallback(async (items: Product[]) => {
     setProducts(items);
     try {
-      await invokeWithToken('manage-consulta', {
-        action: 'replace',
-        products: items,
-      });
+      await invokeFunction('manage-consulta', { body: { action: 'replace', products: items } });
     } catch (e) {
       console.error('Error saving consulta products:', e);
     }
   }, []);
 
   const fetchInventory = useCallback(async () => {
-    const token = getToken();
-    if (!token || !podeUsarInventario()) {
+    if (!await podeUsarInventario()) {
       setLoading(false);
       return;
     }
@@ -208,12 +166,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const viewing = viewingRef.current;
     try {
       if (viewing) {
-        const { data, error } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: viewing.numero });
+        const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'get_lote', lote_numero: viewing.numero } });
         if (!error && data?.items) {
           setInventoryItemsState(data.items.map(mapInventoryItem));
         }
       } else {
-        const { data, error } = await invokeWithToken('manage-inventory', { action: 'list' });
+        const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'list' } });
         if (!error && data?.items) {
           setInventoryItemsState(data.items.map(mapInventoryItem));
           if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
@@ -227,13 +185,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const listLotes = useCallback(async (): Promise<LoteInfo[]> => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'list_lotes' });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'list_lotes' } });
     if (error || !data?.lotes) return [];
     return data.lotes as LoteInfo[];
   }, []);
 
   const viewLote = useCallback(async (numero: number) => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: numero });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'get_lote', lote_numero: numero } });
     if (error || !data) return;
     setViewingLote(data.lote || { numero, status: 'finalizado', created_by: null, created_at: '', finalized_at: null });
     setInventoryItemsState((data.items || []).map(mapInventoryItem));
@@ -246,7 +204,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const finalizeLote = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'finalize' });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'finalize' } });
     if (error) return { ok: false, error: 'Erro ao finalizar lote' };
     if (data?.error) return { ok: false, error: data.error };
     await fetchInventoryInternal();
@@ -254,7 +212,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const suspendLote = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'suspend' });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'suspend' } });
     if (error) return { ok: false, error: 'Erro ao suspender lote' };
     if (data?.error) return { ok: false, error: data.error };
     setInventoryItemsState([]);
@@ -265,7 +223,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const renameLote = useCallback(async (nome: string): Promise<{ ok: boolean; error?: string }> => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'rename', nome });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'rename', nome } });
     if (error) return { ok: false, error: 'Erro ao nomear lote' };
     if (data?.error) return { ok: false, error: data.error };
     setCurrentLoteNome(data?.nome ?? nome);
@@ -273,7 +231,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const resumeLote = useCallback(async (numero: number): Promise<{ ok: boolean; error?: string }> => {
-    const { data, error } = await invokeWithToken('manage-inventory', { action: 'resume', lote_numero: numero });
+    const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'resume', lote_numero: numero } });
     if (error) return { ok: false, error: 'Erro ao retomar lote' };
     if (data?.error) return { ok: false, error: data.error };
     setViewingLote(null);
@@ -286,10 +244,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   async function fetchInventoryInternal() {
     const viewing = viewingRef.current;
     if (viewing) {
-      const { data } = await invokeWithToken('manage-inventory', { action: 'get_lote', lote_numero: viewing.numero });
+      const { data } = await invokeFunction('manage-inventory', { body: { action: 'get_lote', lote_numero: viewing.numero } });
       if (data?.items) setInventoryItemsState(data.items.map(mapInventoryItem));
     } else {
-      const { data } = await invokeWithToken('manage-inventory', { action: 'list' });
+      const { data } = await invokeFunction('manage-inventory', { body: { action: 'list' } });
       if (data?.items) {
         setInventoryItemsState(data.items.map(mapInventoryItem));
         // O inventário é por usuário: sem lote aberto, `lote_numero` vem nulo.
@@ -340,10 +298,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addOrUpdateInventoryItem = useCallback(
     async (item: Omit<InventoryItem, 'quantidade'>, quantidade: number) => {
-      const { error } = await invokeWithToken('manage-inventory', {
-        action: 'add',
-        item: { ean: item.ean, codigo: item.codigo, descricao: item.descricao },
-        quantidade,
+      const { error } = await invokeFunction('manage-inventory', {
+        body: {
+          action: 'add',
+          item: { ean: item.ean, codigo: item.codigo, descricao: item.descricao },
+          quantidade,
+        },
       });
       if (!error) await fetchInventory();
     },
@@ -352,10 +312,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateInventoryItemQuantidade = useCallback(
     async (codigo: string, quantidade: number) => {
-      const { error } = await invokeWithToken('manage-inventory', {
-        action: 'update',
-        codigo,
-        quantidade,
+      const { error } = await invokeFunction('manage-inventory', {
+        body: { action: 'update', codigo, quantidade },
       });
       if (!error) await fetchInventory();
     },
@@ -364,9 +322,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const removeInventoryItem = useCallback(
     async (codigo: string) => {
-      const { error } = await invokeWithToken('manage-inventory', {
-        action: 'remove',
-        codigo,
+      const { error } = await invokeFunction('manage-inventory', {
+        body: { action: 'remove', codigo },
       });
       if (!error) await fetchInventory();
     },
@@ -374,8 +331,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const clearAllInventory = useCallback(async () => {
-    const { error } = await invokeWithToken('manage-inventory', {
-      action: 'clear',
+    const { error } = await invokeFunction('manage-inventory', {
+      body: { action: 'clear' },
     });
     if (!error) await fetchInventory();
   }, [fetchInventory]);

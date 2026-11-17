@@ -62,11 +62,9 @@ export async function revisarSecoes(
 export async function aplicarSecao(
   codigo: string,
   secaoCodigo: string,
-  token?: string | null,
 ): Promise<void> {
-  const { data, error } = await invokeFunction<{ error?: string }>('query-product', {
+  const { data, error } = await invokeFunction('query-product', {
     body: { action: 'set_categoria', codigo, categoriaCodigo: secaoCodigo },
-    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
   });
   if (error) throw error;
   if (data?.error) throw new Error(String(data.error));

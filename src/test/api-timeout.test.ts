@@ -15,7 +15,7 @@ describe('invokeFunction — falhas de rede', () => {
       throw new TypeError('Failed to fetch');
     }));
 
-    const { data, error } = await invokeFunction('auth-login', {
+    const { data, error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
     });
 
@@ -29,7 +29,7 @@ describe('invokeFunction — falhas de rede', () => {
     // corporativo engole a requisição (a tela ficava em "carregando").
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
 
-    const { data, error } = await invokeFunction('auth-login', {
+    const { data, error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
       timeoutMs: 60,
     });
@@ -61,7 +61,7 @@ describe('invokeFunction — falhas de rede', () => {
       text: async () => JSON.stringify({ error: 'Banco de dados indisponível no momento.' }),
     })));
 
-    const { error } = await invokeFunction('auth-login', {
+    const { error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
     });
 
@@ -69,7 +69,7 @@ describe('invokeFunction — falhas de rede', () => {
     expect(error?.context?.status).toBe(503);
   });
 
-  it('envia o token da sessão quando existe', async () => {
+  it('envia o cookie de autenticação quando existe (credentials: include)', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -81,8 +81,7 @@ describe('invokeFunction — falhas de rede', () => {
     await invokeFunction('manage-validade', { body: { action: 'list' } });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    const headers = init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer token-de-teste');
+    expect(init.credentials).toBe('include');
 
     localStorage.removeItem('estoque_pro_token');
   });
@@ -99,7 +98,7 @@ describe('invokeFunction — novas tentativas', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { data, error } = await invokeFunction('auth-login', {
+    const { data, error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
       retries: 1,
       retryDelayMs: 10,
@@ -118,7 +117,7 @@ describe('invokeFunction — novas tentativas', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const { error } = await invokeFunction('auth-login', {
+    const { error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
       retries: 1,
       retryDelayMs: 10,
@@ -137,7 +136,7 @@ describe('invokeFunction — novas tentativas', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const { data, error } = await invokeFunction('auth-login', {
+    const { data, error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
       retries: 1,
       retryDelayMs: 10,
@@ -154,7 +153,7 @@ describe('invokeFunction — novas tentativas', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { error } = await invokeFunction('auth-login', {
+    const { error } = await invokeFunction('auth', {
       body: { username: 'a', password: 'b' },
       retries: 2,
       retryDelayMs: 10,

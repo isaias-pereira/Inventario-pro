@@ -63,12 +63,6 @@ async function showValidadeNotification(alerts: ValidadeAlert[], hour: number, a
   }
 }
 
-// ── Token ──
-
-function getToken(): string | null {
-  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
-}
-
 export function useValidadeNotifications() {
   const [alerts, setAlerts] = useState<ValidadeAlert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,14 +70,8 @@ export function useValidadeNotifications() {
   const notifying = useRef(false);
 
   const fetchAlerts = useCallback(async (): Promise<ValidadeAlert[] | null> => {
-    const token = getToken();
-    if (!token) { setLoading(false); return null; }
-
     try {
-      const { data, error } = await invokeFunction('manage-validade', {
-        body: { action: 'list_all' },
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data, error } = await invokeFunction('manage-validade', { body: { action: 'list_all' } });
 
       if (error || !Array.isArray(data?.items)) return null;
 

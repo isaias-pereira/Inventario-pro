@@ -16,7 +16,7 @@ import { createSql, type Sql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoinTexto } from './_lib/categoria.js';
-import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
+import { DEFAULT_LOJA, ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
 let schemaEnsured = false;
 
@@ -134,11 +134,13 @@ const handler: ApiHandler = async (req, res) => {
 
     const username = payload.sub;
     const isAdmin = payload.role === 'admin';
-    const sql = createSql();
+    // Loja do token (para RLS): usa a claim do JWT, com fallback para DEFAULT_LOJA.
+    const loja = payload.loja ?? DEFAULT_LOJA;
+    const sql = createSql(loja);
     await ensureSchema(sql);
     await ensureLojaSchema(sql);
-    // Escopo multi-loja: tudo abaixo pertence à loja do token.
-    const loja = await resolveLoja(sql, payload);
+    // Validação completa da loja (resolvendo tokens antigos).
+    const lojaValidada = await resolveLoja(sql, payload);
 
     // O inventário é operado por admin e encarregado. As ações destrutivas
     // (`update`, `remove`, `clear`) continuam exclusivas do admin, mais abaixo.
@@ -150,7 +152,7 @@ const handler: ApiHandler = async (req, res) => {
     // LIST current open lote items (does NOT create a lote — only created on first add)
     // O lote é do próprio login: os itens contados por outro usuário não aparecem.
     if (action === 'list') {
-      const lote = await getOpenLote(sql, loja, username);
+      const lote = await getOpenLote(sql, lojaValidada, username);
       if (lote == null) {
         sendJson(res, { items: [], lote_numero: null });
         return;
@@ -160,35 +162,35 @@ const handler: ApiHandler = async (req, res) => {
            FROM shared_inventory i ${secaoJoinTexto('i')}
           WHERE i.loja = $1 AND i.lote_numero = $2
           ORDER BY i.updated_at ASC`,
-        [loja, lote],
+        [lojaValidada, lote],
       );
-      const info = await sql`SELECT nome FROM inventory_lotes WHERE loja = ${loja} AND numero = ${lote} LIMIT 1`;
+      const info = await sql`SELECT nome FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${lote} LIMIT 1`;
       sendJson(res, { items: data, lote_numero: lote, lote_nome: info[0]?.nome ?? null });
       return;
     }
 
     // LIST finalized + suspended lotes (history) — só os lotes do próprio login.
     if (action === 'list_lotes') {
-      const data = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE loja = ${loja} AND created_by = ${username} AND status IN ('finalizado','suspenso') ORDER BY numero DESC`;
+      const data = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE loja = ${lojaValidada} AND created_by = ${username} AND status IN ('finalizado','suspenso') ORDER BY numero DESC`;
       sendJson(res, { lotes: data });
       return;
     }
 
     // SUSPEND current open lote (keeps items in DB, no open lote afterwards)
     if (action === 'suspend') {
-      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND status = 'aberto' AND created_by = ${username} ORDER BY numero DESC LIMIT 1`;
+      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND status = 'aberto' AND created_by = ${username} ORDER BY numero DESC LIMIT 1`;
       if (open.length === 0) {
         sendJson(res, { success: true, suspended: null });
         return;
       }
       const num = Number(open[0].numero);
-      const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${loja} AND lote_numero = ${num} LIMIT 1`;
+      const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
         sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de suspender.' }, 400);
         return;
       }
-      await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE loja = ${loja} AND numero = ${num}`;
-      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${num}, 'suspend', ${username}, ${payload.role}, ${JSON.stringify({ trigger: 'manual' })}, ${loja})`;
+      await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE loja = ${lojaValidada} AND numero = ${num}`;
+      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${num}, 'suspend', ${username}, ${payload.role}, ${JSON.stringify({ trigger: 'manual' })}, ${lojaValidada})`;
       sendJson(res, { success: true, suspended: num });
       return;
     }
@@ -200,7 +202,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'lote_numero obrigatório' }, 400);
         return;
       }
-      const target = await sql`SELECT numero, status FROM inventory_lotes WHERE loja = ${loja} AND numero = ${lote_numero} AND created_by = ${username} LIMIT 1`;
+      const target = await sql`SELECT numero, status FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${lote_numero} AND created_by = ${username} LIMIT 1`;
       if (target.length === 0) {
         sendJson(res, { error: 'Lote não encontrado' }, 404);
         return;
@@ -211,19 +213,19 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       // suspend any currently open lote of this user (different from target) that has items; drop empty open lotes
-      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND status = 'aberto' AND created_by = ${username} AND numero <> ${lote_numero}`;
+      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND status = 'aberto' AND created_by = ${username} AND numero <> ${lote_numero}`;
       for (const row of open) {
         const n = Number(row.numero);
-        const has = await sql`SELECT id FROM shared_inventory WHERE loja = ${loja} AND lote_numero = ${n} LIMIT 1`;
+        const has = await sql`SELECT id FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${n} LIMIT 1`;
         if (has.length === 0) {
-          await sql`DELETE FROM inventory_lotes WHERE loja = ${loja} AND numero = ${n}`;
+          await sql`DELETE FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${n}`;
         } else {
-          await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE loja = ${loja} AND numero = ${n}`;
-          await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${n}, 'suspend', ${username}, ${payload.role}, ${JSON.stringify({ trigger: 'auto_on_resume', resumed_lote: Number(lote_numero) })}, ${loja})`;
+          await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE loja = ${lojaValidada} AND numero = ${n}`;
+          await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${n}, 'suspend', ${username}, ${payload.role}, ${JSON.stringify({ trigger: 'auto_on_resume', resumed_lote: Number(lote_numero) })}, ${lojaValidada})`;
         }
       }
-      await sql`UPDATE inventory_lotes SET status = 'aberto' WHERE loja = ${loja} AND numero = ${lote_numero}`;
-      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${lote_numero}, 'resume', ${username}, ${payload.role}, ${JSON.stringify({ previous_status: target[0].status })}, ${loja})`;
+      await sql`UPDATE inventory_lotes SET status = 'aberto' WHERE loja = ${lojaValidada} AND numero = ${lote_numero}`;
+      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${lote_numero}, 'resume', ${username}, ${payload.role}, ${JSON.stringify({ previous_status: target[0].status })}, ${lojaValidada})`;
       sendJson(res, { success: true, resumed: Number(lote_numero) });
       return;
     }
@@ -231,8 +233,8 @@ const handler: ApiHandler = async (req, res) => {
     // LIST audit log entries (optional filter by lote) — só dos lotes do login.
     if (action === 'list_audit') {
       const data = lote_numero
-        ? await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit WHERE loja = ${loja} AND lote_numero = ${lote_numero} AND lote_numero IN (SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND created_by = ${username}) ORDER BY created_at DESC LIMIT 500`
-        : await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit WHERE loja = ${loja} AND lote_numero IN (SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND created_by = ${username}) ORDER BY created_at DESC LIMIT 500`;
+        ? await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit WHERE loja = ${lojaValidada} AND lote_numero = ${lote_numero} AND lote_numero IN (SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND created_by = ${username}) ORDER BY created_at DESC LIMIT 500`
+        : await sql`SELECT id, lote_numero, action, username, role, details, created_at FROM inventory_lote_audit WHERE loja = ${lojaValidada} AND lote_numero IN (SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND created_by = ${username}) ORDER BY created_at DESC LIMIT 500`;
       sendJson(res, { audit: data });
       return;
     }
@@ -243,7 +245,7 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'lote_numero obrigatório' }, 400);
         return;
       }
-      const loteInfo = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE loja = ${loja} AND numero = ${lote_numero} AND created_by = ${username} LIMIT 1`;
+      const loteInfo = await sql`SELECT numero, nome, status, created_by, created_at, finalized_at FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${lote_numero} AND created_by = ${username} LIMIT 1`;
       if (loteInfo.length === 0) {
         sendJson(res, { error: 'Lote não encontrado' }, 404);
         return;
@@ -253,7 +255,7 @@ const handler: ApiHandler = async (req, res) => {
            FROM shared_inventory i ${secaoJoinTexto('i')}
           WHERE i.loja = $1 AND i.lote_numero = $2
           ORDER BY i.updated_at ASC`,
-        [loja, lote_numero],
+        [lojaValidada, lote_numero],
       );
       sendJson(res, { items: data, lote: loteInfo[0] || null });
       return;
@@ -274,19 +276,19 @@ const handler: ApiHandler = async (req, res) => {
           return code >= 32 && code !== 127;
         })
         .join('');
-      const target = lote_numero ?? await getOpenLote(sql, loja, username);
+      const target = lote_numero ?? await getOpenLote(sql, lojaValidada, username);
       if (target == null) {
         sendJson(res, { error: 'Nenhum lote aberto' }, 400);
         return;
       }
       // Só o dono do lote renomeia.
-      const alvo = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND numero = ${target} AND created_by = ${username} LIMIT 1`;
+      const alvo = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${target} AND created_by = ${username} LIMIT 1`;
       if (alvo.length === 0) {
         sendJson(res, { error: 'Lote não encontrado' }, 404);
         return;
       }
-      await sql`UPDATE inventory_lotes SET nome = ${nome} WHERE loja = ${loja} AND numero = ${target}`;
-      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${target}, 'rename', ${username}, ${payload.role}, ${JSON.stringify({ nome })}, ${loja})`;
+      await sql`UPDATE inventory_lotes SET nome = ${nome} WHERE loja = ${lojaValidada} AND numero = ${target}`;
+      await sql`INSERT INTO inventory_lote_audit (lote_numero, action, username, role, details, loja) VALUES (${target}, 'rename', ${username}, ${payload.role}, ${JSON.stringify({ nome })}, ${lojaValidada})`;
       sendJson(res, { success: true, lote_numero: target, nome });
       return;
     }
@@ -297,14 +299,14 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Dados do item são obrigatórios' }, 400);
         return;
       }
-      const lote = await getOrCreateOpenLote(sql, username, loja);
-      const existing = await sql`SELECT id, quantidade FROM shared_inventory WHERE loja = ${loja} AND codigo = ${item.codigo} AND lote_numero = ${lote} LIMIT 1`;
+      const lote = await getOrCreateOpenLote(sql, username, lojaValidada);
+      const existing = await sql`SELECT id, quantidade FROM shared_inventory WHERE loja = ${lojaValidada} AND codigo = ${item.codigo} AND lote_numero = ${lote} LIMIT 1`;
 
       if (existing.length > 0) {
         const newQty = Number(existing[0].quantidade) + quantidade;
         await sql`UPDATE shared_inventory SET quantidade = ${newQty}, updated_at = NOW() WHERE id = ${existing[0].id}`;
       } else {
-        await sql`INSERT INTO shared_inventory (ean, codigo, descricao, quantidade, created_by, updated_at, lote_numero, loja) VALUES (${item.ean}, ${item.codigo}, ${item.descricao}, ${quantidade}, ${username}, NOW(), ${lote}, ${loja})`;
+        await sql`INSERT INTO shared_inventory (ean, codigo, descricao, quantidade, created_by, updated_at, lote_numero, loja) VALUES (${item.ean}, ${item.codigo}, ${item.descricao}, ${quantidade}, ${username}, NOW(), ${lote}, ${lojaValidada})`;
       }
 
       sendJson(res, { success: true, lote_numero: lote });
@@ -313,19 +315,19 @@ const handler: ApiHandler = async (req, res) => {
 
     // FINALIZE current open lote (do próprio login)
     if (action === 'finalize') {
-      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${loja} AND status = 'aberto' AND created_by = ${username} ORDER BY numero DESC LIMIT 1`;
+      const open = await sql`SELECT numero FROM inventory_lotes WHERE loja = ${lojaValidada} AND status = 'aberto' AND created_by = ${username} ORDER BY numero DESC LIMIT 1`;
       if (open.length === 0) {
         // Nothing to finalize — treat as no-op success so UI doesn't break
         sendJson(res, { success: true, finalized: null, message: 'Nenhum lote aberto' });
         return;
       }
       const num = Number(open[0].numero);
-      const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${loja} AND lote_numero = ${num} LIMIT 1`;
+      const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
         sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de finalizar.' }, 400);
         return;
       }
-      await sql`UPDATE inventory_lotes SET status = 'finalizado', finalized_at = NOW() WHERE loja = ${loja} AND numero = ${num}`;
+      await sql`UPDATE inventory_lotes SET status = 'finalizado', finalized_at = NOW() WHERE loja = ${lojaValidada} AND numero = ${num}`;
       sendJson(res, { success: true, finalized: num });
       return;
     }
@@ -342,12 +344,12 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       // Só o lote aberto do próprio login pode ser alterado.
-      const lote = await getOpenLote(sql, loja, username);
+      const lote = await getOpenLote(sql, lojaValidada, username);
       if (lote == null) {
         sendJson(res, { error: 'Nenhum lote aberto' }, 400);
         return;
       }
-      await sql`UPDATE shared_inventory SET quantidade = ${quantidade}, updated_at = NOW() WHERE loja = ${loja} AND codigo = ${codigo} AND lote_numero = ${lote}`;
+      await sql`UPDATE shared_inventory SET quantidade = ${quantidade}, updated_at = NOW() WHERE loja = ${lojaValidada} AND codigo = ${codigo} AND lote_numero = ${lote}`;
       sendJson(res, { success: true });
       return;
     }
@@ -357,23 +359,23 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Código é obrigatório' }, 400);
         return;
       }
-      const lote = await getOpenLote(sql, loja, username);
+      const lote = await getOpenLote(sql, lojaValidada, username);
       if (lote == null) {
         sendJson(res, { error: 'Nenhum lote aberto' }, 400);
         return;
       }
-      await sql`DELETE FROM shared_inventory WHERE loja = ${loja} AND codigo = ${codigo} AND lote_numero = ${lote}`;
+      await sql`DELETE FROM shared_inventory WHERE loja = ${lojaValidada} AND codigo = ${codigo} AND lote_numero = ${lote}`;
       sendJson(res, { success: true });
       return;
     }
 
     if (action === 'clear') {
-      const lote = await getOpenLote(sql, loja, username);
+      const lote = await getOpenLote(sql, lojaValidada, username);
       if (lote == null) {
         sendJson(res, { error: 'Nenhum lote aberto' }, 400);
         return;
       }
-      await sql`DELETE FROM shared_inventory WHERE loja = ${loja} AND lote_numero = ${lote}`;
+      await sql`DELETE FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${lote}`;
       sendJson(res, { success: true });
       return;
     }

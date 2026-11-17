@@ -81,19 +81,6 @@ interface ValidadeItem {
   secao?: string | null;
 }
 
-function getToken(): string | null {
-  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
-}
-
-async function invokeWithToken(functionName: string, body: Record<string, unknown>) {
-  const token = getToken();
-  if (!token) return { data: null, error: new Error('No token') };
-  return invokeFunction(functionName, {
-    body,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
 type FilterType = 'hoje' | '7dias' | '30dias' | 'todos';
 
 const FILTER_LABELS: Record<FilterType, string> = {
@@ -104,7 +91,7 @@ const FILTER_LABELS: Record<FilterType, string> = {
 };
 
 const ValidadeView = () => {
-  const { user, getToken: authGetToken, isAdmin, userRole } = useAuth();
+  const { user, isAdmin, userRole } = useAuth();
   const canSendToRebaixa = userRole === 'admin' || userRole === 'encarregado';
   const canSendEmail = isAdmin || userRole === 'encarregado';
   // O alerta de WhatsApp é só do admin (o encarregado não dispara).
@@ -154,14 +141,13 @@ const [filter, setFilter] = useState<FilterType>('todos');
 
   /** Busca tipos e custos da lista; usado pelo download e pelo compartilhamento. */
   const loadSpreadsheetData = useCallback(async (key: string) => {
-    const token = authGetToken() ?? getToken();
     const codigos = key.split(',');
     const [tipos, custos] = await Promise.all([
-      fetchProductTipos(codigos, token),
-      fetchProductCustos(codigos, token),
+      fetchProductTipos(codigos),
+      fetchProductCustos(codigos),
     ]);
     return { tipos, custos };
-  }, [authGetToken]);
+  }, []);
 
   const [alertDays, setAlertDays] = useState(() => {
     try { const v = localStorage.getItem('validade_alert_days'); return v ? parseInt(v, 10) : DEFAULT_ALERT_DAYS; } catch { return DEFAULT_ALERT_DAYS; }
@@ -171,7 +157,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   const [showWhatsapp, setShowWhatsapp] = useState(false);
 
   const fetchItems = useCallback(async () => {
-    const { data, error } = await invokeWithToken('manage-validade', { action: 'list_all' });
+    const { data, error } = await invokeFunction('manage-validade', { body: { action: 'list_all' } });
     if (!error && data?.items) {
       setItems(data.items);
       // Filter notifications: within configured alert days
@@ -216,11 +202,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   }, [notifications]);
 
   const queryProduct = async (codigo: string) => {
-    const token = authGetToken();
-    const { data, error } = await invokeFunction('query-product', {
-      body: { codigo },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    });
+    const { data, error } = await invokeFunction('query-product', { body: { codigo } });
     return { data, error };
   };
 
@@ -294,14 +276,16 @@ const [filter, setFilter] = useState<FilterType>('todos');
     }
     setSubmitting(true);
     try {
-      const { error } = await invokeWithToken('manage-validade', {
-        action: 'add',
-        item: {
-          ean: Number(product.ean),
-          codigo: Number(product.codigo),
-          descricao: product.descricao,
-          validade: new Date(validade + 'T23:59:59').toISOString(),
-          quantidade: total,
+      const { error } = await invokeFunction('manage-validade', {
+        body: {
+          action: 'add',
+          item: {
+            ean: Number(product.ean),
+            codigo: Number(product.codigo),
+            descricao: product.descricao,
+            validade: new Date(validade + 'T23:59:59').toISOString(),
+            quantidade: total,
+          },
         },
       });
       if (!error) {
@@ -325,7 +309,7 @@ const [filter, setFilter] = useState<FilterType>('todos');
   };
 
   const handleRemove = async (id: string) => {
-    const { error } = await invokeWithToken('manage-validade', { action: 'remove', id });
+    const { error } = await invokeFunction('manage-validade', { body: { action: 'remove', id } });
     if (!error) {
       toast.success('Item removido');
       await fetchItems();
@@ -371,11 +355,13 @@ const [filter, setFilter] = useState<FilterType>('todos');
     if (!editingItem || !editValidade || editSubmitting) return;
     setEditSubmitting(true);
     try {
-      const { error } = await invokeWithToken('manage-validade', {
-        action: 'update',
-        id: editingItem.id,
-        validade: new Date(editValidade.setHours(23, 59, 59)).toISOString(),
-        quantidade: parseInt(editQuantidade) || 0,
+      const { error } = await invokeFunction('manage-validade', {
+        body: {
+          action: 'update',
+          id: editingItem.id,
+          validade: new Date(editValidade.setHours(23, 59, 59)).toISOString(),
+          quantidade: parseInt(editQuantidade) || 0,
+        },
       });
       if (!error) {
         toast.success('Validade atualizada');

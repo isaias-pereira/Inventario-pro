@@ -149,7 +149,7 @@ O encarregado vê a tela **Adicionar Produto** sem o modo "Editar"
 | `api/manage-metas.ts` | **admin**. |
 | `api/ai-assist.ts` | `read_label`: qualquer logado. `import_review` e `review_categorias`: **admin**. |
 | `api/manage-arrastao.ts` | Sessão/itens: participantes logados. `consulta_all_items`: admin (tudo) / encarregado (equipe). |
-| `api/auth-login.ts` | Normaliza `enc_flv` → `encarregado` no token. |
+| `api/auth.ts` | Normaliza `enc_flv` → `encarregado` no token. |
 
 ## 6. Conta de e-mail de envio (remetente)
 

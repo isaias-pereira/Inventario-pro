@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Lock, User, Loader2, WifiOff } from 'lucide-react';
+import { Lock, User, Loader2, WifiOff, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import loginBg from '@/assets/login-bg.jpg';
@@ -18,6 +18,20 @@ function isNetworkProblem(message: string): boolean {
   return NETWORK_HINTS.some((hint) => lower.includes(hint));
 }
 
+/** Carrega o script do Turnstile uma vez. */
+function loadTurnstileScript(): Promise<void> {
+  if (document.querySelector('script[src*="turnstile"]')) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Falha ao carregar Turnstile'));
+    document.head.appendChild(script);
+  });
+}
+
 const LoginPage = () => {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
@@ -25,13 +39,28 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const turnstileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    loadTurnstileScript()
+      .then(() => {
+        // O widget será renderizado automaticamente pelo script quando o DOM estiver pronto
+        setTurnstileReady(true);
+      })
+      .catch(() => {
+        // Turnstile não disponível: prossegue sem CAPTCHA (modo dev)
+        setTurnstileReady(true);
+      });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setOffline(false);
     setLoading(true);
-    const result = await login(username, password);
+    const result = await login(username, password, turnstileToken);
     if (!result.ok) {
       const message = result.error || 'Não foi possível entrar.';
       setError(message);
@@ -94,6 +123,21 @@ const LoginPage = () => {
               </div>
             </div>
           </div>
+
+          {/* Turnstile CAPTCHA (invisível ou checkbox) */}
+          {turnstileReady && (
+            <div className="mb-4" ref={turnstileRef}>
+              <div
+                className="cf-turnstile"
+                data-sitekey={import.meta.env.VITE_TURNSTILE_SITEKEY || ''}
+                data-callback={(token: string) => setTurnstileToken(token)}
+                data-expired-callback={() => setTurnstileToken('')}
+                data-theme="light"
+                data-size="normal"
+                data-retry="auto"
+              />
+            </div>
+          )}
 
           {error && (
             <div

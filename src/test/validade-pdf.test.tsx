@@ -135,9 +135,9 @@ it('exports the expiry list as an ODS spreadsheet', async () => {
   await user.click(await screen.findByRole('button', { name: /Planilha \(ODS\)/ }));
 
   await waitFor(() => expect(saveSpreadsheet).toHaveBeenCalledTimes(1));
-  expect(fetchTipos).toHaveBeenCalledWith(['100'], 'token');
+  expect(fetchTipos).toHaveBeenCalledWith(['100']);
   // O custo (PMZ) é buscado junto com o tipo para preencher a planilha.
-  expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token');
+  expect(fetchCustos).toHaveBeenCalledWith(['100']);
   expect(createOds).toHaveBeenCalledWith(
     [expect.objectContaining({ codigo: 100, quantidade: 3, descricao: 'BANANA PRATA' })],
     { '100': 'UN' },
@@ -153,7 +153,7 @@ it('shares the ODS through the system share sheet', async () => {
   await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
 
   // O diálogo prepara tipos e custos ao abrir para o compartilhamento manter o gesto.
-  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token'));
+  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100']));
 
   await user.click(await screen.findByRole('button', { name: 'Compartilhar' }));
 
@@ -183,7 +183,7 @@ it('shares the CSV when the browser refuses the .ods attachment (Chrome)', async
 
   await screen.findByText('BANANA PRATA');
   await user.click(screen.getByRole('button', { name: 'Exportar lista de validade' }));
-  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100'], 'token'));
+  await waitFor(() => expect(fetchCustos).toHaveBeenCalledWith(['100']));
 
   await user.click(await screen.findByRole('button', { name: 'Compartilhar' }));
 

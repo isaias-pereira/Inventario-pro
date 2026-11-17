@@ -35,9 +35,9 @@ interface MetasContextType {
   selectedYear: number;
   setSelectedMonth: (m: number) => void;
   setSelectedYear: (y: number) => void;
-  loadMonthData: (token: string, ano: number, mes: number) => Promise<void>;
-  saveMetaToDB: (token: string, ano: number, mes: number, items: MetaItem[]) => Promise<void>;
-  saveRealizadoToDB: (token: string, ano: number, mes: number, items: VendaItem[]) => Promise<void>;
+  loadMonthData: (ano: number, mes: number) => Promise<void>;
+  saveMetaToDB: (ano: number, mes: number, items: MetaItem[]) => Promise<void>;
+  saveRealizadoToDB: (ano: number, mes: number, items: VendaItem[]) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -53,12 +53,11 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [isLoading, setIsLoading] = useState(false);
 
-  const loadMonthData = useCallback(async (token: string, ano: number, mes: number) => {
+  const loadMonthData = useCallback(async (ano: number, mes: number) => {
     setIsLoading(true);
     try {
       const res = await invokeFunction('manage-metas', {
         body: { action: 'get', ano, mes },
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.error) throw res.error;
       const rows = res.data?.data || [];
@@ -77,11 +76,10 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
-  const saveMetaToDB = useCallback(async (token: string, ano: number, mes: number, items: MetaItem[]) => {
+  const saveMetaToDB = useCallback(async (ano: number, mes: number, items: MetaItem[]) => {
     try {
       const res = await invokeFunction('manage-metas', {
         body: { action: 'save_meta', ano, mes, items },
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.error) throw res.error;
     } catch (err) {
@@ -90,11 +88,10 @@ export const MetasProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
-  const saveRealizadoToDB = useCallback(async (token: string, ano: number, mes: number, items: VendaItem[]) => {
+  const saveRealizadoToDB = useCallback(async (ano: number, mes: number, items: VendaItem[]) => {
     try {
       const res = await invokeFunction('manage-metas', {
         body: { action: 'save_realizado', ano, mes, realizadoItems: items },
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.error) throw res.error;
     } catch (err) {

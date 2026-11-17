@@ -46,6 +46,7 @@ import {
   type WhatsappConfig,
 } from './whatsapp.js';
 import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, resolveLoja } from './loja.js';
+import { log, logError } from './logger.js';
 
 /** Papéis que podem ver a configuração e disparar o alerta pela tela. */
 export const WHATSAPP_ROLES = ['admin'] as const;
@@ -94,7 +95,7 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
     await sql(CREATE_TABLE_SQL);
     await sql(CREATE_DESTINATARIOS_SQL);
   } catch (error) {
-    console.error('WhatsApp schema create:', error);
+    logError(error, { action: 'whatsapp_schema_create' });
   }
   try {
     const rows = await sql`SELECT to_regclass('public.whatsapp_envios') AS table_name`;
@@ -154,7 +155,7 @@ async function destinatariosDaLoja(sql: Sql, loja: number): Promise<string[]> {
     );
     return rows.map((row) => String(row.telefone ?? '').trim()).filter(Boolean);
   } catch (error) {
-    console.error('WhatsApp destinatarios:', error);
+    logError(error, { action: 'whatsapp_destinatarios' });
     return [];
   }
 }
@@ -223,7 +224,7 @@ async function recordManual(
     );
   } catch (error) {
     // O histórico é acessório: o envio já aconteceu, não falha a resposta.
-    console.error('WhatsApp manual history:', error);
+    logError(error, { action: 'whatsapp_manual_history' });
   }
 }
 
@@ -257,7 +258,7 @@ export async function handleWhatsappCron(req: ApiRequest, res: ApiResponse): Pro
   try {
     await runCron(req, res);
   } catch (error) {
-    console.error('WhatsApp cron error:', error);
+    logError(error, { action: 'whatsapp_cron' });
     const message = error instanceof Error ? error.message : 'Erro interno do servidor';
     sendJson(res, { error: message }, 500);
   }
@@ -376,9 +377,7 @@ async function runCron(req: ApiRequest, res: ApiResponse): Promise<void> {
     destinatariosGeral += recipients.length;
     if (enviados > 0) algumEnviou = true;
 
-    console.log(
-      `[whatsapp] loja=${codigo} ${slot} ${dia} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
-    );
+    log.info('WhatsApp cron loja', { loja: codigo, slot, dia, total: digest.total, enviados, falhas });
     porLoja.push({
       loja: codigo,
       total: digest.total,
@@ -537,9 +536,7 @@ export async function handleWhatsappPost(
       await recordManual(sql, digest, config, enviados, falhas, erro, payload.sub, loja);
     }
 
-    console.log(
-      `[whatsapp] manual por ${payload.sub} loja=${loja} total=${digest.total} enviados=${enviados} falhas=${falhas}`,
-    );
+    log.info('WhatsApp manual', { usuario: payload.sub, loja, total: digest.total, enviados, falhas });
     sendJson(res, {
       ok: enviados > 0,
       loja,
@@ -553,7 +550,7 @@ export async function handleWhatsappPost(
       list: digest.list,
     });
   } catch (error) {
-    console.error('WhatsApp validade error:', error);
+    logError(error, { action: 'whatsapp_validade' });
     const message = error instanceof Error ? error.message : 'Erro interno do servidor';
     sendJson(res, { error: message }, 500);
   }

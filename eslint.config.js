@@ -21,7 +21,17 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // O cliente lida com JSON dinâmico da API em vários pontos; o `any`
+      // aparece como aviso (não bloqueia o CI), mantendo o tipo explícito
+      // onde há contrato estável.
+      "@typescript-eslint/no-explicit-any": "warn",
+      "no-empty": ["warn", { allowEmptyCatch: true }],
     },
+  },
+  // Arquivos de configuração usam `require()` (plugins do Tailwind/PostCSS).
+  {
+    files: ["*.config.ts", "*.config.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   // Backend: serverless functions da Vercel rodam em Node.
   {

@@ -58,7 +58,7 @@ interface ReviewState {
 const BaseView = ({ onBack }: BaseViewProps) => {
   const { saveProducts, hasData, products } = useData();
   const { setMetaItems, metaItems, setVendaItems, vendaItems, saveMetaToDB, saveRealizadoToDB, selectedMonth, selectedYear, setSelectedMonth } = useMetas();
-  const { getToken, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -80,17 +80,15 @@ const BaseView = ({ onBack }: BaseViewProps) => {
 
   useEffect(() => {
     let active = true;
-    const token = getToken();
     void invokeFunction('ai-assist', {
       body: { action: 'config' },
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     })
       .then(({ data, error }) => {
         if (active && !error) setAiEnabled(Boolean(data?.enabled));
       })
       .catch(() => undefined);
     return () => { active = false; };
-  }, [getToken]);
+  }, []);
 
   const readFile = (file: File, callback: (rows: unknown[][]) => void, setUpload: React.Dispatch<React.SetStateAction<UploadState>>) => {
     setUpload({ fileName: file.name, status: 'idle', msg: '' });
@@ -131,11 +129,9 @@ const BaseView = ({ onBack }: BaseViewProps) => {
     if (aiEnabled) {
       setReviewing(true);
       try {
-        const token = getToken();
         const samples = dataRows.slice(0, 6).map((row) => row.map((cell) => String(cell ?? '')));
         const { data, error } = await invokeFunction<{ mapping?: Record<string, number>; avisos?: string[] }>('ai-assist', {
           body: { action: 'import_review', target, headers, samples },
-          ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         });
         if (!error && data?.mapping && Object.keys(data.mapping).length > 0) {
           mapping = { ...mapping, ...data.mapping };
@@ -183,16 +179,11 @@ const BaseView = ({ onBack }: BaseViewProps) => {
     } else if (target === 'meta') {
       const parsed = itens as MetaItem[];
       setMetaItems(parsed);
-      const token = getToken();
-      if (token) {
-        try {
-          await saveMetaToDB(token, selectedYear, selectedMonth, parsed);
-          setMetaUp(prev => ({ ...prev, fileName, status: 'success', msg: `${count} dia(s) de meta salvos no banco para ${MESES[selectedMonth - 1]}!` }));
-        } catch {
-          setMetaUp(prev => ({ ...prev, fileName, status: 'error', msg: 'Meta carregada localmente, mas falhou ao salvar no banco.' }));
-        }
-      } else {
-        setMetaUp(prev => ({ ...prev, fileName, status: 'success', msg: `${count} dia(s) de meta carregado(s)!` }));
+      try {
+        await saveMetaToDB(selectedYear, selectedMonth, parsed);
+        setMetaUp(prev => ({ ...prev, fileName, status: 'success', msg: `${count} dia(s) de meta salvos no banco para ${MESES[selectedMonth - 1]}!` }));
+      } catch {
+        setMetaUp(prev => ({ ...prev, fileName, status: 'error', msg: 'Meta carregada localmente, mas falhou ao salvar no banco.' }));
       }
     } else {
       setVendaItems(itens as VendaItem[]);
@@ -219,11 +210,9 @@ const BaseView = ({ onBack }: BaseViewProps) => {
       toast.error('Nenhum dado de realizado para salvar.');
       return;
     }
-    const token = getToken();
-    if (!token) { toast.error('Não autenticado.'); return; }
     setSavingRealizado(true);
     try {
-      await saveRealizadoToDB(token, selectedYear, selectedMonth, vendaItems);
+      await saveRealizadoToDB(selectedYear, selectedMonth, vendaItems);
       toast.success(`Realizado salvo para ${MESES[selectedMonth - 1]}!`);
     } catch {
       toast.error('Erro ao salvar realizado no banco.');

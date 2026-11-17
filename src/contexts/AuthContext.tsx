@@ -62,10 +62,12 @@ function loadUser(): User | null {
   }
 }
 
-/** Chama /api/auth-me para restaurar a sessão a partir do cookie HttpOnly. */
+/** Chama /api/auth (action `me`) para restaurar a sessão a partir do cookie HttpOnly. */
 async function fetchMe(): Promise<User | null> {
   try {
-    const { data, error } = await invokeFunction<{ user: User | null }>('auth-me');
+    const { data, error } = await invokeFunction<{ user: User | null }>('auth', {
+      body: { action: 'me' },
+    });
     if (error || !data?.user) return null;
     return data.user;
   } catch {

@@ -1,4 +1,4 @@
-import { bearerToken, sendJson, type ApiRequest, type ApiResponse } from './http.js';
+import { getToken, sendJson, type ApiRequest, type ApiResponse } from './http.js';
 import { verifyJwt, type JwtPayload } from './jwt.js';
 
 /** Segredo usado para assinar/validar os tokens de sessão (HS256). */
@@ -10,7 +10,7 @@ export function jwtSecret(): string {
 
 /** Valida o token da requisição; responde 401 e devolve null quando inválido. */
 export function authenticate(req: ApiRequest, res: ApiResponse): JwtPayload | null {
-  const token = bearerToken(req);
+  const token = getToken(req);
   if (!token) {
     sendJson(res, { error: 'Token obrigatório' }, 401);
     return null;

@@ -3,9 +3,10 @@ import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
-import { ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
+import { DEFAULT_LOJA, ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
 import { ensureEncarregadosSchema, usuariosDaEquipe } from './_lib/encarregados.js';
 import { codigoEhKg, MSG_KG_VALIDADE } from './_lib/produto-tipo.js';
+import { logError } from './_lib/logger.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
@@ -98,13 +99,16 @@ const handler: ApiHandler = async (req, res) => {
 
     const username = payload.sub;
     const action = body.action;
-    const sql = createSql();
+    // Loja do token (para RLS): usa a claim do JWT, com fallback para DEFAULT_LOJA.
+    const loja = payload.loja ?? DEFAULT_LOJA;
+    const sql = createSql(loja);
 
     // Coluna do motivo (Excesso/Qualidade) usada nos produtos de balança (KG).
     const hasMotivoColumn = await ensureSchema(sql);
     // A loja vem do token (multi-loja): é o escopo de tudo que é lido/gravado.
     await ensureLojaSchema(sql);
-    const loja = await resolveLoja(sql, payload);
+    // Validação completa da loja (resolvendo tokens antigos).
+    const lojaValidada = await resolveLoja(sql, payload);
 
     // Auto-expire only on read actions (avoid unnecessary write on every request)
     const readActions = new Set(['list', 'list_all', 'notifications', 'consulta_periodo']);
@@ -430,7 +434,7 @@ const handler: ApiHandler = async (req, res) => {
 
     sendJson(res, { error: 'Ação inválida' }, 400);
   } catch (error) {
-    console.error('Manage validade error:', error);
+    logError(error, { action: 'manage-validade' });
     sendJson(res, { error: 'Erro interno do servidor' }, 500);
   }
 };

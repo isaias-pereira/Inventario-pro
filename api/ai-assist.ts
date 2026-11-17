@@ -25,6 +25,7 @@ import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { identifier } from './_lib/product-validation.js';
 import { aiConfigured, aiModel, callAi, isSupportedImageMime, type AiError, type AiResult } from './_lib/ai.js';
+import { log, logError } from './_lib/logger.js';
 import {
   LABEL_PROMPT,
   LABEL_SYSTEM_PROMPT,
@@ -82,9 +83,13 @@ function canImport(role: unknown): boolean {
  * Não guarda nenhum dado do usuário — só modelo, tokens e duração.
  */
 function logAiUsage(action: string, result: AiResult, durationMs: number): void {
-  console.log(
-    `[ai] ${action} model=${result.model} in=${result.usage.inputTokens} out=${result.usage.outputTokens} tokens em ${durationMs}ms`,
-  );
+  log.info('AI usage', {
+    action,
+    model: result.model,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    durationMs,
+  });
 }
 
 /** Busca o produto no catálogo pelo EAN (mestre, alias ou embalagem fechada). */
@@ -332,7 +337,7 @@ const handler: ApiHandler = async (req, res) => {
     sendJson(res, { error: 'Ação inválida' }, 400);
   } catch (error) {
     const known = error as AiError;
-    console.error('AI assist error:', known?.message ?? 'Unknown error');
+    logError(error, { action: 'ai-assist' });
     const status = typeof known?.status === 'number' ? known.status : 500;
     sendJson(res, { error: known?.message ?? 'Erro interno do servidor' }, status);
   }

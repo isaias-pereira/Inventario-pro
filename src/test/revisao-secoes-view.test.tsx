@@ -97,7 +97,7 @@ describe('RevisaoSecoesView', () => {
     await user.click(screen.getByRole('button', { name: /Aplicar 1 alteração/ }));
 
     await waitFor(() => expect(aplicarSecao).toHaveBeenCalledTimes(1));
-    expect(aplicarSecao).toHaveBeenCalledWith('111', '3', 'token');
+    expect(aplicarSecao).toHaveBeenCalledWith('111', '3');
   });
 
   it('avisa quando a IA não está configurada', async () => {

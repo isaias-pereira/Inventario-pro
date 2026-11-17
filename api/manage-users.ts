@@ -54,7 +54,10 @@ const handler: ApiHandler = async (req, res) => {
     if (!payload) return;
 
     const { action, newUser } = await readJsonBody<{ action?: string; newUser?: any }>(req);
-    const sql = createSql();
+    // Resolve a loja ANTES de criar o sql (para RLS).
+    // Para admin, a loja pode vir do switch_loja; para outros, vem do token.
+    const lojaDoToken = payload.loja ?? DEFAULT_LOJA;
+    const sql = createSql(lojaDoToken);
     await ensureLojaSchema(sql);
 
     // Lista de lojas: qualquer usuário logado pode consultar (o header usa

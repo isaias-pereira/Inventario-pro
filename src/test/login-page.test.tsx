@@ -28,8 +28,10 @@ function renderLogin() {
   );
 }
 
-/** Preenche usuário/senha e clica em Entrar. */
+/** Preenche usuário/senha e clica em Entrar. Aguarda hidratação do AuthProvider. */
 async function entrar(user: ReturnType<typeof userEvent.setup>) {
+  // Aguarda o AuthProvider hidratar (inputs aparecerem)
+  await screen.findByPlaceholderText('Digite seu usuário');
   await user.type(screen.getByPlaceholderText('Digite seu usuário'), 'isa');
   await user.type(screen.getByPlaceholderText('Digite sua senha'), 'senha');
   await user.click(screen.getByRole('button', { name: /Entrar/ }));
@@ -85,8 +87,12 @@ describe('LoginPage — falhas', () => {
     });
     await entrar(user);
 
-    // Só contam as tentativas de login (o provider também lista as lojas).
-    const tentativas = invoke.mock.calls.filter((call) => call[0] === 'auth-login');
+    // Só contam as tentativas de login (o provider também chama `auth` para
+    // restaurar a sessão e lista as lojas).
+    const tentativas = invoke.mock.calls.filter((call) => {
+      const options = call[1] as { body?: { action?: string } } | undefined;
+      return call[0] === 'auth' && options?.body?.action === 'login';
+    });
     await waitFor(() => expect(tentativas).toHaveLength(2));
   });
 });

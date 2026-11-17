@@ -22,10 +22,6 @@ interface ValidadeItem {
   created_at: string | null;
 }
 
-function getToken(): string | null {
-  try { return localStorage.getItem('estoque_pro_token'); } catch { return null; }
-}
-
 const ConsultaValidadeView = () => {
   const { userRole } = useAuth();
   // O Arrastão é uma sessão de contagem: só o admin consulta. O encarregado
@@ -45,11 +41,7 @@ const ConsultaValidadeView = () => {
 
   useEffect(() => {
     const fetchUsers = async () => {
-      const token = getToken();
-      const { data } = await invokeFunction('manage-validade', {
-        body: { action: 'list_users' },
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data } = await invokeFunction('manage-validade', { body: { action: 'list_users' } });
       if (data?.users) setUsers(data.users);
     };
     fetchUsers();
@@ -73,8 +65,6 @@ const ConsultaValidadeView = () => {
     setSearched(true);
     setPage(1);
     try {
-      const token = getToken();
-
       if (isArrastao) {
         const bodyPayload: Record<string, unknown> = {
           action: 'consulta_all_items',
@@ -82,10 +72,7 @@ const ConsultaValidadeView = () => {
         };
         if (dataInicio) bodyPayload.data_inicio = dataInicio;
         if (dataFim) bodyPayload.data_fim = dataFim;
-        const { data, error } = await invokeFunction('manage-arrastao', {
-          body: bodyPayload,
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { data, error } = await invokeFunction('manage-arrastao', { body: bodyPayload });
         if (error) { toast.error('Erro ao consultar'); setItems([]); }
         else if (data?.error) { toast.error(data.error); setItems([]); }
         else { setItems(data?.items || []); }
@@ -98,10 +85,7 @@ const ConsultaValidadeView = () => {
         if (dataFim) bodyPayload.data_fim = dataFim;
         if (hasUser) bodyPayload.created_by = selectedUser;
 
-        const { data, error } = await invokeFunction('manage-validade', {
-          body: bodyPayload,
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { data, error } = await invokeFunction('manage-validade', { body: bodyPayload });
         if (error) { toast.error('Erro ao consultar'); setItems([]); }
         else if (data?.error) { toast.error(data.error); setItems([]); }
         else { setItems(data?.items || []); }

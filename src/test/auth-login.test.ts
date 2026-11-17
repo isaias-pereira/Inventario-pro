@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import bcrypt from 'bcryptjs';
-import type { ApiRequest } from '../../api/_lib/http';
+import type { ApiRequest, ApiResponse } from '../../api/_lib/http';
 
 const { createSqlMock } = vi.hoisted(() => ({
   createSqlMock: vi.fn(),
@@ -8,18 +8,21 @@ const { createSqlMock } = vi.hoisted(() => ({
 
 vi.mock('../../api/_lib/db', () => ({ createSql: createSqlMock }));
 
-import handler from '../../api/auth-login';
+import handler from '../../api/auth';
 
 const HASH = bcrypt.hashSync('senha123', 8);
 
-function fakeResponse() {
-  const state = { status: 200, body: null as Record<string, unknown> | null };
-  const res = {
+function fakeResponse(): { res: ApiResponse; state: { status: number; body: Record<string, unknown> | null; headers: Record<string, string> } } {
+  const state = { status: 200, body: null as Record<string, unknown> | null, headers: {} as Record<string, string> };
+  const res: ApiResponse = {
     status(code: number) {
       state.status = code;
       return res;
     },
-    setHeader() {},
+    setHeader(name: string, value: string) {
+      // Normalize header name to lowercase for case-insensitive access
+      state.headers[name.toLowerCase()] = value;
+    },
     json(payload: unknown) {
       state.body = payload as Record<string, unknown>;
     },
@@ -31,16 +34,21 @@ function fakeResponse() {
 }
 
 function fakeRequest(body: unknown): ApiRequest {
-  return { method: 'POST', headers: {}, body };
+  // Garante que o turnstileToken seja enviado (o handler valida antes do rate limit)
+  const withToken = typeof body === 'object' && body !== null
+    ? { action: 'login', ...(body as Record<string, unknown>), turnstileToken: 'dummy-token' }
+    : { action: 'login', turnstileToken: 'dummy-token' };
+  return { method: 'POST', headers: {}, body: withToken };
 }
 
 beforeEach(() => {
   createSqlMock.mockReset();
   process.env.JWT_SECRET = 'segredo-de-teste';
   process.env.DB_QUERY_TIMEOUT_MS = '80';
+  process.env.TURNSTILE_SECRET_KEY = ''; // Vazio = pula verificação (modo dev)
 });
 
-describe('POST /api/auth-login', () => {
+describe('POST /api/auth (action login)', () => {
   it('responde 503 quando o banco não responde (timeout)', async () => {
     createSqlMock.mockReturnValue(() => new Promise(() => {}));
     const { res, state } = fakeResponse();
@@ -73,7 +81,7 @@ describe('POST /api/auth-login', () => {
     expect(state.body).toMatchObject({ success: false, error: 'Usuário ou senha inválidos' });
   });
 
-  it('devolve o token quando a senha confere', async () => {
+  it('devolve o cookie de autenticação quando a senha confere', async () => {
     createSqlMock.mockReturnValue(() => Promise.resolve([
       { username: 'isa', password: HASH, role: 'admin', loja: 92 },
     ]));
@@ -83,10 +91,11 @@ describe('POST /api/auth-login', () => {
 
     expect(state.status).toBe(200);
     expect(state.body?.success).toBe(true);
-    expect(String(state.body?.token).split('.')).toHaveLength(3);
+    expect(state.headers['set-cookie']).toBeDefined();
+    expect(String(state.headers['set-cookie'])).toContain('estoque_pro_token=');
   });
 
-  it('assina a loja do usuário no token (escopo multi-loja)', async () => {
+  it('assina a loja do usuário no token (escopo multi-loja) via cookie', async () => {
     createSqlMock.mockReturnValue(() => Promise.resolve([
       { username: 'isa', password: HASH, role: 'admin', loja: 92 },
     ]));
@@ -94,7 +103,10 @@ describe('POST /api/auth-login', () => {
 
     await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
 
-    const payload = decodeJwt(String(state.body?.token));
+    const cookie = String(state.headers['set-cookie']);
+    expect(cookie).toContain('estoque_pro_token=');
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    const payload = decodeJwt(token);
     expect(Number(payload.loja)).toBe(92);
     expect(state.body?.user).toMatchObject({ username: 'isa', role: 'admin', loja: 92 });
   });
@@ -107,7 +119,9 @@ describe('POST /api/auth-login', () => {
 
     await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
 
-    const payload = decodeJwt(String(state.body?.token));
+    const cookie = String(state.headers['set-cookie']);
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    const payload = decodeJwt(token);
     expect(Number(payload.loja)).toBe(103);
   });
 
@@ -127,7 +141,9 @@ describe('POST /api/auth-login', () => {
 
     await handler(fakeRequest({ username: 'isa', password: 'senha123' }), res);
 
-    const payload = decodeJwt(String(state.body?.token));
+    const cookie = String(state.headers['set-cookie']);
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    const payload = decodeJwt(token);
     const duracao = Number(payload.exp) - Number(payload.iat);
     expect(duracao).toBe(6 * 3600);
     expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));
@@ -141,7 +157,9 @@ describe('POST /api/auth-login', () => {
 
     await handler(fakeRequest({ username: 'isa', password: 'senha123', remember: true }), res);
 
-    const payload = decodeJwt(String(state.body?.token));
+    const cookie = String(state.headers['set-cookie']);
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    const payload = decodeJwt(token);
     const duracao = Number(payload.exp) - Number(payload.iat);
     expect(duracao).toBe(6 * 3600);
     expect(Number(state.body?.expiresAt)).toBe(Number(payload.exp));

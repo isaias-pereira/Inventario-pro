@@ -116,7 +116,7 @@ const EncarregadosPicker = ({
 );
 
 const UserManagementView = () => {
-  const { getToken, loja: lojaAtual, userRole } = useAuth();
+  const { loja: lojaAtual, userRole } = useAuth();
   // O encarregado cadastra a própria equipe (sem editar/remover acessos).
   const isEncarregado = userRole === 'encarregado';
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -135,14 +135,6 @@ const UserManagementView = () => {
   const [encarregados, setEncarregados] = useState<EncarregadoOption[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const invokeWithToken = (body: Record<string, unknown>) => {
-    const token = getToken();
-    return invokeFunction('manage-users', {
-      body,
-      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-    });
-  };
-
   const nomeLoja = (codigo?: number) => {
     if (!codigo) return '—';
     return lojas.find((l) => l.codigo === codigo)?.nome ?? `Loja ${codigo}`;
@@ -154,7 +146,7 @@ const UserManagementView = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const { data, error } = await invokeWithToken({ action: 'list' });
+      const { data, error } = await invokeFunction('manage-users', { body: { action: 'list' } });
       if (error || !data?.users) { toast.error('Erro ao carregar usuários'); return; }
       setUsers(data.users);
     } catch { toast.error('Erro ao carregar usuários'); }
@@ -163,7 +155,7 @@ const UserManagementView = () => {
 
   const fetchLojas = async () => {
     try {
-      const { data } = await invokeWithToken({ action: 'list_lojas' });
+      const { data } = await invokeFunction('manage-users', { body: { action: 'list_lojas' } });
       if (Array.isArray(data?.lojas)) {
         setLojas(data.lojas);
       }
@@ -173,7 +165,7 @@ const UserManagementView = () => {
   /** Encarregados (e admins) da loja atual para os vínculos. */
   const fetchEncarregados = async () => {
     try {
-      const { data } = await invokeWithToken({ action: 'list_encarregados' });
+      const { data } = await invokeFunction('manage-users', { body: { action: 'list_encarregados' } });
       if (Array.isArray(data?.encarregados)) setEncarregados(data.encarregados);
     } catch { /* a lista é acessória */ }
   };
@@ -188,17 +180,19 @@ const UserManagementView = () => {
     if (!newUsername.trim() || !newPassword.trim()) return;
     setAdding(true);
     try {
-      const { data, error } = await invokeWithToken({
-        action: 'add',
-        newUser: {
-          username: newUsername.trim(),
-          password: newPassword.trim(),
-          role: newRole,
-          // O acesso nasce na loja em que o admin está (a loja do token).
-          loja: lojaAtual ?? undefined,
-          // user/promotor/col_validade precisam de ao menos um encarregado.
-          // O encarregado não escolhe: o vínculo com ele é automático.
-          encarregados: isEncarregado ? [] : (isSubordinate(newRole) ? newEncarregados : []),
+      const { data, error } = await invokeFunction('manage-users', {
+        body: {
+          action: 'add',
+          newUser: {
+            username: newUsername.trim(),
+            password: newPassword.trim(),
+            role: newRole,
+            // O acesso nasce na loja em que o admin está (a loja do token).
+            loja: lojaAtual ?? undefined,
+            // user/promotor/col_validade precisam de ao menos um encarregado.
+            // O encarregado não escolhe: o vínculo com ele é automático.
+            encarregados: isEncarregado ? [] : (isSubordinate(newRole) ? newEncarregados : []),
+          },
         },
       });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao adicionar usuário'); return; }
@@ -233,7 +227,7 @@ const UserManagementView = () => {
       if (editLoja) payload.loja = Number(editLoja);
       if (editPassword.trim()) payload.password = editPassword.trim();
       if (isSubordinate(editRole)) payload.encarregados = editEncarregados;
-      const { data, error } = await invokeWithToken({ action: 'update', newUser: payload });
+      const { data, error } = await invokeFunction('manage-users', { body: { action: 'update', newUser: payload } });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao atualizar usuário'); return; }
       toast.success('Usuário atualizado!');
       handleCancelEdit();
@@ -245,7 +239,7 @@ const UserManagementView = () => {
   const handleDelete = async (username: string) => {
     if (!confirm(`Remover o usuário "${username}"?`)) return;
     try {
-      const { data, error } = await invokeWithToken({ action: 'delete', newUser: { username } });
+      const { data, error } = await invokeFunction('manage-users', { body: { action: 'delete', newUser: { username } } });
       if (error || data?.error) { toast.error(data?.error || 'Erro ao remover usuário'); return; }
       toast.success('Usuário removido');
       fetchUsers();

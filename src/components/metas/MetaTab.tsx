@@ -14,7 +14,6 @@ const MESES = [
 
 const MetaTab = () => {
   const { metaItems, vendaItems, selectedMonth, selectedYear, setSelectedMonth, loadMonthData, isLoading } = useMetas();
-  const { getToken } = useAuth();
   const [chartFilter, setChartFilter] = useState<ChartFilter>('geral');
 
   const now = new Date();
@@ -22,11 +21,8 @@ const MetaTab = () => {
   const currentYear = now.getFullYear();
 
   useEffect(() => {
-    const token = getToken();
-    if (token) {
-      loadMonthData(token, selectedYear, selectedMonth);
-    }
-  }, [selectedMonth, selectedYear, getToken, loadMonthData]);
+    loadMonthData(selectedYear, selectedMonth);
+  }, [selectedMonth, selectedYear, loadMonthData]);
 
   if (isLoading) {
     return (
