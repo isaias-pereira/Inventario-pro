@@ -294,6 +294,85 @@ describe('escopo por loja — Inventário', () => {
     // A listagem só consulta o lote do próprio login — nenhum INSERT.
     expect(chamadasCom(chamadas, 'INSERT INTO inventory_lotes')).toHaveLength(0);
   });
+
+  it('descarta o lote aberto que ficou vazio ao listar', async () => {
+    const { chamadas } = installSql((text) => {
+      if (text.includes('DELETE FROM inventory_lotes')) return [{ numero: 29 }];
+      return responderPadrao(text);
+    });
+    const { res, state } = fakeResponse();
+
+    await manageInventory(request({ action: 'list' }), res);
+
+    // Lote vazio não pode ser finalizado nem suspenso: é descartado para o
+    // número e o nome não ficarem presos no cabeçalho do Inventário.
+    const descarte = chamadasCom(chamadas, 'DELETE FROM inventory_lotes')[0];
+    expect(descarte).toBeDefined();
+    expect(descarte.text).toContain("status = 'aberto'");
+    expect(descarte.text).toContain('NOT EXISTS');
+    expect(descarte.params).toContain(103);
+    expect(descarte.params).toContain(29);
+    expect(state.body).toMatchObject({ items: [], lote_numero: null, lote_nome: null });
+  });
+
+  it('mantém o lote aberto que ainda tem itens ao listar', async () => {
+    const { chamadas } = installSql((text) => {
+      if (text.includes('FROM shared_inventory')) return [{ id: 1 }];
+      return responderPadrao(text);
+    });
+    const { res, state } = fakeResponse();
+
+    await manageInventory(request({ action: 'list' }), res);
+
+    expect(chamadasCom(chamadas, 'DELETE FROM inventory_lotes')).toHaveLength(0);
+    expect(state.body).toMatchObject({ lote_numero: 29 });
+  });
+
+  it('descarta o lote vazio depois de limpar o inventário', async () => {
+    const { chamadas } = installSql((text) => {
+      if (text.includes('DELETE FROM inventory_lotes')) return [{ numero: 29 }];
+      return responderPadrao(text);
+    });
+    const { res, state } = fakeResponse();
+
+    await manageInventory(request({ action: 'clear' }), res);
+
+    const descarte = chamadasCom(chamadas, 'DELETE FROM inventory_lotes')[0];
+    expect(descarte).toBeDefined();
+    expect(descarte.params).toContain(103);
+    expect(descarte.params).toContain(29);
+    expect(state.body).toMatchObject({ success: true, lote_aberto: null });
+  });
+
+  it('descarta o lote vazio ao remover o último item', async () => {
+    const { chamadas } = installSql((text) => {
+      if (text.includes('DELETE FROM inventory_lotes')) return [{ numero: 29 }];
+      return responderPadrao(text);
+    });
+    const { res, state } = fakeResponse();
+
+    await manageInventory(request({ action: 'remove', codigo: '123' }), res);
+
+    const descarte = chamadasCom(chamadas, 'DELETE FROM inventory_lotes')[0];
+    expect(descarte).toBeDefined();
+    expect(descarte.params).toContain(103);
+    expect(descarte.params).toContain(29);
+    expect(state.body).toMatchObject({ success: true, lote_aberto: null });
+  });
+
+  it('suspender um lote vazio descarta o lote em vez de dar erro', async () => {
+    const { chamadas } = installSql((text) => {
+      if (text.includes('DELETE FROM inventory_lotes')) return [{ numero: 29 }];
+      return responderPadrao(text);
+    });
+    const { res, state } = fakeResponse();
+
+    await manageInventory(request({ action: 'suspend' }), res);
+
+    expect(chamadasCom(chamadas, 'DELETE FROM inventory_lotes')).toHaveLength(1);
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ success: true, suspended: null });
+  });
 });
 
 describe('escopo por loja — Metas', () => {

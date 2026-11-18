@@ -106,6 +106,37 @@ async function getOpenLote(sql: Sql, loja: number, usuario: string): Promise<num
   return open.length > 0 ? Number(open[0].numero) : null;
 }
 
+/**
+ * Descarta um lote aberto que ficou sem itens.
+ *
+ * Um lote vazio não pode ser finalizado nem suspenso (as duas ações exigem ao
+ * menos um item), então sem isso o número e o nome do lote ficariam presos no
+ * cabeçalho do Inventário para sempre. A checagem de vazio vai na própria
+ * query para não apagar um lote que recebeu item no meio do caminho.
+ *
+ * `idadeMinimaSegundos` evita apagar o lote recém-criado pelo `add` no
+ * intervalo entre o INSERT do lote e o INSERT do primeiro item.
+ */
+async function discardEmptyOpenLote(
+  sql: Sql,
+  loja: number,
+  lote: number,
+  idadeMinimaSegundos = 0,
+): Promise<boolean> {
+  const apagados = await sql`
+    DELETE FROM inventory_lotes
+     WHERE loja = ${loja}
+       AND numero = ${lote}
+       AND status = 'aberto'
+       AND created_at < NOW() - (${idadeMinimaSegundos} * INTERVAL '1 second')
+       AND NOT EXISTS (
+         SELECT 1 FROM shared_inventory i
+          WHERE i.loja = ${loja} AND i.lote_numero = ${lote}
+       )
+    RETURNING numero`;
+  return apagados.length > 0;
+}
+
 async function getOrCreateOpenLote(sql: Sql, username: string, loja: number): Promise<number> {
   const existing = await getOpenLote(sql, loja, username);
   if (existing != null) return existing;
@@ -165,6 +196,18 @@ const handler: ApiHandler = async (req, res) => {
         [lojaValidada, lote],
       );
       const info = await sql`SELECT nome FROM inventory_lotes WHERE loja = ${lojaValidada} AND numero = ${lote} LIMIT 1`;
+      if (data.length === 0) {
+        // Lote aberto e vazio (por exemplo, depois de limpar o inventário):
+        // não dá para finalizar nem suspender, então o nome ficaria preso no
+        // cabeçalho. Descarta o lote e devolve o estado vazio para a tela.
+        const apagado = await discardEmptyOpenLote(sql, lojaValidada, lote, 60);
+        sendJson(res, {
+          items: [],
+          lote_numero: apagado ? null : lote,
+          lote_nome: apagado ? null : info[0]?.nome ?? null,
+        });
+        return;
+      }
       sendJson(res, { items: data, lote_numero: lote, lote_nome: info[0]?.nome ?? null });
       return;
     }
@@ -186,7 +229,10 @@ const handler: ApiHandler = async (req, res) => {
       const num = Number(open[0].numero);
       const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
-        sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de suspender.' }, 400);
+        // Lote vazio não tem o que suspender: descarta em vez de deixar o
+        // número/nome preso no Inventário.
+        await discardEmptyOpenLote(sql, lojaValidada, num);
+        sendJson(res, { success: true, suspended: null, message: 'Lote vazio descartado' });
         return;
       }
       await sql`UPDATE inventory_lotes SET status = 'suspenso' WHERE loja = ${lojaValidada} AND numero = ${num}`;
@@ -324,7 +370,9 @@ const handler: ApiHandler = async (req, res) => {
       const num = Number(open[0].numero);
       const items = await sql`SELECT id FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${num} LIMIT 1`;
       if (items.length === 0) {
-        sendJson(res, { error: 'Lote vazio. Conte ao menos um item antes de finalizar.' }, 400);
+        // Lote vazio não tem o que finalizar: descarta (mesma razão do suspend).
+        await discardEmptyOpenLote(sql, lojaValidada, num);
+        sendJson(res, { success: true, finalized: null, message: 'Lote vazio descartado' });
         return;
       }
       await sql`UPDATE inventory_lotes SET status = 'finalizado', finalized_at = NOW() WHERE loja = ${lojaValidada} AND numero = ${num}`;
@@ -365,7 +413,9 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       await sql`DELETE FROM shared_inventory WHERE loja = ${lojaValidada} AND codigo = ${codigo} AND lote_numero = ${lote}`;
-      sendJson(res, { success: true });
+      // Removeu o último item? O lote vazio seria impossível de fechar.
+      const apagado = await discardEmptyOpenLote(sql, lojaValidada, lote);
+      sendJson(res, { success: true, lote_aberto: apagado ? null : lote });
       return;
     }
 
@@ -376,7 +426,10 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       await sql`DELETE FROM shared_inventory WHERE loja = ${lojaValidada} AND lote_numero = ${lote}`;
-      sendJson(res, { success: true });
+      // O lote fica sem itens: descarta na hora para o cabeçalho voltar ao
+      // estado "sem lote" (antes o número/nome ficava preso e sem como fechar).
+      const apagado = await discardEmptyOpenLote(sql, lojaValidada, lote);
+      sendJson(res, { success: true, lote_aberto: apagado ? null : lote });
       return;
     }
 

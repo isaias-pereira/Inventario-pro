@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { invokeFunction, parseJwtPayload } from '@/lib/api';
 import { toQuantity } from '@/lib/packaging';
+import { loteAbertoDaResposta } from '@/lib/inventory';
 
 export interface Product {
   codigo: string;
@@ -174,8 +175,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data, error } = await invokeFunction('manage-inventory', { body: { action: 'list' } });
         if (!error && data?.items) {
           setInventoryItemsState(data.items.map(mapInventoryItem));
-          if (typeof data.lote_numero === 'number') setCurrentLote(data.lote_numero);
-          setCurrentLoteNome(data.lote_nome ?? null);
+          // O inventário é por usuário: sem lote aberto, `lote_numero` vem nulo
+          // e o cabeçalho precisa voltar a "sem lote" (não pode manter o antigo).
+          const lote = loteAbertoDaResposta(data);
+          setCurrentLote(lote.numero);
+          setCurrentLoteNome(lote.nome);
         }
       }
     } catch (e) {
@@ -251,8 +255,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data?.items) {
         setInventoryItemsState(data.items.map(mapInventoryItem));
         // O inventário é por usuário: sem lote aberto, `lote_numero` vem nulo.
-        setCurrentLote(typeof data.lote_numero === 'number' ? data.lote_numero : null);
-        setCurrentLoteNome(data.lote_nome ?? null);
+        const lote = loteAbertoDaResposta(data);
+        setCurrentLote(lote.numero);
+        setCurrentLoteNome(lote.nome);
       }
     }
   }
