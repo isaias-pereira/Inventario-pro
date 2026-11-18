@@ -64,6 +64,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.16.5",
     "@types/nodemailer": "^8.0.2",
+    "@types/picomatch": "^4.0.3",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
@@ -75,12 +76,13 @@
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
     "lovable-tagger": "^1.1.13",
+    "picomatch": "file:vendor/picomatch",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.23.15",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0",
+    "typescript-eslint": "^8.73.0",
     "vite": "^7.3.8",
     "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.0"
@@ -91,6 +93,9 @@
     "core-js": false
   },
   "overrides": {
-    "dompurify": "^3.4.17"
+    "dompurify": "^3.4.17",
+    "glob": "^14.0.6",
+    "picomatch": "$picomatch",
+    "postcss-selector-parser": "^6.1.6"
   }
 }
