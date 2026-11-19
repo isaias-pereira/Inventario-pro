@@ -17,6 +17,11 @@
 export interface GuiaProduto {
   /** URL pública: /g/<slug> */
   slug: string;
+  /**
+   * Slugs antigos que continuam abrindo o guia. Serve para os QR codes já
+   * impressos e colados nas bancas não quebrarem quando um guia é renomeado.
+   */
+  slugsAntigos?: string[];
   nome: string;
   familia: 'Frutas' | 'Legumes' | 'Verduras' | 'Raízes';
   /** Frase de promessa: o que o cliente vai aprender. */
@@ -101,12 +106,14 @@ export const GUIAS: GuiaProduto[] = [
     armazenamento: 'Em cima da pia, virado para baixo e longe da luz. Depois de cortado, na geladeira por até 3 dias.',
   },
   {
-    slug: 'banana-prata',
-    nome: 'Banana prata',
+    slug: 'banana-nanica',
+    // O QR antigo das bancas foi impresso como "banana-prata": continua abrindo.
+    slugsAntigos: ['banana-prata'],
+    nome: 'Banana nanica',
     familia: 'Frutas',
     resumo: 'Verde é para esperar, amarela com pintas é para levar hoje. O truque está na casca.',
     tipo: 'banana',
-    palavras: ['banana prata', 'banana'],
+    palavras: ['banana nanica', 'banana'],
     passos: [
       { icone: 'olho', titulo: 'Procure o amarelo', texto: 'A banana no ponto é amarela viva, com umas pintas marrons. Verde é banana que ainda vai demorar.' },
       { icone: 'casca', titulo: 'Veja a casca', texto: 'A casca deve estar intacta, sem áreas translúcidas, escorridas ou com mofo.' },
@@ -345,7 +352,9 @@ export const GUIAS: GuiaProduto[] = [
 export function buscarGuia(slug: string): GuiaProduto | undefined {
   if (!slug) return undefined;
   const alvo = slug.trim().toLowerCase();
-  return GUIAS.find((guia) => guia.slug === alvo);
+  return GUIAS.find(
+    (guia) => guia.slug === alvo || (guia.slugsAntigos ?? []).includes(alvo),
+  );
 }
 
 /** URL pública do guia. Usa a origem atual (local em dev, domínio em produção). */

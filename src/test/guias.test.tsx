@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -46,7 +46,7 @@ describe('conteúdo dos guias', () => {
     expect(GUIAS.map((g) => g.slug)).toEqual(
       expect.arrayContaining([
         'tomate',
-        'banana-prata',
+        'banana-nanica',
         'mamao-papaia',
         'abacate',
         'maca',
@@ -146,13 +146,20 @@ describe('busca de guia', () => {
     expect(buscarGuia('')).toBeUndefined();
   });
 
+  it('abre o guia da banana nanica também pelo slug antigo do QR impresso', () => {
+    expect(buscarGuia('banana-nanica')?.nome).toBe('Banana nanica');
+    expect(buscarGuia('banana-prata')?.slug).toBe('banana-nanica');
+    expect(buscarGuia('BANANA-PRATA')?.nome).toBe('Banana nanica');
+  });
+
   it('monta a URL pública do guia', () => {
     expect(urlGuia('tomate', 'https://exemplo.com')).toBe('https://exemplo.com/g/tomate');
   });
 
   it('liga a descrição do catálogo ao guia certo', () => {
     expect(guiaParaDescricao('TOMATE ITALIANO KG')?.slug).toBe('tomate');
-    expect(guiaParaDescricao('BANANA PRATA NACIONAL')?.slug).toBe('banana-prata');
+    expect(guiaParaDescricao('BANANA NANICA')?.slug).toBe('banana-nanica');
+    expect(guiaParaDescricao('BANANA PRATA NACIONAL')?.slug).toBe('banana-nanica');
     expect(guiaParaDescricao('MAMÃO PAPAIA')?.slug).toBe('mamao-papaia');
     expect(guiaParaDescricao('CEBOLA')?.slug).toBe('cebola');
     expect(guiaParaDescricao('ARroz Tipo 1')?.slug).toBeUndefined();
@@ -222,6 +229,24 @@ describe('página pública (sem login)', () => {
     expect(screen.getByText('Espere 2 a 3 dias')).toBeInTheDocument();
     expect(screen.getByText('Lever hoje')).toBeInTheDocument();
     expect(screen.getByText('Prefira outro')).toBeInTheDocument();
+  });
+
+  it('destaca o bloco "Como escolher" com um cartão por passo', () => {
+    renderPublico('tomate');
+    const bloco = screen.getByRole('region', { name: 'Como escolher' });
+    // Um item de lista por passo, com o número da ordem.
+    expect(within(bloco).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(bloco).getByText('Olhe a cor')).toBeInTheDocument();
+    expect(within(bloco).getByText('01')).toBeInTheDocument();
+    expect(within(bloco).getByText('04')).toBeInTheDocument();
+  });
+
+  it('mostra a banana como nanica, inclusive no link antigo do QR', () => {
+    renderPublico('banana-nanica');
+    expect(screen.getByRole('heading', { name: 'Banana nanica' })).toBeInTheDocument();
+    cleanup();
+    renderPublico('banana-prata');
+    expect(screen.getByRole('heading', { name: 'Banana nanica' })).toBeInTheDocument();
   });
 
   it('usa "pode guardar" nos produtos que não amadurecem na banca', () => {

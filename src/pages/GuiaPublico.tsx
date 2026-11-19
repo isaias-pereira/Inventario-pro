@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ListChecks } from 'lucide-react';
 import { buscarGuia, fotoPrincipal, GUIAS, type ChaveEstagio } from '@/data/guias';
 import { FotoProduto } from '@/components/guias/FotoProduto';
 import { IlustracaoPasso } from '@/components/guias/IlustracaoPasso';
@@ -132,22 +132,53 @@ export default function GuiaPublico() {
           </div>
         </section>
 
-        {/* Como escolher */}
-        <section className="mt-6">
-          <h2 className="text-sm font-bold uppercase tracking-wide">Como escolher</h2>
-          <ol className="mt-2 divide-y divide-neutral-100 border-y border-neutral-100">
-            {guia.passos.map((passo, i) => (
-              <li key={`${passo.titulo}-${i}`} className="flex gap-3 py-2">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-600">
-                  <IlustracaoPasso icone={passo.icone} className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold leading-tight">{passo.titulo}</p>
-                  <p className="mt-0.5 text-[13px] leading-snug text-neutral-600">{passo.texto}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+        {/* Como escolher — o bloco mais importante da página: fica em destaque */}
+        <section className="mt-8" aria-labelledby="como-escolher">
+          <div className="overflow-hidden rounded-3xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-white shadow-[0_18px_40px_-28px_rgba(6,95,70,0.55)]">
+            <div className="flex items-center gap-3 bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 px-4 py-3.5 text-white">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-inset ring-white/25">
+                <ListChecks className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h2
+                  id="como-escolher"
+                  className="text-lg font-extrabold leading-tight tracking-tight"
+                >
+                  Como escolher
+                </h2>
+                <p className="text-[11px] font-medium text-emerald-50/90">
+                  {guia.passos.length} sinais rápidos na hora da compra
+                </p>
+              </div>
+            </div>
+
+            <ol className="space-y-2 p-2.5">
+              {guia.passos.map((passo, i) => (
+                <li
+                  key={`${passo.titulo}-${i}`}
+                  className="flex gap-3 rounded-2xl border border-neutral-200/70 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+                >
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                    <IlustracaoPasso icone={passo.icone} className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[15px] font-bold leading-tight text-neutral-900">
+                        {passo.titulo}
+                      </p>
+                      <span
+                        className="text-[11px] font-extrabold tabular-nums text-emerald-600/60"
+                        aria-hidden="true"
+                      >
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed text-neutral-600">{passo.texto}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
         </section>
 
         {/* Está no ponto? */}
