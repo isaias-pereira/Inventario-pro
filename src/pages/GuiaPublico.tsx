@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ListChecks } from 'lucide-react';
+import { ArrowLeft, Leaf, ListChecks } from 'lucide-react';
 import { buscarGuia, fotoPrincipal, GUIAS, type ChaveEstagio } from '@/data/guias';
 import { FotoProduto } from '@/components/guias/FotoProduto';
 import { IlustracaoPasso } from '@/components/guias/IlustracaoPasso';
@@ -60,14 +60,16 @@ export default function GuiaPublico() {
 
   if (!guia) {
     return (
-      <div className="min-h-screen bg-white text-neutral-900">
+      <div className="min-h-screen bg-white font-sans text-neutral-900 antialiased">
         <header className="mx-auto flex max-w-md items-center gap-2 px-4 pt-5">
           <img src="/sgs-icon.png" alt="" className="h-6 w-6 rounded" />
           <span className="text-xs font-medium text-neutral-500">SGS-PRO · Hortifrui</span>
         </header>
         <main className="mx-auto max-w-md px-4 pb-12">
-          <h1 className="mt-6 text-2xl font-bold tracking-tight">Não encontramos esse guia</h1>
-          <p className="mt-1 text-sm text-neutral-600">
+          <h1 className="mt-6 text-balance font-serif text-[2rem] font-semibold leading-[1.12] tracking-[-0.01em]">
+            Não encontramos esse guia
+          </h1>
+          <p className="mt-2 text-pretty text-[15px] leading-relaxed text-neutral-600">
             O código da etiqueta pode estar velho. Escolha um produto na lista:
           </p>
           <ul className="mt-4 grid grid-cols-2 gap-2">
@@ -101,7 +103,7 @@ export default function GuiaPublico() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900">
+    <div className="min-h-screen bg-white font-sans text-neutral-900 antialiased">
       <header className="mx-auto flex max-w-md items-center justify-between px-4 pt-4">
         <div className="flex items-center gap-2">
           <img src="/sgs-icon.png" alt="" className="h-6 w-6 rounded" />
@@ -113,22 +115,34 @@ export default function GuiaPublico() {
       </header>
 
       <main className="mx-auto max-w-md px-4 pb-10">
-        {/* Nome e foto do produto */}
-        <section className="pt-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-            {guia.familia}
-          </p>
-          <h1 className="mt-1 text-3xl font-bold leading-tight tracking-tight">{guia.nome}</h1>
-          <p className="mt-1.5 text-sm leading-snug text-neutral-600">{guia.resumo}</p>
+        {/* Nome e foto do produto — o cartão de abertura do guia */}
+        <section className="pt-4" aria-labelledby="guia-titulo">
+          <div className="overflow-hidden rounded-[26px] border border-emerald-100/90 bg-white shadow-[0_24px_50px_-32px_rgba(6,95,70,0.55)]">
+            <div className="relative bg-neutral-100">
+              <FotoProduto
+                src={fotoPrincipal(guia)}
+                alt={`${guia.nome} no ponto certo`}
+                tipo={guia.tipo}
+                estagio={1}
+                className="aspect-[4/3] w-full object-cover object-center"
+              />
+              <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-white/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-800 shadow-sm backdrop-blur-sm">
+                <Leaf className="h-3.5 w-3.5" aria-hidden="true" />
+                {guia.familia}
+              </span>
+            </div>
 
-          <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50">
-            <FotoProduto
-              src={fotoPrincipal(guia)}
-              alt={`${guia.nome} no ponto certo`}
-              tipo={guia.tipo}
-              estagio={1}
-              className="aspect-[16/9] w-full object-cover object-center"
-            />
+            <div className="px-4 pb-5 pt-4">
+              <h1
+                id="guia-titulo"
+                className="text-balance font-serif text-[2.05rem] font-semibold leading-[1.12] tracking-[-0.01em] text-neutral-900"
+              >
+                {guia.nome}
+              </h1>
+              <p className="mt-2 text-pretty text-[15px] leading-relaxed text-neutral-600">
+                {guia.resumo}
+              </p>
+            </div>
           </div>
         </section>
 

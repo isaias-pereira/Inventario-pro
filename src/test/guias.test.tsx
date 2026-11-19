@@ -231,6 +231,15 @@ describe('página pública (sem login)', () => {
     expect(screen.getByText('Prefira outro')).toBeInTheDocument();
   });
 
+  it('abre com o cartão do produto: foto, família e nome', () => {
+    renderPublico('tomate');
+    const capa = screen.getByRole('region', { name: 'Tomate' });
+    expect(within(capa).getByRole('heading', { level: 1, name: 'Tomate' })).toBeInTheDocument();
+    expect(within(capa).getByText('Legumes')).toBeInTheDocument();
+    expect(within(capa).getByAltText('Tomate no ponto certo')).toBeInTheDocument();
+    expect(within(capa).getByText(GUIAS.find((g) => g.slug === 'tomate')!.resumo)).toBeInTheDocument();
+  });
+
   it('destaca o bloco "Como escolher" com um cartão por passo', () => {
     renderPublico('tomate');
     const bloco = screen.getByRole('region', { name: 'Como escolher' });

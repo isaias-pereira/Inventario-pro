@@ -124,10 +124,14 @@ banco de imagens livre. O que foi feito:
 
 O cliente abre a página no celular, na banca, com uma mão só. Por isso:
 
-- coluna estreita (`max-w-md`), **fundo branco** e tipografia de sistema
-  (sem gradiente, sem "vidro", sem serifa/mono decorativo);
-- **foto do produto** como imagem principal, logo abaixo do nome;
-- "Como escolher" em linhas compactas (ícone + título + uma frase);
+- coluna estreita (`max-w-md`) e **fundo branco**;
+- **cartão de abertura** com a foto real do produto (recorte 4:3), o selo da
+  família (Frutas / Legumes / Verduras / Raízes) sobre a foto e o **nome em
+  Lora** (a serifa já importada em `src/index.css`); o resumo usa Inter a 15px
+  com `leading-relaxed`. A página inteira usa `font-sans` (Inter) e cai para
+  Segoe UI/system-ui se a fonte não carregar — nenhuma tela depende dela;
+- "Como escolher" em **painel verde em gradiente**, com um cartão por passo
+  (ícone, título, número da ordem e texto), que é o bloco de maior destaque;
 - "Está no ponto?" em **linhas com miniatura da foto** (não cartões grandes),
   com o selo do estado (âmbar / azul / verde / laranja);
 - dica e "como guardar" em duas caixas curtas no fim.
@@ -158,7 +162,7 @@ botão **"Guia do cliente"**, que abre a mesma página pública em outra aba —
 equipe segue exatamente o mesmo critério que o cliente lê.
 
 > A correspondência é por palavra-chave na descrição (`palavras` do guia), então
-> é uma aproximação: "BANANA NANICA" cai no guia de banana prata.
+> é uma aproximação: "BANANA NANICA" cai no guia de banana nanica.
 
 ## 8. Métricas
 
@@ -168,10 +172,11 @@ está sendo usado). Nenhum dado pessoal do cliente é coletado.
 
 ## 9. Testes
 
-`src/test/guias.test.tsx` (18 casos): integridade do conteúdo (13 produtos,
+`src/test/guias.test.tsx` (23 casos): integridade do conteúdo (13 produtos,
 slugs únicos, coerência dos estágios, passos com ícone válido), busca de guia,
 URL pública, ligação com a descrição do catálogo, desenho de todas as
-ilustrações de reserva e a página pública renderizando **sem login**.
+ilustrações de reserva, o cartão de abertura (foto, família, nome e resumo) e a
+página pública renderizando **sem login**.
 
 Dois casos travam as **regras de conteúdo** (ver seção 10):
 
@@ -223,7 +228,7 @@ O guia é material do **cliente final**. As regras validadas na revisão:
 | `Espere X dias` | ainda não está no ponto, ripa em casa | âmbar (Ainda não) |
 | `Pode guardar` | não amadurece na banca — guarde para depois | azul (Pode guardar) |
 | `Melhor para guardar` | estado ideal para conservar alguns dias | azul |
-| `Lever hoje` / `Coma hoje` / `Cozinhe hoje` / `Esprema hoje` / `Use hoje` | está no ponto | verde (No ponto) |
+| `Leve hoje` / `Coma hoje` / `Cozinhe hoje` / `Esprema hoje` / `Use hoje` | está no ponto | verde (No ponto) |
 | `Use logo` | passou do ponto, mas ainda rende (bolo, sopa, suco) | rust (Passou do ponto) |
 | `Prefira outro` / `Prefira outra` | escolha outra peça da banca | rust (Passou do ponto) |
 | `Corte e sirva` | corte ao meio para conferir (melancia) | verde |
@@ -250,7 +255,7 @@ para o build minificado funcionar).
 
 **Já feito e validado:**
 
-- 13 guias escritos (tomate, banana prata, mamão papaia, abacate, maçã,
+- 13 guias escritos (tomate, banana nanica, mamão papaia, abacate, maçã,
   laranja, melancia, abacaxi, batata, cebola, cenoura, repolho, alface);
 - **conteúdo revisado com o encarregado** (regras da seção 9): nenhum veredito
   manda o cliente embora da loja, estágio novo `guardar` (selo azul), melancia
@@ -272,7 +277,7 @@ para o build minificado funcionar).
 - `sitemap.xml` com as 15 URLs públicas (base trocada para o domínio de
   produção);
 - validações: `npm run typecheck` **sem erros**, `npx vitest run
-  src/test/guias.test.tsx` **19 testes verdes**, `npx eslint` limpo nos
+  src/test/guias.test.tsx` **23 testes verdes**, `npx eslint` limpo nos
   arquivos do módulo e `vite build` **minificado OK** (rodado fora do
   OneDrive).
 
