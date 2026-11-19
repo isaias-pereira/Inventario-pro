@@ -227,7 +227,7 @@ describe('página pública (sem login)', () => {
     expect(screen.getByText('Dica Importante')).toBeInTheDocument();
     // os três estágios aparecem com o veredito
     expect(screen.getByText('Espere 2 a 3 dias')).toBeInTheDocument();
-    expect(screen.getByText('Lever hoje')).toBeInTheDocument();
+    expect(screen.getByText('Leve hoje')).toBeInTheDocument();
     expect(screen.getByText('Prefira outro')).toBeInTheDocument();
   });
 

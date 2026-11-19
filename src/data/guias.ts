@@ -99,7 +99,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'espere', foto: '/guias/tomate-1.webp', nome: 'Verde e firme', veredito: 'Espere 2 a 3 dias', descricao: 'Ombro ainda verde, casca dura e sem cheiro. Deixe em cima da pia, fora da geladeira, até amadurecer.' },
-      { chave: 'no-ponto', foto: '/guias/tomate-2.webp', nome: 'Alaranjado e firme', veredito: 'Lever hoje', descricao: 'Cor uniforme e viva, cede um pouco ao toque e tem cheiro de tomate. Perfeito para hoje.' },
+      { chave: 'no-ponto', foto: '/guias/tomate-2.webp', nome: 'Alaranjado e firme', veredito: 'Leve hoje', descricao: 'Cor uniforme e viva, cede um pouco ao toque e tem cheiro de tomate. Perfeito para hoje.' },
       { chave: 'passou', foto: '/guias/tomate-3.webp', nome: 'Mole ou manchado', veredito: 'Prefira outro', descricao: 'Escureceu, enrugou ou está mole demais: o sabor já passou. Se estiver machucado, escolha outro da banca.' },
     ],
     dica: 'Tomate maduro nunca vai para a geladeira: o frio mata o sabor. Guarde virado para baixo, em cima da pia.',
@@ -122,7 +122,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'espere', foto: '/guias/banana-prata-1.webp', nome: 'Verde', veredito: 'Espere 3 a 5 dias', descricao: 'Verde e dura. Ripa em cima da mesa, fora da geladeira. (A geladeira escurece a casca, mas não segura o amadurecimento.)' },
-      { chave: 'no-ponto', foto: '/guias/banana-prata-2.webp', nome: 'Amarela com pintas', veredito: 'Lever hoje', descricao: 'Amarelo vivo com umas pintas marrons: doce e macia. Perfeita para comer hoje ou deixar amadurecer mais um dia.' },
+      { chave: 'no-ponto', foto: '/guias/banana-prata-2.webp', nome: 'Amarela com pintas', veredito: 'Leve hoje', descricao: 'Amarelo vivo com umas pintas marrons: doce e macia. Perfeita para comer hoje ou deixar amadurecer mais um dia.' },
       { chave: 'passou', foto: '/guias/banana-prata-3.webp', nome: 'Muito amarela e mole', veredito: 'Use logo', descricao: 'Escureceu e ficou mole: ainda rende bolo e vitamina, mas já passou do ponto para comer in natura.' },
     ],
     dica: 'Banana com pintas é a melhor para hoje. Banana verde é a melhor para esperar a semana toda.',
@@ -162,7 +162,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'espere', foto: '/guias/abacate-1.webp', nome: 'Verde e duro', veredito: 'Espere 3 a 4 dias', descricao: 'Verde escuro e firme: ripe em cima da mesa. Para acelerar, coloque ao lado de uma banana.' },
-      { chave: 'no-ponto', foto: '/guias/abacate-2.webp', nome: 'Cede um pouco ao toque', veredito: 'Lever hoje', descricao: 'Macio no ponto certo, sem marcas: perfeito para hoje — em fatia, no molho ou no guacamole.' },
+      { chave: 'no-ponto', foto: '/guias/abacate-2.webp', nome: 'Cede um pouco ao toque', veredito: 'Leve hoje', descricao: 'Macio no ponto certo, sem marcas: perfeito para hoje — em fatia, no molho ou no guacamole.' },
       { chave: 'passou', foto: '/guias/abacate-3.webp', nome: 'Muito mole ou manchado', veredito: 'Use logo', descricao: 'Passou do ponto: ainda rende vitamina e guacamole. Com fibras marrons ou cheiro forte, escolha outro da banca.' },
     ],
     dica: 'Quer amadurecer rápido? Coloque o abacate ao lado de uma banana: o gás que a banana solta acelera o processo.',
@@ -183,7 +183,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'espere', foto: '/guias/maca-1.webp', nome: 'Firme e sem brilho', veredito: 'Espere 1 a 2 dias', descricao: 'Dura e sem brilho: ainda sem açúcar. Deixe fora da geladeira por um ou dois dias.' },
-      { chave: 'no-ponto', foto: '/guias/maca-2.webp', nome: 'Firme e com brilho', veredito: 'Lever hoje', descricao: 'Firme, pesada na mão e com brilho na casca: doce e crocante — o melhor estado.' },
+      { chave: 'no-ponto', foto: '/guias/maca-2.webp', nome: 'Firme e com brilho', veredito: 'Leve hoje', descricao: 'Firme, pesada na mão e com brilho na casca: doce e crocante — o melhor estado.' },
       { chave: 'passou', foto: '/guias/maca-3.webp', nome: 'Moles ou com manchas', veredito: 'Use logo', descricao: 'Murcha, amassa ao toque ou tem manchas: o sabor já passou. Ainda dá para bolo e compota — cozinhe logo.' },
     ],
     dica: 'Maçã boa pesa na mão. Dentro da mesma caixa, a mais pesada é quase sempre a mais doce.',
@@ -243,7 +243,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'espere', foto: '/guias/abacaxi-1.webp', nome: 'Casca verde', veredito: 'Espere 2 a 4 dias', descricao: 'Ainda verde: guarde em cima da mesa, com a ponta para baixo, até dourar.' },
-      { chave: 'no-ponto', foto: '/guias/abacaxi-2.webp', nome: 'Dourado, folha viva', veredito: 'Lever hoje', descricao: 'Casca dourada, folha verde e cheiro doce: pronto para comer hoje.' },
+      { chave: 'no-ponto', foto: '/guias/abacaxi-2.webp', nome: 'Dourado, folha viva', veredito: 'Leve hoje', descricao: 'Casca dourada, folha verde e cheiro doce: pronto para comer hoje.' },
     ],
     dica: 'Abacaxi maduro cheira a mel na base. Se o cheiro vier forte e fermentado, ou a casca estiver escura e mole, ele passou do ponto — escolha outro.',
     armazenamento: 'Em cima da mesa até dourar. Depois, na geladeira por até 3 dias.',
