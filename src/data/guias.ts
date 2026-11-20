@@ -304,8 +304,8 @@ export const GUIAS: GuiaProduto[] = [
       { chave: 'guardar', foto: '/guias/cenoura-1.webp', nome: 'Firme e cor viva', veredito: 'Pode guardar', descricao: 'Firme, sem rachaduras e com laranja vivo: dá para guardar 2 semanas na geladeira. Tire a folha antes.', ilustracao: 1 },
       { chave: 'passou', foto: '/guias/cenoura-2.webp', nome: 'Murcha ou ressecada', veredito: 'Use logo', descricao: 'Murcha, com pontas ressecadas ou desbotadas: perdeu o açúcar, mas ainda rende sopa e purê. Cozinhe logo.', ilustracao: 2 },
     ],
-    dica: 'Cenoura com folha verde é a melhor: a folha mostra que foi colhida há pouco.',
-    armazenamento: 'Na geladeira, dentro de um saco plástico e sem a folha, por até 2 semanas.',
+    dica: 'Cenoura com folha verde é a melhor: a folha mostra que foi colhida há pouco. Para conservar sabor e crocância, guarde na geladeira em um recipiente com água (mergulhada) — troque a água a cada 2 dias.',
+    armazenamento: 'Na geladeira, dentro de um saco plástico e sem a folha, por até 2 semanas. Para máxima crocância: mergulhada em água num pote fechado, trocando a água a cada 2 dias.',
   },
   {
     slug: 'repolho',

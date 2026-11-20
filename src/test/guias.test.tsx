@@ -224,7 +224,7 @@ describe('página pública (sem login)', () => {
     renderPublico('tomate');
     expect(screen.getByRole('heading', { name: 'Tomate' })).toBeInTheDocument();
     expect(screen.getByText('Como escolher')).toBeInTheDocument();
-    expect(screen.getByText('Dica Importante')).toBeInTheDocument();
+    expect(screen.getByText('Dica do Encarregado')).toBeInTheDocument();
     // os três estágios aparecem com o veredito
     expect(screen.getByText('Espere 2 a 3 dias')).toBeInTheDocument();
     expect(screen.getByText('Leve hoje')).toBeInTheDocument();

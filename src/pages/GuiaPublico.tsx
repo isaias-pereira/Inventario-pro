@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Leaf, ListChecks } from 'lucide-react';
+import { ArrowLeft, Leaf, ListChecks, Package } from 'lucide-react';
 import { buscarGuia, fotoPrincipal, GUIAS, type ChaveEstagio } from '@/data/guias';
 import { FotoProduto } from '@/components/guias/FotoProduto';
 import { IlustracaoPasso } from '@/components/guias/IlustracaoPasso';
@@ -236,18 +236,33 @@ export default function GuiaPublico() {
         </section>
 
         {/* Dica e armazenamento */}
-        <section className="mt-6 space-y-2">
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">
-              Dica Importante
-            </p>
-            <p className="mt-1 text-[13px] leading-snug text-amber-950">{guia.dica}</p>
+        <section className="mt-6 space-y-3">
+          {/* Dica Importante — card destacado com fundo gradiente e sombra */}
+          <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-amber-100/50 to-amber-50/80 p-4 shadow-[0_12px_30px_-20px_rgba(217,119,6,0.35)]">
+            <div className="absolute top-2 right-2 w-12 h-12 bg-amber-300/40 rounded-full blur-2xl" aria-hidden="true" />
+            <div className="relative flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100/90 ring-1 ring-inset ring-amber-200">
+                <Leaf className="h-4.5 w-4.5 text-amber-700" aria-hidden="true" />
+              </span>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-amber-900">
+                Dica do Encarregado
+              </p>
+            </div>
+            <p className="mt-2 text-pretty text-[14px] leading-relaxed text-amber-950">{guia.dica}</p>
           </div>
-          <div className="rounded-xl border border-neutral-200 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500">
-              Como guardar em casa
-            </p>
-            <p className="mt-1 text-[13px] leading-snug text-neutral-700">{guia.armazenamento}</p>
+
+          {/* Como guardar em casa — card com o mesmo estilo visual */}
+          <div className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-emerald-100/50 to-emerald-50/80 p-4 shadow-[0_12px_30px_-20px_rgba(6,95,70,0.3)]">
+            <div className="absolute top-2 right-2 w-12 h-12 bg-emerald-300/40 rounded-full blur-2xl" aria-hidden="true" />
+            <div className="relative flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100/90 ring-1 ring-inset ring-emerald-200">
+                <Package className="h-4.5 w-4.5 text-emerald-700" aria-hidden="true" />
+              </span>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                Como Guardar em Casa
+              </p>
+            </div>
+            <p className="mt-2 text-pretty text-[14px] leading-relaxed text-emerald-950">{guia.armazenamento}</p>
           </div>
         </section>
       </main>
