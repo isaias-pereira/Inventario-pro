@@ -13,10 +13,14 @@ export interface EmailPadrao {
   /** Nome que identifica o cadastro nos atalhos (ex.: "Comercial — Matriz"). */
   nome: string;
   email: string;
-  /** E-mail padrão das rebaixas (apenas um pode ser). */
+  /** E-mail padrão das rebaixas (apenas um pode ser por tipo). */
   padrao: boolean;
   /** Cadastro inativo não aparece nos atalhos. */
   ativo: boolean;
+  /** 'global' = visível para todos da loja (admin gerencia) / 'pessoal' = só do usuário dono */
+  tipo: 'global' | 'pessoal';
+  /** Dono do contato pessoal (NULL para globais). */
+  usuario: string | null;
   created_by: string | null;
   created_at: string;
 }
@@ -86,10 +90,47 @@ export async function removeEmail(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/** Marca um cadastro como e-mail padrão das rebaixas. */
+/** Marca um cadastro como e-mail padrão das rebaixas (global - admin). */
 export async function setDefaultEmail(id: string): Promise<void> {
   const { error } = await invokeFunction('manage-emails', {
     body: { action: 'setDefault', id },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/* ── Contatos pessoais (encarregado gerencia os seus) ────────────────── */
+
+/** Cadastra um contato pessoal do usuário logado. */
+export async function addEmailPessoal(input: { nome: string; email: string; padrao?: boolean }): Promise<void> {
+  const { error } = await invokeFunction('manage-emails', {
+    body: { action: 'add_pessoal', nome: input.nome, email: input.email, padrao: input.padrao === true },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Altera um contato pessoal do usuário logado. */
+export async function updateEmailPessoal(
+  id: string,
+  changes: { nome?: string; email?: string; padrao?: boolean; ativo?: boolean },
+): Promise<void> {
+  const { error } = await invokeFunction('manage-emails', {
+    body: { action: 'update_pessoal', id, ...changes },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Remove um contato pessoal do usuário logado. */
+export async function removeEmailPessoal(id: string): Promise<void> {
+  const { error } = await invokeFunction('manage-emails', {
+    body: { action: 'remove_pessoal', id },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Marca um contato pessoal como padrão do usuário. */
+export async function setDefaultEmailPessoal(id: string): Promise<void> {
+  const { error } = await invokeFunction('manage-emails', {
+    body: { action: 'setDefault_pessoal', id },
   });
   if (error) throw new Error(error.message);
 }

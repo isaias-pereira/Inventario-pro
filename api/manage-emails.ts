@@ -3,29 +3,31 @@
  *
  * A aba E-mail tem duas partes:
  *
- * 1. **Destinatários** (`email_padrao`): quem recebe as rebaixas, com um
- *    "padrão" que entra preenchido no envio, e o assunto/mensagem padrão.
- *    Cada loja tem a sua lista — a rebaixa da loja 103 não vai para o e-mail
- *    padrão da loja 92. Cadastro/edição: só admin.
+ * 1. **Destinatários** (`email_padrao`): dois tipos:
+ *    - **Globais** (tipo='global'): gerencia, carlos, horacio — visíveis para
+ *      todos os encarregados da loja. Gerenciados SÓ pelo admin.
+ *    - **Pessoais** (tipo='pessoal'): cada encarregado gerencia os seus
+ *      (ex.: daniele, valeria, cassio para Isaias). Visíveis só para o dono.
+ *
+ *    Cada tipo tem seu próprio "padrão" (um global por loja, um pessoal por usuário).
+ *
  * 2. **Conta de envio** (`email_envio`): a caixa de e-mail de cada
  *    encarregado/admin no servidor padrão (mail.comper.com.br:465). A senha
  *    fica criptografada no banco e nunca volta ao navegador. Cada um
  *    cadastra a sua; o admin vê e edita todas.
  *
  * Ações (POST):
- * - `list`: destinatários + assunto/mensagem padrão da loja;
- * - `my_account`: conta de envio do usuário logado;
- * - `save_account`: grava a conta de envio do usuário logado;
- * - `list_accounts`: contas de envio da loja (admin);
- * - `update_account`: edita a conta de envio de alguém (admin);
- * - `remove_account`: remove a conta de envio de alguém (admin);
- * - `add`: cadastra um destinatário padrão;
- * - `update`: altera `nome`, `email`, `ativo` ou `padrao` de um destinatário;
- * - `remove`: remove um destinatário;
- * - `setDefault`: marca um destinatário como padrão das rebaixas;
- * - `setDefaults`: salva o assunto e a mensagem padrão.
+ * - `list`: globais da loja + pessoais do usuário + assunto/mensagem padrão
+ * - `add_pessoal` / `update_pessoal` / `remove_pessoal` / `setDefault_pessoal`:
+ *   encarregado gerencia seus contatos pessoais
+ * - `add` / `update` / `remove` / `setDefault`: admin gerencia globais
+ * - `setDefaults`: admin salva assunto/mensagem padrão
+ * - `my_account` / `save_account`: conta de envio do usuário logado
+ * - `list_accounts` / `update_account` / `remove_account`: admin vê/edita contas de envio
  *
- * Leitura: admin e encarregado (quem envia as rebaixas).
+ * Leitura: admin e encarregado.
+ * Escrita globais: admin.
+ * Escrita pessoais: encarregado (próprios).
  */
 
 import { createSql, type Sql } from './_lib/db.js';
@@ -43,11 +45,13 @@ import {
   removerContaDeEnvio,
   salvarContaDeEnvio,
 } from './_lib/email-envio.js';
+import { validateAndSend } from './_lib/errors.js';
+import { emailPadraoSchema } from './_lib/validation.js';
 
 /** Papéis que podem ler a lista de e-mails padrão. */
 export const EMAIL_READ_ROLES = ['admin', 'encarregado'] as const;
 
-/** Papéis que podem cadastrar/editar/remover e-mails padrão. */
+/** Papéis que podem cadastrar/editar/remover e-mails GLOBAIS. */
 export const EMAIL_MANAGE_ROLES = ['admin'] as const;
 
 /** Limites de tamanho (o banco e a Function aplicam os mesmos). */
@@ -66,7 +70,7 @@ export function canReadEmails(role: unknown): boolean {
   return typeof role === 'string' && (EMAIL_READ_ROLES as readonly string[]).includes(role);
 }
 
-/** Pode cadastrar, editar e remover e-mails padrão (só admin). */
+/** Pode cadastrar, editar e remover e-mails GLOBAIS (só admin). */
 export function canManageEmails(role: unknown): boolean {
   return typeof role === 'string' && (EMAIL_MANAGE_ROLES as readonly string[]).includes(role);
 }
@@ -143,6 +147,9 @@ const CREATE_TABLE_SQL = `
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     loja INTEGER NOT NULL DEFAULT 103,
+    -- Novas colunas (migration 20261121090000):
+    tipo VARCHAR(20) NOT NULL DEFAULT 'global' CHECK (tipo IN ('global', 'pessoal')),
+    usuario TEXT REFERENCES public.app_users(username) ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT email_padrao_email_check
       CHECK (email ~* '^[^@[:space:],;]+@[^@[:space:],;]+\\.[^@[:space:],;]+$')
   )`;
@@ -167,7 +174,6 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
     await sql(CREATE_TABLE_SQL);
     await sql(CREATE_CONFIG_SQL);
   } catch (error) {
-    // Pode já existir (corrida entre instâncias) ou faltar permissão.
     console.error('Email schema create:', error);
   }
   try {
@@ -179,33 +185,62 @@ async function ensureSchema(sql: Sql): Promise<boolean> {
   if (!schemaReady) return false;
 
   try {
-    // Multi-loja: o e-mail e o padrão passam a ser únicos por loja e a
-    // configuração ganha uma linha por loja (aPK passa a ser `loja`).
+    // Multi-loja: índices por tipo
     await sql`ALTER TABLE public.email_padrao ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
+    await sql`ALTER TABLE public.email_padrao ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'global' CHECK (tipo IN ('global', 'pessoal'))`;
+    await sql`ALTER TABLE public.email_padrao ADD COLUMN IF NOT EXISTS usuario TEXT REFERENCES public.app_users(username) ON UPDATE CASCADE ON DELETE CASCADE`;
+
+    await sql`DROP INDEX IF EXISTS idx_email_padrao_loja_email`;
+    await sql`DROP INDEX IF EXISTS idx_email_padrao_loja_unico_padrao`;
+
+    // Globais: único por (loja, email)
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_global_unico
+      ON public.email_padrao (loja, lower(email))
+      WHERE tipo = 'global'`;
+    // Pessoais: único por (usuario, email)
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_pessoal_unico
+      ON public.email_padrao (usuario, lower(email))
+      WHERE tipo = 'pessoal'`;
+
+    // Padrão global: 1 por loja
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_global_padrao
+      ON public.email_padrao (loja)
+      WHERE tipo = 'global' AND padrao`;
+    // Padrão pessoal: 1 por usuario
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_pessoal_padrao
+      ON public.email_padrao (usuario)
+      WHERE tipo = 'pessoal' AND padrao`;
+
+    // Índices de busca
+    await sql`CREATE INDEX IF NOT EXISTS idx_email_padrao_loja_tipo
+      ON public.email_padrao (loja, tipo)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_email_padrao_usuario
+      ON public.email_padrao (usuario)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_email_padrao_ativo
+      ON public.email_padrao (ativo)`;
+
+    // email_config
     await sql`ALTER TABLE public.email_config ADD COLUMN IF NOT EXISTS loja INTEGER NOT NULL DEFAULT 103`;
     await sql`ALTER TABLE public.email_config DROP CONSTRAINT IF EXISTS email_config_linha_unica`;
     await sql`ALTER TABLE public.email_config DROP CONSTRAINT IF EXISTS email_config_pkey`;
     await sql`ALTER TABLE public.email_config ADD PRIMARY KEY (loja)`;
-    await sql`DROP INDEX IF EXISTS public.idx_email_padrao_email`;
-    await sql`DROP INDEX IF EXISTS public.idx_email_padrao_unico_padrao`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_loja_email
-      ON public.email_padrao (loja, lower(email))`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_padrao_loja_unico_padrao
-      ON public.email_padrao (loja) WHERE padrao`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_email_padrao_ativo
-      ON public.email_padrao (ativo)`;
+
   } catch {
     /* índices são otimização: seguem mesmo se falharem */
   }
   return true;
 }
 
-/** E-mails padrão: o marcado como padrão vem primeiro. */
+/**
+ * SELECT para LIST: globais da loja + pessoais do usuário.
+ * Ordena: padrão primeiro, depois por nome.
+ */
 const LIST_SQL = `
-  SELECT id::text, nome, email, padrao, ativo, created_by, created_at
+  SELECT id::text, nome, email, padrao, ativo, tipo, usuario, created_by, created_at
     FROM public.email_padrao
-   WHERE loja = $1
-   ORDER BY padrao DESC, lower(nome) ASC`;
+   WHERE (tipo = 'global' AND loja = $1)
+      OR (tipo = 'pessoal' AND usuario = $2)
+   ORDER BY tipo DESC, padrao DESC, lower(nome) ASC`;
 
 const handler: ApiHandler = async (req, res) => {
   if (!requirePost(req, res)) return;
@@ -229,12 +264,14 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
     await ensureLojaSchema(sql);
-    // Escopo multi-loja: cada loja tem a sua lista de destinatários.
     const loja = await resolveLoja(sql, payload);
+    const usuario = String(payload.sub ?? '');
+    const isAdmin = payload.role === 'admin';
+    const isEncarregado = payload.role === 'encarregado';
 
-    // LIST — e-mails padrão + assunto/mensagem padrão.
+    // LIST — globais da loja + pessoais do usuário + assunto/mensagem padrão.
     if (action === 'list') {
-      const emails = await sql(LIST_SQL, [loja]);
+      const emails = await sql(LIST_SQL, [loja, usuario]);
       const config = await sql`
         SELECT assunto, mensagem FROM public.email_config WHERE loja = ${loja}`;
       const row = config[0];
@@ -249,10 +286,7 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     // ── Conta de envio do usuário logado ────────────────────────────
-    // Cada encarregado cadastra a própria caixa (e-mail + senha do
-    // servidor padrão); a senha fica criptografada no banco.
     if (action === 'my_account') {
-      const usuario = String(payload.sub ?? '');
       const conta = await contaDeEnvio(sql, usuario, loja);
       sendJson(res, {
         conta: conta ?? {
@@ -274,7 +308,6 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'save_account') {
-      const usuario = String(payload.sub ?? '');
       if (!usuario) {
         sendJson(res, { error: 'Usuário inválido' }, 400);
         return;
@@ -312,7 +345,6 @@ const handler: ApiHandler = async (req, res) => {
             updatedBy: usuario,
           });
         } else {
-          // Sem senha nova: os demais dados mudam e a senha guardada continua.
           await atualizarContaDeEnvio(sql, {
             usuario,
             loja,
@@ -334,9 +366,9 @@ const handler: ApiHandler = async (req, res) => {
       return;
     }
 
-    // ── Gestão das contas (admin) ────────────────────────────────────
+    // ── Gestão das contas de envio (admin) ────────────────────────────
     if (action === 'list_accounts') {
-      if (!canManageEmails(payload.role)) {
+      if (!isAdmin) {
         sendJson(res, { error: 'Apenas administradores podem ver as contas de e-mail' }, 403);
         return;
       }
@@ -346,22 +378,22 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'update_account') {
-      if (!canManageEmails(payload.role)) {
+      if (!isAdmin) {
         sendJson(res, { error: 'Apenas administradores podem editar as contas de e-mail' }, 403);
         return;
       }
-      const usuario = String(body.usuario ?? '').trim();
-      if (!usuario) {
+      const usuarioAlvo = String(body.usuario ?? '').trim();
+      if (!usuarioAlvo) {
         sendJson(res, { error: 'Usuário obrigatório' }, 400);
         return;
       }
       const alvo = await sql`
-        SELECT username, loja FROM public.app_users WHERE username = ${usuario} LIMIT 1`;
+        SELECT username, loja FROM public.app_users WHERE username = ${usuarioAlvo} LIMIT 1`;
       if (!alvo.length || Number(alvo[0].loja) !== loja) {
         sendJson(res, { error: 'Usuário não encontrado nesta loja' }, 404);
         return;
       }
-      const atual = await contaDeEnvio(sql, usuario, loja);
+      const atual = await contaDeEnvio(sql, usuarioAlvo, loja);
       const email = body.email === undefined ? atual?.email : normalizeEmail(body.email);
       if (!email) {
         sendJson(res, { error: 'E-mail inválido' }, 400);
@@ -383,7 +415,7 @@ const handler: ApiHandler = async (req, res) => {
 
       if (senha) {
         await salvarContaDeEnvio(sql, {
-          usuario,
+          usuario: usuarioAlvo,
           loja,
           email,
           senhaCriptografada: encryptSecret(senha),
@@ -395,9 +427,8 @@ const handler: ApiHandler = async (req, res) => {
           updatedBy: String(payload.sub ?? ''),
         });
       } else if (atual?.temSenha) {
-        // Sem senha nova: os demais dados mudam e a senha guardada continua.
         await atualizarContaDeEnvio(sql, {
-          usuario,
+          usuario: usuarioAlvo,
           loja,
           email,
           remetente,
@@ -405,7 +436,6 @@ const handler: ApiHandler = async (req, res) => {
           updatedBy: String(payload.sub ?? ''),
         });
       } else {
-        // O login ainda não tem conta: sem senha não dá para criar uma.
         sendJson(res, { error: 'Informe a senha da conta de e-mail' }, 400);
         return;
       }
@@ -415,73 +445,59 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'remove_account') {
-      if (!canManageEmails(payload.role)) {
+      if (!isAdmin) {
         sendJson(res, { error: 'Apenas administradores podem remover contas de e-mail' }, 403);
         return;
       }
-      const usuario = String(body.usuario ?? '').trim();
-      if (!usuario) {
+      const usuarioAlvo = String(body.usuario ?? '').trim();
+      if (!usuarioAlvo) {
         sendJson(res, { error: 'Usuário obrigatório' }, 400);
         return;
       }
-      await removerContaDeEnvio(sql, usuario, loja);
+      await removerContaDeEnvio(sql, usuarioAlvo, loja);
       sendJson(res, { success: true });
       return;
     }
 
-    // A partir daqui só o admin mexe na lista.
-    if (!canManageEmails(payload.role)) {
-      sendJson(res, { error: 'Apenas administradores podem alterar os e-mails padrão' }, 403);
-      return;
-    }
+    // ================================================================
+    // CONTACTOS PESSOAIS (encarregado gerencia os seus)
+    // ================================================================
 
-    if (action === 'add') {
-      const nome = normalizeName(body.nome);
-      if (!nome) {
-        sendJson(res, { error: `Identificação inválida (até ${MAX_NAME_LENGTH} caracteres)` }, 400);
+    if (action === 'add_pessoal') {
+      if (!isEncarregado && !isAdmin) {
+        sendJson(res, { error: 'Apenas encarregados podem adicionar contatos pessoais' }, 403);
         return;
       }
-      const email = normalizeEmail(body.email);
-      if (!email) {
-        sendJson(res, { error: 'E-mail inválido' }, 400);
-        return;
-      }
-      const padrao = body.padrao === true;
+      const input = validateAndSend(res, emailPadraoSchema, { ...body, action: 'add_pessoal', tipo: 'pessoal' });
+      if (!input) return;
 
+      const { nome, email, padrao } = input;
       try {
         if (padrao) {
-          await sql(
-            [
-              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
-              {
-                query: `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by, loja)
-                        VALUES ($1, $2, TRUE, TRUE, $3, $4)`,
-                params: [nome, email, payload.sub ?? null, loja],
-              },
-            ],
-            [],
-            true,
-          );
-        } else {
-          await sql(
-            `INSERT INTO public.email_padrao (nome, email, padrao, ativo, created_by, loja)
-             VALUES ($1, $2, FALSE, TRUE, $3, $4)`,
-            [nome, email, payload.sub ?? null, loja],
-          );
+          await sql`
+            UPDATE public.email_padrao
+               SET padrao = FALSE, updated_at = now()
+             WHERE tipo = 'pessoal' AND usuario = ${usuario} AND padrao`;
         }
+        await sql`
+          INSERT INTO public.email_padrao (nome, email, padrao, ativo, tipo, usuario, loja, created_by)
+          VALUES (${nome}, ${email}, ${padrao}, TRUE, 'pessoal', ${usuario}, ${loja}, ${usuario})`;
       } catch (error) {
         if (isUniqueViolation(error)) {
-          sendJson(res, { error: 'Este e-mail já está cadastrado' }, 400);
+          sendJson(res, { error: 'Este e-mail já está cadastrado nos seus contatos pessoais' }, 400);
           return;
         }
         throw error;
       }
-
       sendJson(res, { success: true });
       return;
     }
 
-    if (action === 'update') {
+    if (action === 'update_pessoal') {
+      if (!isEncarregado && !isAdmin) {
+        sendJson(res, { error: 'Apenas encarregados podem editar contatos pessoais' }, 403);
+        return;
+      }
       const id = normalizeId(body.id);
       if (!id) {
         sendJson(res, { error: 'Cadastro inválido' }, 400);
@@ -489,14 +505,22 @@ const handler: ApiHandler = async (req, res) => {
       }
 
       const current = await sql(
-        'SELECT id::text, nome, email, padrao, ativo FROM public.email_padrao WHERE id = $1::bigint AND loja = $2',
-        [id, loja],
+        'SELECT id::text, nome, email, padrao, ativo, tipo, usuario FROM public.email_padrao WHERE id = $1::bigint',
+        [id],
       );
       if (!current.length) {
         sendJson(res, { error: 'Cadastro não encontrado' }, 404);
         return;
       }
       const row = current[0];
+      if (row.tipo !== 'pessoal') {
+        sendJson(res, { error: 'Use a ação "update" para contatos globais (admin)' }, 400);
+        return;
+      }
+      if (!isAdmin && row.usuario !== usuario) {
+        sendJson(res, { error: 'Este contato pertence a outro usuário' }, 403);
+        return;
+      }
 
       const nome = body.nome === undefined ? row.nome : normalizeName(body.nome);
       if (!nome) {
@@ -513,35 +537,179 @@ const handler: ApiHandler = async (req, res) => {
 
       try {
         if (padrao && !row.padrao) {
-          await sql(
-            [
-              { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
-              {
-                query: `UPDATE public.email_padrao
-                           SET nome = $1, email = $2, ativo = $3, padrao = TRUE, updated_at = now()
-                         WHERE id = $4::bigint AND loja = $5`,
-                params: [nome, email, ativo, id, loja],
-              },
-            ],
-            [],
-            true,
-          );
-        } else {
-          await sql(
-            `UPDATE public.email_padrao
-                SET nome = $1, email = $2, ativo = $3, padrao = $4, updated_at = now()
-              WHERE id = $5::bigint AND loja = $6`,
-            [nome, email, ativo, padrao, id, loja],
-          );
+          await sql`
+            UPDATE public.email_padrao
+               SET padrao = FALSE, updated_at = now()
+             WHERE tipo = 'pessoal' AND usuario = ${usuario} AND padrao`;
         }
+        await sql`
+          UPDATE public.email_padrao
+             SET nome = ${nome}, email = ${email}, ativo = ${ativo}, padrao = ${padrao}, updated_at = now()
+           WHERE id = ${id}::bigint`;
       } catch (error) {
         if (isUniqueViolation(error)) {
-          sendJson(res, { error: 'Este e-mail já está cadastrado' }, 400);
+          sendJson(res, { error: 'Este e-mail já está cadastrado nos seus contatos pessoais' }, 400);
           return;
         }
         throw error;
       }
 
+      sendJson(res, { success: true });
+      return;
+    }
+
+    if (action === 'remove_pessoal') {
+      if (!isEncarregado && !isAdmin) {
+        sendJson(res, { error: 'Apenas encarregados podem remover contatos pessoais' }, 403);
+        return;
+      }
+      const id = normalizeId(body.id);
+      if (!id) {
+        sendJson(res, { error: 'Cadastro inválido' }, 400);
+        return;
+      }
+      const row = await sql(
+        'SELECT id::text, tipo, usuario FROM public.email_padrao WHERE id = $1::bigint',
+        [id],
+      );
+      if (!row.length) {
+        sendJson(res, { error: 'Cadastro não encontrado' }, 404);
+        return;
+      }
+      if (row[0].tipo !== 'pessoal') {
+        sendJson(res, { error: 'Use a ação "remove" para contatos globais (admin)' }, 400);
+        return;
+      }
+      if (!isAdmin && row[0].usuario !== usuario) {
+        sendJson(res, { error: 'Este contato pertence a outro usuário' }, 403);
+        return;
+      }
+      await sql`DELETE FROM public.email_padrao WHERE id = ${id}::bigint`;
+      sendJson(res, { success: true });
+      return;
+    }
+
+    if (action === 'setDefault_pessoal') {
+      if (!isEncarregado && !isAdmin) {
+        sendJson(res, { error: 'Apenas encarregados podem definir padrão pessoal' }, 403);
+        return;
+      }
+      const id = normalizeId(body.id);
+      if (!id) {
+        sendJson(res, { error: 'Cadastro inválido' }, 400);
+        return;
+      }
+      const exists = await sql`
+        SELECT id::text, tipo, usuario FROM public.email_padrao WHERE id = ${id}::bigint`;
+      if (!exists.length) {
+        sendJson(res, { error: 'Cadastro não encontrado' }, 404);
+        return;
+      }
+      if (exists[0].tipo !== 'pessoal') {
+        sendJson(res, { error: 'Use "setDefault" para contatos globais (admin)' }, 400);
+        return;
+      }
+      if (!isAdmin && exists[0].usuario !== usuario) {
+        sendJson(res, { error: 'Este contato pertence a outro usuário' }, 403);
+        return;
+      }
+      await sql`
+        UPDATE public.email_padrao
+           SET padrao = FALSE, updated_at = now()
+         WHERE tipo = 'pessoal' AND usuario = ${usuario} AND padrao`;
+      await sql`
+        UPDATE public.email_padrao
+           SET padrao = TRUE, ativo = TRUE, updated_at = now()
+         WHERE id = ${id}::bigint`;
+      sendJson(res, { success: true });
+      return;
+    }
+
+    // ================================================================
+    // CONTACTOS GLOBAIS (admin)
+    // ================================================================
+
+    if (!isAdmin) {
+      sendJson(res, { error: 'Apenas administradores podem alterar os contatos globais' }, 403);
+      return;
+    }
+
+    if (action === 'add') {
+      const input = validateAndSend(res, emailPadraoSchema, { ...body, action: 'add', tipo: 'global' });
+      if (!input) return;
+
+      const { nome, email, padrao } = input;
+      try {
+        if (padrao) {
+          await sql`
+            UPDATE public.email_padrao
+               SET padrao = FALSE, updated_at = now()
+             WHERE tipo = 'global' AND loja = ${loja} AND padrao`;
+        }
+        await sql`
+          INSERT INTO public.email_padrao (nome, email, padrao, ativo, tipo, loja, created_by)
+          VALUES (${nome}, ${email}, ${padrao}, TRUE, 'global', ${loja}, ${usuario})`;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          sendJson(res, { error: 'Este e-mail já está cadastrado como global' }, 400);
+          return;
+        }
+        throw error;
+      }
+      sendJson(res, { success: true });
+      return;
+    }
+
+    if (action === 'update') {
+      const id = normalizeId(body.id);
+      if (!id) {
+        sendJson(res, { error: 'Cadastro inválido' }, 400);
+        return;
+      }
+      const current = await sql(
+        'SELECT id::text, nome, email, padrao, ativo, tipo FROM public.email_padrao WHERE id = $1::bigint AND loja = $2',
+        [id, loja],
+      );
+      if (!current.length) {
+        sendJson(res, { error: 'Cadastro não encontrado' }, 404);
+        return;
+      }
+      const row = current[0];
+      if (row.tipo !== 'global') {
+        sendJson(res, { error: 'Use "update_pessoal" para contatos pessoais' }, 400);
+        return;
+      }
+      const nome = body.nome === undefined ? row.nome : normalizeName(body.nome);
+      if (!nome) {
+        sendJson(res, { error: `Identificação inválida (até ${MAX_NAME_LENGTH} caracteres)` }, 400);
+        return;
+      }
+      const email = body.email === undefined ? row.email : normalizeEmail(body.email);
+      if (!email) {
+        sendJson(res, { error: 'E-mail inválido' }, 400);
+        return;
+      }
+      const ativo = body.ativo === undefined ? Boolean(row.ativo) : body.ativo === true;
+      const padrao = body.padrao === undefined ? Boolean(row.padrao) : body.padrao === true;
+
+      try {
+        if (padrao && !row.padrao) {
+          await sql`
+            UPDATE public.email_padrao
+               SET padrao = FALSE, updated_at = now()
+             WHERE tipo = 'global' AND loja = ${loja} AND padrao`;
+        }
+        await sql`
+          UPDATE public.email_padrao
+             SET nome = ${nome}, email = ${email}, ativo = ${ativo}, padrao = ${padrao}, updated_at = now()
+           WHERE id = ${id}::bigint AND loja = ${loja}`;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          sendJson(res, { error: 'Este e-mail já está cadastrado como global' }, 400);
+          return;
+        }
+        throw error;
+      }
       sendJson(res, { success: true });
       return;
     }
@@ -552,39 +720,51 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'Cadastro inválido' }, 400);
         return;
       }
+      const row = await sql(
+        'SELECT id::text, tipo FROM public.email_padrao WHERE id = $1::bigint AND loja = $2',
+        [id, loja],
+      );
+      if (!row.length) {
+        sendJson(res, { error: 'Cadastro não encontrado' }, 404);
+        return;
+      }
+      if (row[0].tipo !== 'global') {
+        sendJson(res, { error: 'Use "remove_pessoal" para contatos pessoais' }, 400);
+        return;
+      }
       await sql`DELETE FROM public.email_padrao WHERE id = ${id}::bigint AND loja = ${loja}`;
       sendJson(res, { success: true });
       return;
     }
 
-    // Marca um cadastro como e-mail padrão (um só pode ser padrão).
     if (action === 'setDefault') {
       const id = normalizeId(body.id);
       if (!id) {
         sendJson(res, { error: 'Cadastro inválido' }, 400);
         return;
       }
-      const exists = await sql`SELECT id::text FROM public.email_padrao WHERE id = ${id}::bigint AND loja = ${loja}`;
+      const exists = await sql`
+        SELECT id::text, tipo FROM public.email_padrao WHERE id = ${id}::bigint AND loja = ${loja}`;
       if (!exists.length) {
         sendJson(res, { error: 'Cadastro não encontrado' }, 404);
         return;
       }
-      await sql(
-        [
-          { query: 'UPDATE public.email_padrao SET padrao = FALSE, updated_at = now() WHERE padrao AND loja = $1', params: [loja] },
-          {
-            query: 'UPDATE public.email_padrao SET padrao = TRUE, ativo = TRUE, updated_at = now() WHERE id = $1::bigint AND loja = $2',
-            params: [id, loja],
-          },
-        ],
-        [],
-        true,
-      );
+      if (exists[0].tipo !== 'global') {
+        sendJson(res, { error: 'Use "setDefault_pessoal" para contatos pessoais' }, 400);
+        return;
+      }
+      await sql`
+        UPDATE public.email_padrao
+           SET padrao = FALSE, updated_at = now()
+         WHERE tipo = 'global' AND loja = ${loja} AND padrao`;
+      await sql`
+        UPDATE public.email_padrao
+           SET padrao = TRUE, ativo = TRUE, updated_at = now()
+         WHERE id = ${id}::bigint AND loja = ${loja}`;
       sendJson(res, { success: true });
       return;
     }
 
-    // Assunto e mensagem padrão do envio.
     if (action === 'setDefaults') {
       const assunto = normalizeSubject(body.assunto);
       if (!assunto) {
@@ -606,7 +786,7 @@ const handler: ApiHandler = async (req, res) => {
                                   mensagem = EXCLUDED.mensagem,
                                   updated_by = EXCLUDED.updated_by,
                                   updated_at = now()`,
-            params: [loja, assunto, mensagem, payload.sub ?? null],
+            params: [loja, assunto, mensagem, usuario],
           },
         ],
         [],

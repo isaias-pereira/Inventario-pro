@@ -234,6 +234,11 @@ export const emailActionSchema = z.enum([
   'list_accounts',
   'update_account',
   'remove_account',
+  // Contatos pessoais (encarregado gerencia os seus)
+  'add_pessoal',
+  'update_pessoal',
+  'remove_pessoal',
+  'setDefault_pessoal',
 ]);
 
 export const addEmailPadraoSchema = z.object({
@@ -242,6 +247,35 @@ export const addEmailPadraoSchema = z.object({
   padrao: z.boolean().optional(),
   ativo: z.boolean().optional(),
 });
+
+/** Schema para contatos pessoais (encarregado gerencia os seus) */
+export const emailPessoalSchema = z.object({
+  action: z.union([
+    z.literal('add_pessoal'),
+    z.literal('update_pessoal'),
+    z.literal('remove_pessoal'),
+    z.literal('setDefault_pessoal'),
+  ]),
+  id: z.number().int().positive().optional(), // obrigatório para update/remove/setDefault
+  nome: z.string().trim().min(1).max(60).optional(), // obrigatório para add/update
+  email: emailSchema.optional(),
+  padrao: z.boolean().optional(),
+  ativo: z.boolean().optional(),
+}).refine((data) => {
+  // Para add_pessoal: nome e email obrigatórios
+  if (data.action === 'add_pessoal') {
+    return data.nome && data.email;
+  }
+  // Para update_pessoal: id obrigatório
+  if (data.action === 'update_pessoal') {
+    return data.id !== undefined;
+  }
+  // Para remove_pessoal e setDefault_pessoal: id obrigatório
+  if (data.action === 'remove_pessoal' || data.action === 'setDefault_pessoal') {
+    return data.id !== undefined;
+  }
+  return true;
+}, { message: 'Campos obrigatórios ausentes para a ação' });
 
 export const saveEmailAccountSchema = z.object({
   action: z.literal('save_account'),
