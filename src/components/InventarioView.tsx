@@ -677,7 +677,7 @@ const InventarioView = () => {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-gray-900 text-sm truncate">{item.descricao}</p>
                       <p className="text-xs text-gray-500 mt-0.5">EAN: {item.ean} · Cód: {item.codigo}</p>
-                      {item.secao && <SecaoBadge secao={item.secao} className="mt-1" />}
+                      {/* Seção movida para o detalhe (clique no card) */}
                     </div>
                     {isAdmin && editingCodigo === item.codigo ? (
                       <div className="flex items-center gap-1 ml-2">
@@ -732,7 +732,7 @@ const InventarioView = () => {
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span>{item.descricao}</span>
-                          <SecaoBadge secao={item.secao} />
+                          {/* Seção movida para o detalhe (clique no card) */}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-semibold">

@@ -5,13 +5,20 @@
  * A imagem é redimensionada e convertida para JPEG no próprio celular: sobra
  * payload e a leitura da etiqueta continua boa (a fonte da validade é
  * pequena).
+ *
+ * Em dispositivos móveis com câmeras de alta resolução, o canvas pode
+ * estourar a memória. Usamos limites mais conservadores e tratamento de erro
+ * para evitar o crash "insuficiência de memória" que faz o app relogar.
  */
 
 /** Tamanho máximo do arquivo decodificado (deixa folga para o base64). */
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
-/** Lado maior máximo da imagem enviada. */
-export const MAX_IMAGE_DIMENSION = 1600;
+/** Lado maior máximo da imagem enviada. Reduzido para 1280px no mobile. */
+export const MAX_IMAGE_DIMENSION = 1280;
+
+/** Lado maior máximo em desktop (mais memória disponível). */
+const MAX_IMAGE_DIMENSION_DESKTOP = 1600;
 
 export interface PreparedImage {
   /** Conteúdo em base64, sem o prefixo `data:`. */
@@ -66,6 +73,9 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
  *
  * Se a imagem convertida ainda estiver grande, a qualidade cai e o lado maior
  * diminui até caber no limite.
+ *
+ * No mobile, usa limites mais conservadores para evitar OOM (out of memory)
+ * que derruba a aba e força relogin.
  */
 export async function prepareImage(file: Blob): Promise<PreparedImage> {
   if (!file || !file.type || !file.type.startsWith('image/')) {
@@ -75,31 +85,63 @@ export async function prepareImage(file: Blob): Promise<PreparedImage> {
     throw new Error('A imagem é grande demais. Tire outra foto.');
   }
 
+  // Detecta mobile: telas estreitas ou touch. No mobile, o limite de memória
+  // do canvas é menor e uma foto de 12-48 MP pode estourar.
+  const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent) ||
+    (typeof screen !== 'undefined' && screen.width <= 768);
+
+  const maxDimension = isMobile ? MAX_IMAGE_DIMENSION : MAX_IMAGE_DIMENSION_DESKTOP;
+  // Qualidades mais baixas no mobile para evitar canvas grande em memória.
+  const qualities = isMobile ? [0.7, 0.55, 0.4] : [0.85, 0.7, 0.55];
+
   const dataUrl = await readAsDataUrl(file);
   const image = await loadImage(dataUrl);
 
-  const { width, height } = targetSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
-  const qualities = [0.85, 0.7, 0.55];
+  const { width, height } = targetSize(image.naturalWidth || image.width, image.naturalHeight || image.height, maxDimension);
   let output = '';
   let usedWidth = width;
   let usedHeight = height;
 
   for (const quality of qualities) {
-    const canvas = document.createElement('canvas');
-    canvas.width = usedWidth;
-    canvas.height = usedHeight;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Não foi possível preparar a imagem.');
-    context.drawImage(image, 0, 0, usedWidth, usedHeight);
-    output = canvas.toDataURL('image/jpeg', quality);
-    const bytes = estimateBase64Bytes(output.split(',')[1] ?? '');
-    if (bytes <= MAX_IMAGE_BYTES) {
-      const base64 = output.split(',')[1] ?? '';
-      return { base64, mimeType: 'image/jpeg', width: usedWidth, height: usedHeight, bytes };
+    let canvas: HTMLCanvasElement | null = null;
+    try {
+      canvas = document.createElement('canvas');
+      canvas.width = usedWidth;
+      canvas.height = usedHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Não foi possível preparar a imagem.');
+      context.drawImage(image, 0, 0, usedWidth, usedHeight);
+      output = canvas.toDataURL('image/jpeg', quality);
+      const bytes = estimateBase64Bytes(output.split(',')[1] ?? '');
+      if (bytes <= MAX_IMAGE_BYTES) {
+        const base64 = output.split(',')[1] ?? '';
+        return { base64, mimeType: 'image/jpeg', width: usedWidth, height: usedHeight, bytes };
+      }
+    } catch (err) {
+      // Se der erro de memória (OOM), tenta com dimensão menor.
+      if (err instanceof Error && /out of memory|memory|OOM/i.test(err.message)) {
+        console.warn('[ai-image] OOM detectado, reduzindo dimensão', { usedWidth, usedHeight, quality });
+      } else {
+        throw err;
+      }
+    } finally {
+      // Libera o canvas da memória o quanto antes.
+      if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, 1, 1);
+      }
     }
     usedWidth = Math.round(usedWidth * 0.8);
     usedHeight = Math.round(usedHeight * 0.8);
+    // Segurança: não deixar ficar menor que 320px.
+    if (usedWidth < 320 || usedHeight < 320) break;
   }
 
-  throw new Error('A imagem continua grande demais depois de comprimida. Tente uma foto mais próxima.');
+  throw new Error(
+    isMobile
+      ? 'A imagem é grande demais para o celular. Tente tirar a foto mais de longe ou use uma resolução menor nas configurações da câmera.'
+      : 'A imagem continua grande demais depois de comprimida. Tente uma foto mais próxima.'
+  );
 }

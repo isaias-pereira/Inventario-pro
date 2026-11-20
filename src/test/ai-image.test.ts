@@ -10,8 +10,8 @@ describe('Preparação da foto da etiqueta', () => {
 
   it('limita o lado maior mantendo a proporção', () => {
     expect(targetSize(800, 600)).toEqual({ width: 800, height: 600 });
-    expect(targetSize(4000, 2000)).toEqual({ width: MAX_IMAGE_DIMENSION, height: 800 });
-    expect(targetSize(1000, 4000)).toEqual({ width: 400, height: MAX_IMAGE_DIMENSION });
+    expect(targetSize(4000, 2000)).toEqual({ width: MAX_IMAGE_DIMENSION, height: Math.round(2000 * MAX_IMAGE_DIMENSION / 4000) });
+    expect(targetSize(1000, 4000)).toEqual({ width: Math.round(1000 * MAX_IMAGE_DIMENSION / 4000), height: MAX_IMAGE_DIMENSION });
   });
 
   it('não quebra com dimensões desconhecidas', () => {

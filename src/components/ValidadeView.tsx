@@ -110,6 +110,10 @@ const ValidadeView = () => {
   const [filter, setFilter] = useState<FilterType>('todos');
   /** Filtro por seção do catálogo (vazio = todas). */
   const [secaoFiltro, setSecaoFiltro] = useState('');
+  /** Filtro por "coletado por" (username). Para encarregado: roster da equipe. */
+  const [coletadoPorFiltro, setColetadoPorFiltro] = useState('');
+  /** Roster da equipe do encarregado (ele + vinculados). */
+  const [equipeRoster, setEquipeRoster] = useState<string[]>([]);
   const [quantidade, setQuantidade] = useState('');
   const [editingItem, setEditingItem] = useState<ValidadeItem | null>(null);
   const [editValidade, setEditValidade] = useState<Date | undefined>(undefined);
@@ -172,9 +176,23 @@ const ValidadeView = () => {
     setLoading(false);
   }, [alertDays]);
 
+  /** Busca o roster da equipe do encarregado (ele + vinculados). */
+  const fetchEquipeRoster = useCallback(async () => {
+    if (userRole !== 'encarregado') return;
+    try {
+      const { data, error } = await invokeFunction('manage-validade', { body: { action: 'list_users' } });
+      if (!error && Array.isArray(data?.users)) {
+        setEquipeRoster(data.users);
+      }
+    } catch {
+      // Falha silenciosa: o filtro não aparece se não conseguir buscar.
+    }
+  }, [userRole]);
+
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+    fetchEquipeRoster();
+  }, [fetchItems, fetchEquipeRoster]);
 
   // Show notification toast on mount if there are items expiring
   useEffect(() => {
@@ -394,10 +412,12 @@ const ValidadeView = () => {
       case '30dias': if (diffDays > 30) return false; break;
       default: break;
     }
-    // Filtro por seção do catálogo.
+    // Filtro por seção do catálogo (apenas admin/dono veem).
     if (secaoFiltro && item.secao !== secaoFiltro) return false;
+    // Filtro por "coletado por" (para encarregado filtrar a equipe).
+    if (coletadoPorFiltro && item.created_by !== coletadoPorFiltro) return false;
     return true;
-  }), [items, filter, secaoFiltro]);
+  }), [items, filter, secaoFiltro, coletadoPorFiltro]);
 
   /** Identifica a lista atual: se os códigos mudam, o cache de tipos/custos é refeito. */
   const spreadsheetCodesKey = useMemo(
@@ -1007,11 +1027,32 @@ const ValidadeView = () => {
               </Button>
             ))}
           </div>
-          <SecaoFilter
-            value={secaoFiltro}
-            onChange={setSecaoFiltro}
-            className="w-full sm:ml-auto sm:w-[190px]"
-          />
+          {/* Filtrar por coletado por: para encarregado mostra o roster da equipe. */}
+          {userRole === 'encarregado' && equipeRoster.length > 0 ? (
+            <div className="w-full sm:ml-auto sm:w-[190px]">
+              <label htmlFor="filtro-coletado-por" className="sr-only">Filtrar por coletado por</label>
+              <select
+                id="filtro-coletado-por"
+                value={coletadoPorFiltro}
+                onChange={(e) => setColetadoPorFiltro(e.target.value)}
+                className="flex h-9 w-full items-center gap-2 rounded-lg border border-slate-300 bg-white px-2.5 text-left text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
+                aria-label="Filtrar por coletado por"
+              >
+                <option value="">Todos da equipe</option>
+                {equipeRoster.map((usuario) => (
+                  <option key={usuario} value={usuario}>
+                    {usuario === user?.username ? `${usuario} (você)` : usuario}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <SecaoFilter
+              value={secaoFiltro}
+              onChange={setSecaoFiltro}
+              className="w-full sm:ml-auto sm:w-[190px]"
+            />
+          )}
         </div>
 
         {/* Items list */}
@@ -1029,15 +1070,17 @@ const ValidadeView = () => {
               <div className="space-y-1">
                 <p className="font-medium text-foreground">Nenhum produto por aqui</p>
                 <p className="text-sm text-muted-foreground">
-                  {secaoFiltro
-                    ? `Nenhum produto na seção "${secaoFiltro}"${filter !== 'todos' ? ` no filtro "${FILTER_LABELS[filter]}"` : ''}.`
-                    : filter === 'todos'
-                      ? 'Adicione um produto pela busca acima para começar.'
-                      : `Nenhum produto no filtro "${FILTER_LABELS[filter]}".`}
+                  {coletadoPorFiltro
+                    ? `Nenhum produto coletado por "${coletadoPorFiltro}"${filter !== 'todos' ? ` no filtro "${FILTER_LABELS[filter]}"` : ''}.`
+                    : secaoFiltro
+                      ? `Nenhum produto na seção "${secaoFiltro}"${filter !== 'todos' ? ` no filtro "${FILTER_LABELS[filter]}"` : ''}.`
+                      : filter === 'todos'
+                        ? 'Adicione um produto pela busca acima para começar.'
+                        : `Nenhum produto no filtro "${FILTER_LABELS[filter]}".`}
                 </p>
               </div>
-              {(filter !== 'todos' || secaoFiltro) && (
-                <Button variant="outline" size="sm" onClick={() => { setFilter('todos'); setSecaoFiltro(''); }}>
+              {(filter !== 'todos' || secaoFiltro || coletadoPorFiltro) && (
+                <Button variant="outline" size="sm" onClick={() => { setFilter('todos'); setSecaoFiltro(''); setColetadoPorFiltro(''); }}>
                   Ver todos os produtos
                 </Button>
               )}
@@ -1101,7 +1144,7 @@ const ValidadeView = () => {
                               <span className="font-semibold text-foreground">{item.created_by}</span>
                             </span>
                           )}
-                          <SecaoBadge secao={item.secao} />
+                          {/* Seção movida para o detalhe (clique no card) */}
                         </div>
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />

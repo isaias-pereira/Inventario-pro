@@ -1096,7 +1096,7 @@ const RebaixaView = () => {
                             {validade.label}
                           </span>
                         )}
-                        <SecaoBadge secao={item.secao} />
+                        {/* Seção movida para o detalhe */}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-slate-500">
                         <span className="font-mono">{item.ean}</span>
@@ -2076,7 +2076,7 @@ const RebaixaView = () => {
                           )}>
                             {item.tipo}
                           </span>
-                          <SecaoBadge secao={item.secao} />
+                          {/* Seção movida para o detalhe */}
                         </div>
                         <p className="text-[11px] tabular-nums text-slate-500">
                           Qtd {formatQuantity(item.quantidade, item.tipo)}{item.tipo === 'KG' ? ' kg' : ''}
