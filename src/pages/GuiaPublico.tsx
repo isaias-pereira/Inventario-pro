@@ -245,7 +245,7 @@ export default function GuiaPublico() {
                 <Leaf className="h-4.5 w-4.5 text-amber-700" aria-hidden="true" />
               </span>
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-amber-900">
-                Dica do Encarregado
+                Dica Extra
               </p>
             </div>
             <p className="mt-2 text-pretty text-[14px] leading-relaxed text-amber-950">{guia.dica}</p>
