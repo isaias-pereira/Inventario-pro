@@ -104,17 +104,7 @@ export default function GuiaPublico() {
 
   return (
     <div className="min-h-screen bg-white font-sans text-neutral-900 antialiased">
-      <header className="mx-auto flex max-w-md items-center justify-between px-4 pt-4">
-        <div className="flex items-center gap-2">
-          <img src="/sgs-icon.png" alt="" className="h-6 w-6 rounded" />
-          <span className="text-xs font-medium text-neutral-500">SGS-PRO · Hortifrui</span>
-        </div>
-        <Link to="/" className="text-xs text-neutral-400 hover:text-neutral-700">
-          Sistema
-        </Link>
-      </header>
-
-      <main className="mx-auto max-w-md px-4 pb-10">
+      <main className="mx-auto max-w-md px-4 pb-10 pt-4">
         {/* Nome e foto do produto — o cartão de abertura do guia */}
         <section className="pt-4" aria-labelledby="guia-titulo">
           <div className="overflow-hidden rounded-[26px] border border-emerald-100/90 bg-white shadow-[0_24px_50px_-32px_rgba(6,95,70,0.55)]">
