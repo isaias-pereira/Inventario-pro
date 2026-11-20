@@ -443,7 +443,7 @@ const EmailView = () => {
                   id="conta-email"
                   value={contaEmail}
                   onChange={(event) => setContaEmail(event.target.value)}
-                  placeholder="isaiassilva@comper.com.br"
+                  placeholder="seu@email.com"
                   className="mt-1"
                   inputMode="email"
                   autoComplete="off"
