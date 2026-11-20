@@ -588,7 +588,7 @@ describe('escopo por loja — Usuários', () => {
 
     await manageUsers(request({
       action: 'add',
-      newUser: { username: 'novo', password: 'senha', role: 'user', loja: 92 },
+      newUser: { username: 'novo', password: 'senha123', role: 'user', loja: 92 },
     }), res);
 
     const insert = chamadasCom(chamadas, 'INSERT INTO app_users')[0];

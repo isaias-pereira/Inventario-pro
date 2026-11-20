@@ -13,6 +13,7 @@ import NotFound from "./pages/NotFound";
 import GuiaPublico from "./pages/GuiaPublico";
 import GuiasIndice from "./pages/GuiasIndice";
 import CreditosFotos from "./pages/CreditosFotos";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -25,14 +26,21 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <Routes>
-                <Route path="/g" element={<GuiasIndice />} />
-                {/* Rota fixa antes de `/g/:slug` (o Router casa na ordem). */}
-                <Route path="/g/creditos" element={<CreditosFotos />} />
-                <Route path="/g/:slug" element={<GuiaPublico />} />
-                <Route path="/" element={<Index />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <ErrorBoundary
+                resetKey={0} // pode ser incrementado para forçar reset
+                onError={(error, info) => {
+                  console.error('[App ErrorBoundary]', error, info);
+                }}
+              >
+                <Routes>
+                  <Route path="/g" element={<GuiasIndice />} />
+                  {/* Rota fixa antes de `/g/:slug` (o Router casa na ordem). */}
+                  <Route path="/g/creditos" element={<CreditosFotos />} />
+                  <Route path="/g/:slug" element={<GuiaPublico />} />
+                  <Route path="/" element={<Index />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </ErrorBoundary>
             </BrowserRouter>
           </MetasProvider>
         </DataProvider>

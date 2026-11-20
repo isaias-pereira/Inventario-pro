@@ -31,9 +31,27 @@ export interface InvokeError {
   name: string;
   message: string;
   context?: { status?: number };
+  /** Código de erro interno do servidor (ex.: 'VALIDATION_ERROR', 'DB_ERROR'). */
+  code?: string;
+  /** Detalhes extras do erro (validação, constraints, etc.). */
+  details?: Record<string, unknown>;
 }
 
 export interface InvokeResult<T = unknown> {
   data: T | null;
   error: InvokeError | null;
+}
+
+/** Códigos de erro padrão do backend para tratamento específico no frontend. */
+export enum ServerErrorCode {
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
+  FOREIGN_KEY_VIOLATION = 'FOREIGN_KEY_VIOLATION',
+  NOT_FOUND = 'NOT_FOUND',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+  RATE_LIMITED = 'RATE_LIMITED',
+  DB_ERROR = 'DB_ERROR',
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
 }

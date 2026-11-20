@@ -29,6 +29,14 @@ import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
 import { isDono } from './_lib/owner.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
+import {
+  sendValidationError,
+  sendNotFoundError,
+  sendForbiddenError,
+  sendDbError,
+  validateAndSend,
+} from './_lib/errors.js';
+import { addUserSchema, updateUserSchema, deleteUserSchema, switchLojaSchema } from './_lib/validation.js';
 import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, lojaAtiva, resolveLoja } from './_lib/loja.js';
 import {
   ensureEncarregadosSchema,
@@ -178,14 +186,15 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'add') {
-      if (!newUser?.username || !newUser?.password) {
-        sendJson(res, { error: 'Usuário e senha são obrigatórios' }, 400);
-        return;
-      }
+      // Validação com Zod + erro padronizado
+      const body = { action: 'add', newUser };
+      const input = validateAndSend(res, addUserSchema, body);
+      if (!input) return;
+      const { newUser: userData } = input;
 
-      const role = normalizeRole(newUser.role || 'user');
+      const role = normalizeRole(userData.role || 'user');
       if (!role) {
-        sendJson(res, { error: 'Perfil inválido' }, 400);
+        sendValidationError(res, 'Perfil inválido');
         return;
       }
 
@@ -193,9 +202,7 @@ const handler: ApiHandler = async (req, res) => {
       // equipe (user/promotor/col_validade) — o vínculo é automático: ele
       // mesmo é o responsável pelo novo acesso.
       if (isEncarregado && !isSubordinateRole(role)) {
-        sendJson(res, {
-          error: 'Encarregado só pode cadastrar usuários, promotores e coletores de validade.',
-        }, 403);
+        sendForbiddenError(res, 'Encarregado só pode cadastrar usuários, promotores e coletores de validade.');
         return;
       }
 
@@ -204,9 +211,9 @@ const handler: ApiHandler = async (req, res) => {
       // o acesso nasce sempre na loja dele.
       const loja = isEncarregado
         ? await resolveLoja(sql, payload)
-        : await lojaDoCadastro(sql, newUser.loja, await resolveLoja(sql, payload));
+        : await lojaDoCadastro(sql, userData.loja, await resolveLoja(sql, payload));
       if (loja === null) {
-        sendJson(res, { error: 'Loja inválida ou inativa' }, 400);
+        sendValidationError(res, 'Loja inválida ou inativa');
         return;
       }
 
@@ -215,28 +222,24 @@ const handler: ApiHandler = async (req, res) => {
       // encarregado, o responsável é sempre ele mesmo).
       const vinculo = isEncarregado
         ? { ok: true as const, value: [payload.sub] }
-        : await resolverEncarregados(sql, role, newUser.encarregados, loja, adminUsername);
+        : await resolverEncarregados(sql, role, userData.encarregados, loja, adminUsername);
       if (!vinculo.ok) {
-        sendJson(res, { error: vinculo.error }, 400);
+        sendValidationError(res, vinculo.error);
         return;
       }
 
-      const hashedPw = await bcrypt.hash(newUser.password, 10);
+      const hashedPw = await bcrypt.hash(userData.password, 10);
 
       try {
         await sql`
           INSERT INTO app_users (username, password, role, loja)
-          VALUES (${newUser.username}, ${hashedPw}, ${role}, ${loja})`;
+          VALUES (${userData.username}, ${hashedPw}, ${role}, ${loja})`;
       } catch (error) {
-        const message = error instanceof Error ? error.message : '';
-        if (message.includes('duplicate') || message.includes('unique')) {
-          sendJson(res, { error: 'Este usuário já existe' }, 400);
-          return;
-        }
-        throw error;
+        sendDbError(res, error, 'Erro ao criar usuário');
+        return;
       }
 
-      await substituirEncarregados(sql, String(newUser.username), vinculo.value, loja);
+      await substituirEncarregados(sql, String(userData.username), vinculo.value, loja);
 
       sendJson(res, { success: true, encarregados: vinculo.value });
       return;

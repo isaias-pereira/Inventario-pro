@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 import LoginPage from '@/pages/LoginPage';
 import { trackView } from '@/lib/analytics';
 import { podeAcessarView, viewInicial, type ViewType } from '@/lib/permissoes';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Cada tela é carregada sob demanda: só entra no bundle inicial o que a
 // primeira tela precisa. As telas pesadas (BaseView com xlsx, MetasView com
@@ -20,6 +21,28 @@ const RebaixaView = lazy(() => import('@/components/RebaixaView'));
 const EmailView = lazy(() => import('@/components/EmailView'));
 const RevisaoSecoesView = lazy(() => import('@/components/RevisaoSecoesView'));
 const GuiasAdminView = lazy(() => import('@/components/GuiasAdminView'));
+
+/** Wrapper com ErrorBoundary para cada view lazy. */
+function ViewWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary
+      resetKey={0}
+      fallback={({ reset }) => (
+        <div className="flex flex-1 items-center justify-center py-16 p-4">
+          <div className="text-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto mb-3" aria-hidden="true" />
+            <p className="text-muted-foreground">Erro ao carregar a tela</p>
+            <button onClick={reset} className="mt-3 text-primary hover:underline">
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      )}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
 
 const ViewFallback = () => (
   <div className="flex flex-1 items-center justify-center py-16" role="status" aria-live="polite">
@@ -70,19 +93,17 @@ const Index = () => {
         {`SGS-PRO — ${viewTitles[safeView]} | Sistema de gerenciamento de Setor`}
       </h1>
       <Suspense fallback={<ViewFallback />}>
-        {safeView === 'consulta' && <ConsultaView />}
-        {safeView === 'inventario' && <InventarioView />}
-        {safeView === 'metas' && <MetasView />}
-        {safeView === 'validade' && <ValidadeView />}
-        {safeView === 'rebaixa' && <RebaixaView />}
-        {safeView === 'email' && <EmailView />}
-        {safeView === 'base' && (isAdmin || isDono) && <BaseView onBack={() => setView('consulta')} />}
-        {safeView === 'usuarios' && (isAdmin || userRole === 'encarregado') && <UserManagementView />}
-        {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && (
-          <AddProductView canEdit={isAdmin} />
-        )}
-        {safeView === 'revisao-secoes' && (isAdmin || isDono) && <RevisaoSecoesView />}
-        {safeView === 'guias' && (isAdmin || userRole === 'encarregado') && <GuiasAdminView />}
+        {safeView === 'consulta' && <ViewWrapper><ConsultaView /></ViewWrapper>}
+        {safeView === 'inventario' && <ViewWrapper><InventarioView /></ViewWrapper>}
+        {safeView === 'metas' && <ViewWrapper><MetasView /></ViewWrapper>}
+        {safeView === 'validade' && <ViewWrapper><ValidadeView /></ViewWrapper>}
+        {safeView === 'rebaixa' && <ViewWrapper><RebaixaView /></ViewWrapper>}
+        {safeView === 'email' && <ViewWrapper><EmailView /></ViewWrapper>}
+        {safeView === 'base' && (isAdmin || isDono) && <ViewWrapper><BaseView onBack={() => setView('consulta')} /></ViewWrapper>}
+        {safeView === 'usuarios' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><UserManagementView /></ViewWrapper>}
+        {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><AddProductView canEdit={isAdmin} /></ViewWrapper>}
+        {safeView === 'revisao-secoes' && (isAdmin || isDono) && <ViewWrapper><RevisaoSecoesView /></ViewWrapper>}
+        {safeView === 'guias' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><GuiasAdminView /></ViewWrapper>}
       </Suspense>
 
     </div>
