@@ -243,6 +243,7 @@ export const emailActionSchema = z.enum([
 
 export const addEmailPadraoSchema = z.object({
   action: z.literal('add'),
+  nome: z.string().trim().min(1).max(60),
   email: emailSchema,
   padrao: z.boolean().optional(),
   ativo: z.boolean().optional(),
