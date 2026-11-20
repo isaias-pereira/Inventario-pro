@@ -58,7 +58,7 @@ interface ReviewState {
 const BaseView = ({ onBack }: BaseViewProps) => {
   const { saveProducts, hasData, products } = useData();
   const { setMetaItems, metaItems, setVendaItems, vendaItems, saveMetaToDB, saveRealizadoToDB, selectedMonth, selectedYear, setSelectedMonth } = useMetas();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isDono } = useAuth();
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -313,7 +313,7 @@ const BaseView = ({ onBack }: BaseViewProps) => {
               'Planilha de Realizado',
               `Colunas: dia, venda (valor R$) — ${MESES[selectedMonth - 1]}`,
               vendaRef, vendaUp, processVenda, vendaItems.length, 'Dias de venda',
-              isAdmin && vendaItems.length > 0 ? (
+              (isAdmin || isDono) && vendaItems.length > 0 ? (
                 <button
                   onClick={handleSaveRealizado}
                   disabled={savingRealizado}

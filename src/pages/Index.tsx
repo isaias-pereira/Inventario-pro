@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import Header, { ViewType } from '@/components/Header';
+import Header from '@/components/Header';
 import LoginPage from '@/pages/LoginPage';
 import { trackView } from '@/lib/analytics';
+import { podeAcessarView, viewInicial, type ViewType } from '@/lib/permissoes';
 
 // Cada tela é carregada sob demanda: só entra no bundle inicial o que a
 // primeira tela precisa. As telas pesadas (BaseView com xlsx, MetasView com
@@ -28,31 +29,14 @@ const ViewFallback = () => (
 );
 
 const Index = () => {
-  const { user, isAdmin, userRole } = useAuth();
-  const [view, setView] = useState<ViewType>('consulta');
+  const { user, isAdmin, isDono, userRole } = useAuth();
+  // O encarregado (dono ou não) continua pousando na Validade; o dono só
+  // ganhou acesso às áreas extras, não mudou a tela inicial.
+  const [view, setView] = useState<ViewType>(() => viewInicial(userRole));
 
-  // Determine default view based on role
-  const getDefaultView = (): ViewType => {
-    if (userRole === 'promotor' || userRole === 'col_validade') return 'validade';
-    // O `user` não tem mais acesso ao inventário: a tela inicial é a Validade.
-    if (userRole === 'user') return 'validade';
-    if (userRole === 'encarregado') return 'validade';
-    return 'consulta';
-  };
-
-  // Check if user has access to the current view
-  const hasAccess = (v: ViewType): boolean => {
-    if (userRole === 'admin') return true;
-    if (userRole === 'encarregado') {
-      return v === 'validade' || v === 'rebaixa' || v === 'email'
-        || v === 'inventario' || v === 'add-produto' || v === 'usuarios' || v === 'guias';
-    }
-    if (userRole === 'user') return v === 'validade';
-    if (userRole === 'promotor' || userRole === 'col_validade') return v === 'validade';
-    return false;
-  };
-
-  const safeView = user ? (hasAccess(view) ? view : getDefaultView()) : 'consulta';
+  const safeView = user
+    ? (podeAcessarView(userRole, isDono, view) ? view : viewInicial(userRole))
+    : 'consulta';
 
   // A navegação interna não muda a URL: cada tela é registrada no Analytics.
   useEffect(() => {
@@ -92,12 +76,12 @@ const Index = () => {
         {safeView === 'validade' && <ValidadeView />}
         {safeView === 'rebaixa' && <RebaixaView />}
         {safeView === 'email' && <EmailView />}
-        {safeView === 'base' && isAdmin && <BaseView onBack={() => setView('consulta')} />}
+        {safeView === 'base' && (isAdmin || isDono) && <BaseView onBack={() => setView('consulta')} />}
         {safeView === 'usuarios' && (isAdmin || userRole === 'encarregado') && <UserManagementView />}
         {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && (
           <AddProductView canEdit={isAdmin} />
         )}
-        {safeView === 'revisao-secoes' && isAdmin && <RevisaoSecoesView />}
+        {safeView === 'revisao-secoes' && (isAdmin || isDono) && <RevisaoSecoesView />}
         {safeView === 'guias' && (isAdmin || userRole === 'encarregado') && <GuiasAdminView />}
       </Suspense>
 

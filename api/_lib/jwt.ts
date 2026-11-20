@@ -5,6 +5,8 @@ export interface JwtPayload {
   role: string;
   /** Loja do usuário (multi-loja). Ausente em tokens emitidos antes do recurso. */
   loja?: number;
+  /** Conta do dono do projeto (acesso excepcional às áreas administrativas). */
+  dono?: boolean;
   exp: number;
   iat?: number;
 }

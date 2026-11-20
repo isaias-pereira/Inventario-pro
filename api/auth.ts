@@ -22,6 +22,7 @@ import {
 } from './_lib/http.js';
 import { authenticate, jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
+import { isDono, isDonoUsername } from './_lib/owner.js';
 import { dbTimeoutMs, TimeoutError, withTimeout } from './_lib/timeout.js';
 import { DEFAULT_LOJA, ensureLojaSchema } from './_lib/loja.js';
 import { checkRateLimit, resetRateLimit } from './_lib/rate-limit.js';
@@ -129,10 +130,15 @@ async function handleLogin(body: Record<string, unknown>, req: Parameters<ApiHan
       ? Number(user.loja)
       : DEFAULT_LOJA;
 
+    // Exceção do dono do projeto: a claim vai assinada no token para o
+    // cliente e para as checagens do servidor (Consulta, Metas, Base de Dados
+    // e Revisão de Seções). Os demais perfis não recebem a claim.
+    const dono = isDonoUsername(user.username);
+
     const now = Math.floor(Date.now() / 1000);
     const expiresAt = now + SESSION_TTL_SECONDS;
     const token = signJwt(
-      { sub: user.username, role, loja, iat: now, exp: expiresAt },
+      { sub: user.username, role, loja, dono, iat: now, exp: expiresAt },
       jwtSecret(),
     );
 
@@ -141,7 +147,7 @@ async function handleLogin(body: Record<string, unknown>, req: Parameters<ApiHan
 
     sendJson(res, {
       success: true,
-      user: { username: user.username, role, loja },
+      user: { username: user.username, role, loja, dono },
       expiresAt,
     });
   } catch (error) {
@@ -180,6 +186,8 @@ const handler: ApiHandler = async (req, res) => {
         username: payload.sub,
         role: payload.role,
         loja: payload.loja ?? null,
+        // Também reconhece tokens emitidos antes da claim (pelo username).
+        dono: isDono(payload),
       },
     });
     return;

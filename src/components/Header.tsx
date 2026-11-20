@@ -15,7 +15,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
-export type ViewType = 'consulta' | 'inventario' | 'base' | 'usuarios' | 'metas' | 'validade' | 'rebaixa' | 'add-produto' | 'email' | 'revisao-secoes' | 'guias';
+import { NAV_EXTRAS_DONO, type ViewType } from '@/lib/permissoes';
+
+export type { ViewType } from '@/lib/permissoes';
 
 interface HeaderProps {
   currentView: ViewType;
@@ -24,7 +26,7 @@ interface HeaderProps {
 
 
 const Header = ({ currentView, onNavigate }: HeaderProps) => {
-  const { user, logout, isAdmin, userRole, loja, lojas, switchLoja } = useAuth();
+  const { user, logout, isAdmin, isDono, userRole, loja, lojas, switchLoja } = useAuth();
   const [trocandoLoja, setTrocandoLoja] = useState(false);
   
 
@@ -36,12 +38,18 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
     { key: 'rebaixa' as const, label: 'Rebaixa', icon: Tag, roles: ['admin', 'encarregado'] },
   ];
 
-  const mainNavItems = allNavItems.filter(item => userRole && item.roles.includes(userRole));
+  // O dono do projeto mantém o perfil `encarregado`, mas tem acesso
+  // excepcional a Consulta e Metas (as demais áreas extras ficam no menu do
+  // usuário). Os outros encarregados continuam sem esses itens.
+  const mainNavItems = allNavItems.filter(
+    item => (userRole && item.roles.includes(userRole)) || (isDono && NAV_EXTRAS_DONO.includes(item.key)),
+  );
 
   const adminItems = [
     { key: 'base' as const, label: 'Base de Dados', icon: Database },
     { key: 'revisao-secoes' as const, label: 'Revisão de Seções', icon: Tags },
   ];
+  const showAdminItems = isAdmin || isDono;
 
   // Usuários: o admin gerencia os acessos da loja; o encarregado cadastra
   // os usuários da própria equipe (sem editar/remover).
@@ -236,7 +244,7 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
                   {!isAdmin && <DropdownMenuSeparator />}
                 </>
               )}
-              {isAdmin && (
+              {showAdminItems && (
                 <>
                   {adminItems.map((item) => (
                     <DropdownMenuItem

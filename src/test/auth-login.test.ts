@@ -9,6 +9,7 @@ const { createSqlMock } = vi.hoisted(() => ({
 vi.mock('../../api/_lib/db', () => ({ createSql: createSqlMock }));
 
 import handler from '../../api/auth';
+import { signJwt } from '../../api/_lib/jwt';
 
 const HASH = bcrypt.hashSync('senha123', 8);
 
@@ -46,6 +47,7 @@ beforeEach(() => {
   process.env.JWT_SECRET = 'segredo-de-teste';
   process.env.DB_QUERY_TIMEOUT_MS = '80';
   process.env.TURNSTILE_SECRET_KEY = ''; // Vazio = pula verificação (modo dev)
+  delete process.env.OWNER_USERNAMES;
 });
 
 describe('POST /api/auth (action login)', () => {
@@ -109,6 +111,62 @@ describe('POST /api/auth (action login)', () => {
     const payload = decodeJwt(token);
     expect(Number(payload.loja)).toBe(92);
     expect(state.body?.user).toMatchObject({ username: 'isa', role: 'admin', loja: 92 });
+  });
+
+  it('assina a exceção do dono no token e na resposta do login', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'Isaias', password: HASH, role: 'encarregado', loja: 103 },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'Isaias', password: 'senha123' }), res);
+
+    const cookie = String(state.headers['set-cookie']);
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    expect(decodeJwt(token).dono).toBe(true);
+    expect(state.body?.user).toMatchObject({
+      username: 'Isaias',
+      role: 'encarregado',
+      loja: 103,
+      dono: true,
+    });
+  });
+
+  it('não marca outro encarregado como dono', async () => {
+    createSqlMock.mockReturnValue(() => Promise.resolve([
+      { username: 'Daycon', password: HASH, role: 'encarregado', loja: 103 },
+    ]));
+    const { res, state } = fakeResponse();
+
+    await handler(fakeRequest({ username: 'Daycon', password: 'senha123' }), res);
+
+    const cookie = String(state.headers['set-cookie']);
+    const token = cookie.split('estoque_pro_token=')[1].split(';')[0];
+    expect(decodeJwt(token).dono).toBe(false);
+    expect(state.body?.user).toMatchObject({ username: 'Daycon', dono: false });
+  });
+
+  it('a action me devolve dono=true mesmo para token emitido antes da claim', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = signJwt(
+      { sub: 'Isaias', role: 'encarregado', loja: 103, iat: now, exp: now + 3600 },
+      'segredo-de-teste',
+    );
+    const { res, state } = fakeResponse();
+
+    await handler({
+      method: 'POST',
+      headers: { cookie: `estoque_pro_token=${token}` },
+      body: { action: 'me' },
+    }, res);
+
+    expect(state.status).toBe(200);
+    expect(state.body?.user).toMatchObject({
+      username: 'Isaias',
+      role: 'encarregado',
+      loja: 103,
+      dono: true,
+    });
   });
 
   it('usa a loja padrão quando o cadastro não tem loja', async () => {

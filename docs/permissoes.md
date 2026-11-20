@@ -18,6 +18,41 @@
 A loja **sempre** vem do JWT (`payload.loja`, assinado no login a partir de
 `app_users.loja`). Nenhuma tela ou endpoint aceita a loja enviada pelo cliente.
 
+---
+
+### 1.1 Exceção da conta do dono do projeto
+
+A conta **`Isaias`** (dono do projeto) tem o perfil `encarregado` na loja 103, mas
+recebe **acesso excepcional** às seguintes áreas administrativas:
+
+- **Consulta de Produtos** (`consulta`)
+- **Metas e Indicadores** (`metas`)
+- **Base de Dados** (`base`)
+- **Revisão de Seções** (`revisao-secoes`)
+
+**O que isso significa na prática:**
+- A conta continua sendo `encarregado` — o escopo de loja, a equipe vinculada e
+  as demais permissões do perfil permanecem exatamente iguais.
+- A exceção é **individual** (por username), não um novo papel global.
+- O mecanismo técnico: no login o servidor assina a claim `dono: true` no JWT;
+  o frontend expõe `isDono` via `AuthContext`; os endpoints checam
+  `isAdminOrDono(payload)` (`api/_lib/owner.ts`).
+- A lista de contas com essa exceção pode ser ajustada pela env
+  `OWNER_USERNAMES` (separada por vírgula); sem ela, vale apenas `Isaias`.
+- Tokens emitidos antes da feature também funcionam: o backend reconhece o
+  username `Isaias` mesmo sem a claim `dono` no token.
+
+**O que NÃO muda:**
+- O dono **não vira admin**: não troca de loja, não gerencia usuários de outras
+  lojas, não edita o catálogo de produtos (`update`, `edit_lookup`,
+  `remove_packaging` continuam só admin).
+- Na Base de Dados, o dono pode **importar/substituir a planilha de Consulta**
+  (ação `replace` do `manage-consulta`) e ver o botão "Salvar" do Realizado nas
+  Metas — igual ao admin. A edição do catálogo (`set_categoria`) também é
+  liberada para a Revisão de Seções.
+- O menu do header mostra **Consulta** e **Metas** na barra principal (ícones);
+  **Base de Dados** e **Revisão de Seções** ficam no dropdown do usuário.
+
 ## 2. Vínculo usuário → encarregado(s)
 
 - Tabela `public.usuario_encarregados (usuario, encarregado, loja)`, com
@@ -69,16 +104,20 @@ vê a opção "Arrastão"** nesse dropdown (o admin vê).
 
 | Tela | `admin` | `encarregado` | `user` | `promotor` | `col_validade` |
 | --- | :---: | :---: | :---: | :---: | :---: |
-| Consulta | ✅ | — | — | — | — |
+| Consulta | ✅ | ★ (dono) | — | — | — |
 | Inventário | ✅ (só o próprio) | ✅ (só o próprio) | — | — | — |
-| Metas | ✅ | — | — | — | — |
+| Metas | ✅ | ★ (dono) | — | — | — |
 | Validade | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Rebaixa | ✅ | ✅ | — | — | — |
 | E-mail | ✅ | ✅ (destinatários: só leitura · conta de envio: edita a própria) | — | — | — |
 | Adicionar Produto | ✅ | ✅ (só cadastro) | — | — | — |
-| Base de Dados | ✅ | — | — | — | — |
+| Base de Dados | ✅ | ★ (dono) | — | — | — |
 | Usuários | ✅ | ✅ (só cadastro e lista da equipe) | — | — | — |
-| Revisão de Seções | ✅ | — | — | — | — |
+| Revisão de Seções | ✅ | ★ (dono) | — | — | — |
+
+> ★ = acesso excepcional apenas para a **conta do dono do projeto** (hoje `Isaias`),
+> que mantém o perfil `encarregado` e o escopo da própria loja, mas abre essas
+> quatro áreas administrativas. Os demais encarregados continuam sem acesso.
 
 ## 5. Ações por endpoint
 

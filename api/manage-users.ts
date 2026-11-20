@@ -27,6 +27,7 @@ import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
 import { jwtSecret } from './_lib/auth.js';
 import { signJwt } from './_lib/jwt.js';
+import { isDono } from './_lib/owner.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { DEFAULT_LOJA, ensureLojaSchema, listarLojas, lojaAtiva, resolveLoja } from './_lib/loja.js';
 import {
@@ -100,15 +101,17 @@ const handler: ApiHandler = async (req, res) => {
       // estiver prestes a vencer, abre uma sessão nova.
       const restante = payload.exp - now;
       const exp = restante > 60 ? payload.exp : now + 6 * 3600;
+      // Preserva a exceção do dono ao re-assinar o token com a nova loja.
+      const dono = isDono(payload);
       const token = signJwt(
-        { sub: payload.sub, role: payload.role, loja, iat: now, exp },
+        { sub: payload.sub, role: payload.role, loja, dono, iat: now, exp },
         jwtSecret(),
       );
       sendJson(res, {
         success: true,
         token,
         expiresAt: exp,
-        user: { username: payload.sub, role: payload.role, loja },
+        user: { username: payload.sub, role: payload.role, loja, dono },
       });
       return;
     }

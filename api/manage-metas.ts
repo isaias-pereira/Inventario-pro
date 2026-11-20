@@ -7,6 +7,7 @@
 
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
+import { isAdminOrDono } from './_lib/owner.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
 
@@ -58,7 +59,8 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'save_meta') {
-      if (jwt.role !== 'admin') {
+      // Admin ou conta do dono do projeto (exceção das Metas).
+      if (!isAdminOrDono(jwt)) {
         sendJson(res, { error: 'Sem permissão' }, 403);
         return;
       }
@@ -77,7 +79,8 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'save_realizado') {
-      if (jwt.role !== 'admin') {
+      // Admin ou conta do dono do projeto (exceção das Metas).
+      if (!isAdminOrDono(jwt)) {
         sendJson(res, { error: 'Sem permissão' }, 403);
         return;
       }

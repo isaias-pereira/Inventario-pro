@@ -10,6 +10,11 @@ interface User {
   role: UserRole;
   /** Loja do usuário (multi-loja). Vem assinado no token. */
   loja?: number;
+  /**
+   * Conta do dono do projeto: acesso excepcional a Consulta, Metas, Base de
+   * Dados e Revisão de Seções, sem virar admin do sistema.
+   */
+  dono?: boolean;
 }
 
 /** Loja cadastrada no sistema (para o seletor do admin). */
@@ -31,6 +36,8 @@ interface AuthContextType {
   login: (username: string, password: string, turnstileToken?: string) => Promise<LoginResult>;
   logout: () => void;
   isAdmin: boolean;
+  /** Conta do dono do projeto (exceção de acesso, sem ser admin). */
+  isDono: boolean;
   userRole: UserRole | null;
   /** Loja atual do usuário (vem do token). */
   loja: number | null;
@@ -124,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         username: data.user.username,
         role: String(data.user.role) === 'enc_flv' ? 'encarregado' : data.user.role,
         loja: typeof data.user.loja === 'number' ? data.user.loja : undefined,
+        dono: data.user.dono === true,
       };
       setUser(u);
       localStorage.setItem(USER_KEY, JSON.stringify(u));
@@ -175,6 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         username: data.user.username,
         role: data.user.role,
         loja: typeof data.user.loja === 'number' ? data.user.loja : codigo,
+        dono: data.user.dono === true,
       };
       localStorage.setItem(USER_KEY, JSON.stringify(u));
       setUser(u);
@@ -225,6 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         isAdmin: user?.role === 'admin',
+        isDono: user?.dono === true,
         userRole: user?.role ?? null,
         loja: user?.loja ?? null,
         lojas,

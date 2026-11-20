@@ -11,6 +11,7 @@
 
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
+import { isAdminOrDono } from './_lib/owner.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoinTexto } from './_lib/categoria.js';
 import { ensureLojaSchema, resolveLoja } from './_lib/loja.js';
@@ -58,7 +59,9 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'replace') {
-      if (payload.role !== 'admin') {
+      // O dono do projeto tem acesso excepcional à Base de Dados; os demais
+      // encarregados continuam sem poder substituir a base.
+      if (!isAdminOrDono(payload)) {
         sendJson(res, { error: 'Acesso restrito a administradores' }, 403);
         return;
       }

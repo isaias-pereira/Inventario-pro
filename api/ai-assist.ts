@@ -22,6 +22,7 @@
 
 import { createSql } from './_lib/db.js';
 import { authenticate } from './_lib/auth.js';
+import { isAdminOrDono } from './_lib/owner.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { identifier } from './_lib/product-validation.js';
 import { aiConfigured, aiModel, callAi, isSupportedImageMime, type AiError, type AiResult } from './_lib/ai.js';
@@ -73,9 +74,12 @@ function cacheSet(key: string, payload: unknown): void {
   cache.set(key, { at: Date.now(), payload });
 }
 
-/** Só administradores importam planilhas (Base de Dados é área do admin). */
-function canImport(role: unknown): boolean {
-  return role === 'admin';
+/**
+ * Importação de planilhas e revisão de seções (Base de Dados/Revisão de
+ * Seções): admin ou a conta do dono do projeto.
+ */
+function canImport(payload: Parameters<typeof isAdminOrDono>[0]): boolean {
+  return isAdminOrDono(payload);
 }
 
 /**
@@ -215,7 +219,7 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'import_review') {
-      if (!canImport(payload.role)) {
+      if (!canImport(payload)) {
         sendJson(res, { error: 'Apenas administradores podem revisar importações.' }, 403);
         return;
       }
@@ -268,7 +272,7 @@ const handler: ApiHandler = async (req, res) => {
     }
 
     if (action === 'review_categorias') {
-      if (!canImport(payload.role)) {
+      if (!canImport(payload)) {
         sendJson(res, { error: 'Apenas administradores podem revisar a classificação dos produtos.' }, 403);
         return;
       }
