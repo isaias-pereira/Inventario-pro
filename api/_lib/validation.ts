@@ -249,6 +249,33 @@ export const addEmailPadraoSchema = z.object({
   ativo: z.boolean().optional(),
 });
 
+/**
+ * Cadastro de contato — usado pelo `manage-emails` para as duas actions:
+ * - `add`: contato **global** (admin);
+ * - `add_pessoal`: contato **pessoal** do encarregado.
+ *
+ * Ambos exigem `nome` e `email`.
+ */
+export const emailPadraoSchema = z.discriminatedUnion(
+  'action',
+  [
+    z.object({
+      action: z.literal('add'),
+      nome: z.string().trim().min(1).max(60),
+      email: emailSchema,
+      padrao: z.boolean().optional(),
+      ativo: z.boolean().optional(),
+    }),
+    z.object({
+      action: z.literal('add_pessoal'),
+      nome: z.string().trim().min(1).max(60),
+      email: emailSchema,
+      padrao: z.boolean().optional(),
+      ativo: z.boolean().optional(),
+    }),
+  ],
+);
+
 /** Schema para contatos pessoais (encarregado gerencia os seus) */
 export const emailPessoalSchema = z.object({
   action: z.union([

@@ -10,6 +10,7 @@ import {
   normalizeSubject,
 } from '../../api/manage-emails';
 import { activeEmails, applyTemplate, defaultEmail, type EmailPadrao } from '../lib/emails';
+import { emailPadraoSchema, emailPessoalSchema } from '../../api/_lib/validation';
 
 function email(overrides: Partial<EmailPadrao> = {}): EmailPadrao {
   return {
@@ -18,6 +19,8 @@ function email(overrides: Partial<EmailPadrao> = {}): EmailPadrao {
     email: 'comercial.matriz@emper.com.br',
     padrao: false,
     ativo: true,
+    tipo: 'global',
+    usuario: null,
     created_by: 'admin',
     created_at: '2026-11-06T10:00:00.000Z',
     ...overrides,
@@ -143,6 +146,55 @@ describe('applyTemplate', () => {
 
   it('substitui {{produtos}} por vazio quando não há lista', () => {
     expect(applyTemplate('Itens: {{produtos}}', { data: '05/11/2026', quantidade: 0 })).toBe('Itens: ');
+  });
+});
+
+describe('schema de cadastro de contatos (global e pessoal)', () => {
+  it('exige nome e e-mail no contato global', () => {
+    const result = emailPadraoSchema.safeParse({ action: 'add', nome: '  ', email: 'gerencia@empresa.com.br' });
+    expect(result.success).toBe(false);
+  });
+
+  it('aceita o contato global completo', () => {
+    const result = emailPadraoSchema.safeParse({
+      action: 'add',
+      nome: 'Gerência',
+      email: 'Gerencia@Empresa.com.br',
+      padrao: true,
+    });
+    expect(result.success).toBe(true);
+    // O e-mail é normalizado para minúsculas pelo schema do e-mail.
+    expect(result.success && result.data.email).toBe('gerencia@empresa.com.br');
+  });
+
+  it('exige nome e e-mail no contato pessoal', () => {
+    const result = emailPadraoSchema.safeParse({ action: 'add_pessoal', email: 'daniele@empresa.com.br' });
+    expect(result.success).toBe(false);
+  });
+
+  it('aceita o contato pessoal completo', () => {
+    const result = emailPadraoSchema.safeParse({
+      action: 'add_pessoal',
+      nome: 'Daniele',
+      email: 'daniele@empresa.com.br',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('recusa action desconhecida', () => {
+    expect(emailPadraoSchema.safeParse({ action: 'add_outro', nome: 'X', email: 'x@empresa.com' }).success).toBe(false);
+  });
+});
+
+describe('schema das ações de contato pessoal', () => {
+  it('exige id para update/remove/setDefault_pessoal', () => {
+    expect(emailPessoalSchema.safeParse({ action: 'update_pessoal' }).success).toBe(false);
+    expect(emailPessoalSchema.safeParse({ action: 'remove_pessoal' }).success).toBe(false);
+    expect(emailPessoalSchema.safeParse({ action: 'setDefault_pessoal' }).success).toBe(false);
+  });
+
+  it('aceita id numérico positivo', () => {
+    expect(emailPessoalSchema.safeParse({ action: 'remove_pessoal', id: 7 }).success).toBe(true);
   });
 });
 
