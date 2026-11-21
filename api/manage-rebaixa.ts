@@ -309,6 +309,12 @@ const LIST_SQL = `
    WHERE r.status = 'rascunho' AND r.loja = $1 AND r.created_by = $2
    ORDER BY r.created_at ASC`;
 
+/**
+ * SELECT dos itens de um lote enviado — **sem ORDER BY** de propósito: o
+ * handler acrescenta o filtro do encarregado (`r.created_by = $3`) e só então
+ * a ordenação. Concatenar o filtro depois do ORDER BY gera SQL inválido
+ * (era a causa do 500 no histórico do encarregado).
+ */
 const HISTORY_ITEM_SQL = `
   SELECT r.id::text, r.ean::text, r.codigo::text, r.descricao, r.tipo, r.validade, r.motivo,
          r.quantidade::float8, r.pmz::float8, r.preco_sugerido::float8, r.preco_final::float8,
@@ -316,8 +322,21 @@ const HISTORY_ITEM_SQL = `
          ${SECAO_COLUNAS}
     FROM public.rebaixa_products r
    ${secaoJoin('r')}
-   WHERE r.batch_id = $1::uuid AND r.loja = $2
-   ORDER BY r.created_at ASC`;
+   WHERE r.batch_id = $1::uuid AND r.loja = $2`;
+
+/**
+ * Consulta final dos itens do lote.
+ *
+ * - Admin (`somenteDono = false`) vê o lote da loja inteira → 2 parâmetros.
+ * - Encarregado (`somenteDono = true`) só vê o que ele enviou → 3 parâmetros.
+ *
+ * O filtro entra **antes** do ORDER BY; é o contrato coberto por
+ * `src/test/manage-rebaixa.test.ts`.
+ */
+export function historyItemsSql(somenteDono: boolean): string {
+  const filtro = somenteDono ? ' AND r.created_by = $3' : '';
+  return `${HISTORY_ITEM_SQL}${filtro}\n   ORDER BY r.created_at ASC`;
+}
 
 const INSERT_SQL = `
   INSERT INTO public.rebaixa_products
@@ -645,11 +664,8 @@ const handler: ApiHandler = async (req, res) => {
       }
       // O encarregado só abre os lotes que ele mesmo enviou.
       const items = somenteDono
-        ? await sql(
-          `${HISTORY_ITEM_SQL} AND r.created_by = $3`,
-          [batchId, loja, usuario],
-        )
-        : await sql(HISTORY_ITEM_SQL, [batchId, loja]);
+        ? await sql(historyItemsSql(true), [batchId, loja, usuario])
+        : await sql(historyItemsSql(false), [batchId, loja]);
       sendJson(res, { items });
       return;
     }

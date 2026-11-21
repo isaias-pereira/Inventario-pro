@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canUseRebaixa,
+  historyItemsSql,
   normalizeMotivo,
   normalizePrice,
   normalizeQuantity,
@@ -170,6 +171,38 @@ describe('validUuid', () => {
     expect(validUuid(UUID)).toBe(true);
     expect(validUuid('123')).toBe(false);
     expect(validUuid(undefined)).toBe(false);
+  });
+});
+
+describe('historyItemsSql (itens do lote enviado)', () => {
+  it('coloca o filtro do encarregado antes do ORDER BY', () => {
+    const query = historyItemsSql(true);
+    const filtro = query.indexOf('r.created_by = $3');
+    const ordem = query.indexOf('ORDER BY r.created_at ASC');
+
+    expect(filtro).toBeGreaterThan(-1);
+    expect(ordem).toBeGreaterThan(filtro);
+    // Só existe uma ordenação — e ela fecha a consulta.
+    expect(query.match(/ORDER BY/g)).toHaveLength(1);
+    expect(query.trimEnd().endsWith('ORDER BY r.created_at ASC')).toBe(true);
+  });
+
+  it('admin vê o lote da loja inteira (sem filtro por usuário)', () => {
+    const query = historyItemsSql(false);
+
+    expect(query).not.toContain('created_by = $3');
+    // Admin passa 2 parâmetros: lote e loja.
+    expect(query).toContain('r.batch_id = $1::uuid');
+    expect(query).toContain('r.loja = $2');
+    expect(query.trimEnd().endsWith('ORDER BY r.created_at ASC')).toBe(true);
+  });
+
+  it('encarregado passa 3 parâmetros: lote, loja e usuário', () => {
+    const query = historyItemsSql(true);
+
+    expect(query).toContain('r.batch_id = $1::uuid');
+    expect(query).toContain('r.loja = $2');
+    expect(query).toContain('r.created_by = $3');
   });
 });
 
