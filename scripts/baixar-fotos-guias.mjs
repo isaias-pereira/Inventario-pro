@@ -2,7 +2,14 @@
  * Baixa as fotos escolhidas do Wikimedia Commons e monta os arquivos do app.
  *
  * Entrada: `scripts/fotos-escolhidas.json`
- *   { "tomate-1": "Moldy tomatoes.jpg", "tomate-2": { "arquivo": "Red tomatoes.jpg", "posicao": "centre" } }
+ *   { "tomate-1": "Moldy tomatoes.jpg",
+ *     "tomate-2": { "arquivo": "Red tomatoes.jpg", "posicao": "centre" },
+ *     "maca-3": { "url": "https://live.staticflickr.com/...jpg", "autor": "Fulano",
+ *                 "licenca": "CC BY-SA 2.0", "pagina": "https://www.flickr.com/photos/..." } }
+ *
+ * O Commons é a fonte principal (`arquivo` busca URL e créditos na API). Quando
+ * a foto está em outro banco livre (Flickr, via Openverse), informe a `url` já
+ * com autor e licença — o crédito continua obrigatório.
  *
  * Saída:
  *   - `public/guias/<slug>-<n>.webp` (800×600, recorte 4:3)
@@ -56,6 +63,7 @@ async function infoDoArquivo(nome) {
         url: ii.thumburl ?? ii.url,
         largura: ii.width,
         altura: ii.height,
+        arquivo: nome,
         autor: (meta.Artist?.value ?? '')
           .replace(/<[^>]+>/g, '')
           .replace(/\s+/g, ' ')
@@ -68,6 +76,22 @@ async function infoDoArquivo(nome) {
     await new Promise((ok) => setTimeout(ok, 6_000 * tentativa));
   }
   throw new Error('Commons HTTP 429');
+}
+
+/** Créditos declarados no `fotos-escolhidas.json` (bancos fora do Commons). */
+async function infoDaUrl(url, escolha) {
+  if (!escolha.autor || !escolha.licenca || !escolha.pagina) {
+    throw new Error('url direta exige autor, licenca e pagina no escolhas');
+  }
+  return {
+    url,
+    largura: null,
+    altura: null,
+    autor: escolha.autor,
+    licenca: escolha.licenca,
+    pagina: escolha.pagina,
+    arquivo: escolha.arquivo ?? url.split('/').pop(),
+  };
 }
 
 async function baixar(url) {
@@ -97,13 +121,14 @@ const falhas = [];
 
 for (const chave of chaves) {
   const escolha = escolhas[chave];
+  const url = typeof escolha === 'string' ? null : escolha.url;
   const arquivo = typeof escolha === 'string' ? escolha : escolha.arquivo;
   const posicao = typeof escolha === 'string' ? 'attention' : (escolha.posicao ?? 'attention');
   const nomeSaida = resolve(SAIDA, `${chave}.webp`);
 
-  console.log(`> ${chave} ← ${arquivo}`);
+  console.log(`> ${chave} ← ${arquivo ?? url}`);
   try {
-    const info = await infoDoArquivo(arquivo);
+    const info = url ? await infoDaUrl(url, escolha) : await infoDoArquivo(arquivo);
     const buffer = await baixar(info.url);
     const { default: sharp } = await import('sharp');
 
@@ -115,7 +140,7 @@ for (const chave of chaves) {
     const existente = creditos.findIndex((c) => c.chave === chave);
     const credito = {
       chave,
-      arquivo,
+      arquivo: info.arquivo,
       autor: info.autor,
       licenca: info.licenca,
       pagina: info.pagina,

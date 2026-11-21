@@ -47,7 +47,7 @@ describe('conteúdo dos guias', () => {
       expect.arrayContaining([
         'tomate',
         'banana-nanica',
-        'mamao-papaia',
+        'mamao-formosa',
         'abacate',
         'maca',
         'laranja',
@@ -138,7 +138,34 @@ describe('conteúdo dos guias', () => {
 describe('busca de guia', () => {
   it('encontra pelo slug', () => {
     expect(buscarGuia('tomate')?.nome).toBe('Tomate');
-    expect(buscarGuia('MAMAO-PAPAIA')?.nome).toBe('Mamão papaia');
+    expect(buscarGuia('MAMAO-FORMOSA')?.nome).toBe('Mamão formosa');
+  });
+
+  it('normaliza acento e cedilha no slug (QR digitado à mão)', () => {
+    expect(buscarGuia('maça')?.slug).toBe('maca');
+    expect(buscarGuia('mamão-formosa')?.slug).toBe('mamao-formosa');
+    expect(buscarGuia('  MAÇA  ')?.slug).toBe('maca');
+    expect(buscarGuia('banana-nanica')?.slug).toBe('banana-nanica');
+  });
+
+  it('abre o mamão formosa também pelo slug antigo do QR impresso', () => {
+    expect(buscarGuia('mamao-formosa')?.nome).toBe('Mamão formosa');
+    expect(buscarGuia('mamao-papaia')?.slug).toBe('mamao-formosa');
+    expect(buscarGuia('MAMAO-PAPAIA')?.nome).toBe('Mamão formosa');
+  });
+
+  it('liga a descrição do catálogo ao guia do mamão formosa', () => {
+    expect(guiaParaDescricao('MAMÃO FORMOSA')?.slug).toBe('mamao-formosa');
+  });
+
+  it('o guia não promete a foto de um produto podre no estágio passado', () => {
+    // regra do setor: o cliente não vê produto em decomposição na etiqueta
+    const proibido = /podre|apodrec|bolor|mofo|fungo|putref/i;
+    for (const guia of GUIAS) {
+      for (const estagio of guia.estagios) {
+        expect(`${estagio.nome} ${estagio.descricao}`).not.toMatch(proibido);
+      }
+    }
   });
 
   it('não encontra guid inexistente nem slug vazio', () => {
@@ -160,7 +187,7 @@ describe('busca de guia', () => {
     expect(guiaParaDescricao('TOMATE ITALIANO KG')?.slug).toBe('tomate');
     expect(guiaParaDescricao('BANANA NANICA')?.slug).toBe('banana-nanica');
     expect(guiaParaDescricao('BANANA PRATA NACIONAL')?.slug).toBe('banana-nanica');
-    expect(guiaParaDescricao('MAMÃO PAPAIA')?.slug).toBe('mamao-papaia');
+    expect(guiaParaDescricao('MAMÃO PAPAIA')?.slug).toBe('mamao-formosa');
     expect(guiaParaDescricao('CEBOLA')?.slug).toBe('cebola');
     expect(guiaParaDescricao('ARroz Tipo 1')?.slug).toBeUndefined();
   });

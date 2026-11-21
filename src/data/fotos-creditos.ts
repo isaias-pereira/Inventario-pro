@@ -148,17 +148,17 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "laranja-2",
-    "arquivo": "Oranges - whole-halved-segment.jpg",
-    "autor": "Ivar Leidus",
-    "licenca": "CC BY-SA 4.0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Oranges_-_whole-halved-segment.jpg"
+    "arquivo": "Laranjas-pera.jpg",
+    "autor": "ArionStar",
+    "licenca": "CC0",
+    "pagina": "https://commons.wikimedia.org/wiki/File:Laranjas-pera.jpg"
   },
   {
     "chave": "laranja-3",
-    "arquivo": "Taronja florida per P. digitatum.jpg",
-    "autor": "Xavier Dengra",
-    "licenca": "CC BY-SA 4.0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Taronja_florida_per_P._digitatum.jpg"
+    "arquivo": "Split orange",
+    "autor": "docoverachiever",
+    "licenca": "CC BY 2.0",
+    "pagina": "https://www.flickr.com/photos/90692748@N04/12360264624"
   },
   {
     "chave": "maca-1",
@@ -176,10 +176,17 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "maca-3",
-    "arquivo": "2015-03-04 Elstar (apple) starting putrefying IMG 9761 bis 9772.jpg",
-    "autor": "Hubertl",
-    "licenca": "CC BY-SA 4.0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:2015-03-04_Elstar_(apple)_starting_putrefying_IMG_9761_bis_9772.jpg"
+    "arquivo": "Old, wrinkled apple",
+    "autor": "Simoubuntu",
+    "licenca": "CC BY-SA 2.0",
+    "pagina": "https://www.flickr.com/photos/54094993@N06/5743020128"
+  },
+  {
+    "chave": "mamao-formosa-3",
+    "arquivo": "Ripe Papaya of dhakuakhana.jpg",
+    "autor": "Rumi Borah~aswiki",
+    "licenca": "CC BY 4.0",
+    "pagina": "https://commons.wikimedia.org/wiki/File:Ripe_Papaya_of_dhakuakhana.jpg"
   },
   {
     "chave": "mamao-papaia-1",
@@ -253,9 +260,9 @@ export const CREDITOS_FOTOS: CreditoFoto[] = [
   },
   {
     "chave": "tomate-3",
-    "arquivo": "Rhizopus soft rot fungus on a tomato fruit. Png.jpg",
-    "autor": "Itsbittu",
+    "arquivo": "Cracked tomato 2017 C.jpg",
+    "autor": "Fructibus",
     "licenca": "CC0",
-    "pagina": "https://commons.wikimedia.org/wiki/File:Rhizopus_soft_rot_fungus_on_a_tomato_fruit._Png.jpg"
+    "pagina": "https://commons.wikimedia.org/wiki/File:Cracked_tomato_2017_C.jpg"
   }
 ];

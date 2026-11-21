@@ -11,7 +11,7 @@
  * **Toda vez que uma foto for substituída** (por outra de mesmo nome), suba
  * este número.
  */
-export const VERSAO_FOTOS = 3;
+export const VERSAO_FOTOS = 4;
 
 /** Caminho da foto com a versão (bustador de cache). */
 export function fotoVersionada(src: string): string {

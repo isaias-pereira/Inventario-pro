@@ -100,7 +100,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'espere', foto: '/guias/tomate-1.webp', nome: 'Verde e firme', veredito: 'Espere 2 a 3 dias', descricao: 'Ombro ainda verde, casca dura e sem cheiro. Deixe em cima da pia, fora da geladeira, até amadurecer.' },
       { chave: 'no-ponto', foto: '/guias/tomate-2.webp', nome: 'Alaranjado e firme', veredito: 'Leve hoje', descricao: 'Cor uniforme e viva, cede um pouco ao toque e tem cheiro de tomate. Perfeito para hoje.' },
-      { chave: 'passou', foto: '/guias/tomate-3.webp', nome: 'Mole ou manchado', veredito: 'Prefira outro', descricao: 'Escureceu, enrugou ou está mole demais: o sabor já passou. Se estiver machucado, escolha outro da banca.' },
+      { chave: 'passou', foto: '/guias/tomate-3.webp', nome: 'Rachado ou mole', veredito: 'Prefira outro', descricao: 'Rachou a casca de maduro, enrugou ou está mole demais: o sabor já passou. Escolha outro da banca, liso e firme.' },
     ],
     dica: 'Tomate maduro nunca vai para a geladeira: o frio mata o sabor. Guarde virado para baixo, em cima da pia.',
     armazenamento: 'Em cima da pia, virado para baixo e longe da luz. Depois de cortado, na geladeira por até 3 dias.',
@@ -129,21 +129,23 @@ export const GUIAS: GuiaProduto[] = [
     armazenamento: 'Em cima da mesa, fora da geladeira. A banana madura descascada pode ser congelada para bolo e vitamina.',
   },
   {
-    slug: 'mamao-papaia',
-    nome: 'Mamão papaia',
+    slug: 'mamao-formosa',
+    // O QR antigo das bancas foi impresso como "mamao-papaia": continua abrindo.
+    slugsAntigos: ['mamao-papaia'],
+    nome: 'Mamão formosa',
     familia: 'Frutas',
     resumo: 'Cheiro doce e toque macio na base: só isso já diz que o mamão está pronto.',
     tipo: 'mamao',
-    palavras: ['mamao papaia', 'mamão papaia', 'mamao', 'mamão'],
+    palavras: ['mamao formosa', 'mamão formosa', 'mamao papaia', 'mamão papaia', 'mamao', 'mamão'],
     passos: [
       { icone: 'cheiro', titulo: 'Cheire perto do talo', texto: 'Cheiro doce e perfumado é o sinal de que está no ponto. Sem cheiro, ainda está verde.' },
       { icone: 'toque', titulo: 'Aperte de leve', texto: 'Deve ceder um pouco, como a bochecha. Mole demais já passou.' },
       { icone: 'olho', titulo: 'Veja a cor', texto: 'A casca deve estar firme, verde ou amarela, sem áreas escuras ou moles.' },
     ],
     estagios: [
-      { chave: 'espere', foto: '/guias/mamao-papaia-1.webp', nome: 'Verde e duro', veredito: 'Espere 3 a 5 dias', descricao: 'Verde, firme e sem cheiro. Deixe em cima da mesa até amadurecer.' },
-      { chave: 'no-ponto', foto: '/guias/mamao-papaia-2.webp', nome: 'Meio amarelo, cheiro doce', veredito: 'Coma hoje', descricao: 'Metade amarela, cheiro doce e toque macio: está no ponto.' },
-      { chave: 'passou', foto: '/guias/mamao-papaia-3.webp', nome: 'Muito amarelo e mole', veredito: 'Use logo', descricao: 'Muito macio, com pontos fundidos: rende vitamina e bolo. Se estiver com cheiro forte, prefira outro da banca.' },
+      { chave: 'espere', foto: '/guias/mamao-formosa-1.webp', nome: 'Verde e duro', veredito: 'Espere 3 a 5 dias', descricao: 'Verde, firme e sem cheiro. Deixe em cima da mesa até amadurecer.' },
+      { chave: 'no-ponto', foto: '/guias/mamao-formosa-2.webp', nome: 'Meio amarelo, cheiro doce', veredito: 'Coma hoje', descricao: 'Metade amarela, cheiro doce e toque macio: está no ponto.' },
+      { chave: 'passou', foto: '/guias/mamao-formosa-3.webp', nome: 'Muito amarelo e mole', veredito: 'Use logo', descricao: 'Muito macio e com pontinhos fundidos na casca: ainda rende vitamina e bolo. Com cheiro forte ou partes escuras, prefira outro da banca.' },
     ],
     dica: 'Mamão é fruta de poucos dias: compre quando ainda estiver firme e deixe em casa, na temperatura ambiente.',
     armazenamento: 'Em cima da mesa até amadurecer. Depois, na geladeira por 2 a 3 dias — ou corte e congele.',
@@ -204,7 +206,7 @@ export const GUIAS: GuiaProduto[] = [
     estagios: [
       { chave: 'guardar', foto: '/guias/laranja-1.webp', nome: 'Firme e sem brilho', veredito: 'Pode guardar', descricao: 'Firme e sem brilho: dura bem e aguenta alguns dias na fruteira. Guarde em cima da mesa, longe do sol.', ilustracao: 1 },
       { chave: 'no-ponto', foto: '/guias/laranja-2.webp', nome: 'Pesada e perfumada', veredito: 'Esprema hoje', descricao: 'Pesada na mão, firme e com cheiro forte na casca: está cheia de suco.', ilustracao: 1 },
-      { chave: 'passou', foto: '/guias/laranja-3.webp', nome: 'Murcha ou com bolhas', veredito: 'Use logo', descricao: 'Murcha ou com casca frouxa: rende suco na hora. Se tiver bolhas de mofo, escolha outra.', ilustracao: 2 },
+      { chave: 'passou', foto: '/guias/laranja-3.webp', nome: 'Rachada ou de casca frouxa', veredito: 'Use logo', descricao: 'Rachou, murchou ou a casca está frouxa: perdeu o suco. Rende um suco na hora — com manchas escuras ou pontas escuras, escolha outra.', ilustracao: 2 },
     ],
     dica: 'Laranja com casca e pele é sempre melhor para suco. Descascada, é para comer na hora.',
     armazenamento: 'Em cima da mesa por até 3 dias. Na geladeira, com as folhas, dura 2 a 3 semanas.',
@@ -282,7 +284,7 @@ export const GUIAS: GuiaProduto[] = [
     ],
     estagios: [
       { chave: 'guardar', foto: '/guias/cebola-1.webp', nome: 'Firme, seca e sem broto', veredito: 'Pode guardar', descricao: 'Casca lisa, firme e sem broto: boa para temperar hoje ou guardar na gaveta, em local seco e escuro.', ilustracao: 1 },
-      { chave: 'passou', foto: '/guias/cebola-2.webp', nome: 'Brotada, mole ou com mofo', veredito: 'Prefira outra', descricao: 'Com broto, murcha ou mofo no fundo: o sabor fica forte e amargo. Escolha outra cebola firme e seca.', ilustracao: 2 },
+      { chave: 'passou', foto: '/guias/cebola-2.webp', nome: 'Brotada, mole ou com manchas', veredito: 'Prefira outra', descricao: 'Com broto, murcha ou manchas no fundo: o sabor fica forte e amargo. Escolha outra cebola firme e seca.', ilustracao: 2 },
     ],
     dica: 'Cebola com cheiro forte e olhos secos é velha: guarde a última no fundo da gaveta, longe das outras.',
     armazenamento: 'Em local seco, arejado e escuro, fora da geladeira. Nunca guarde junto com a batata.',
@@ -348,13 +350,27 @@ export const GUIAS: GuiaProduto[] = [
   },
 ];
 
-/** Busca um guia pelo slug (usado pela rota pública `/g/:slug`). */
+/**
+ * Busca um guia pelo slug (usado pela rota pública `/g/:slug`).
+ *
+ * O slug é **normalizado** antes de comparar: quem digita ou imprime o QR com
+ * acento (ex.: `maça` para a `maca`, `mamão` para `mamao`) encontra o guia —
+ * o cliente não deveria estranhar a cedilha e levar um "não encontramos".
+ */
 export function buscarGuia(slug: string): GuiaProduto | undefined {
   if (!slug) return undefined;
-  const alvo = slug.trim().toLowerCase();
+  const alvo = chaveSlug(slug);
+  if (!alvo) return undefined;
   return GUIAS.find(
-    (guia) => guia.slug === alvo || (guia.slugsAntigos ?? []).includes(alvo),
+    (guia) =>
+      chaveSlug(guia.slug) === alvo ||
+      (guia.slugsAntigos ?? []).some((antigo) => chaveSlug(antigo) === alvo),
   );
+}
+
+/** Minúsculo, sem acento/cedilha e sem os espaços em volta. */
+function chaveSlug(slug: string): string {
+  return slug.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
 /** URL pública do guia. Usa a origem atual (local em dev, domínio em produção). */

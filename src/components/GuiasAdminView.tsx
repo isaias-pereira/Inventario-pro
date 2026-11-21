@@ -80,6 +80,14 @@ export default function GuiasAdminView() {
           aprende a escolher no ponto certo. Marque os produtos e imprima a folha
           de etiquetas para colar nas bancas.
         </p>
+        <a
+          href="/g"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          Ver catálogo público de guias (/g)
+        </a>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <div className="relative min-w-[220px] flex-1">
@@ -188,6 +196,14 @@ export default function GuiasAdminView() {
                     <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     Copiar link
                   </button>
+                  <a
+                    href={urlGuia(guia.slug)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-input px-2 py-1.5 text-xs font-medium hover:bg-accent"
+                  >
+                    Abrir guia
+                  </a>
                   <button
                     type="button"
                     onClick={() => {
