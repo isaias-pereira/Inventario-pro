@@ -4,21 +4,29 @@ import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/htt
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
 import { DEFAULT_LOJA, ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
-import { ensureEncarregadosSchema, usuariosDaEquipe } from './_lib/encarregados.js';
+import { escopoDeEscrita, escopoDeValidade } from './_lib/encarregados.js';
 import { codigoEhKg, MSG_KG_VALIDADE } from './_lib/produto-tipo.js';
 import { logError } from './_lib/logger.js';
 
 const MOTIVOS_VALIDADE = ['Excesso', 'Qualidade'];
 
 /**
- * Usuários cujas validades um encarregado enxerga: ele mesmo + a equipe
- * vinculada (tabela `usuario_encarregados`, sempre na loja do token).
- * O admin é root e vê tudo da loja atual.
+ * Acrescenta o filtro de escopo ao WHERE da Validade.
+ *
+ * `escopo === null` significa admin (root): não há filtro de `created_by`.
+ * Para os demais perfis, a lista vem de `escopoDeValidade` — nunca do perfil
+ * enviado pelo cliente.
  */
-async function equipeDoEncarregado(sql: Sql, username: string, loja: number): Promise<string[]> {
-  await ensureEncarregadosSchema(sql);
-  const equipe = await usuariosDaEquipe(sql, username, loja);
-  return [...new Set([username, ...equipe])];
+function whereValidade(
+  conditions: string[],
+  params: unknown[],
+  escopo: string[] | null,
+): string {
+  if (escopo) {
+    params.push(escopo);
+    conditions.push(`v.created_by = ANY($${params.length}::text[])`);
+  }
+  return `WHERE ${conditions.join(' AND ')}`;
 }
 
 /** Motivo do rebaixa para produtos de balança (KG). Vazio ou nulo = sem motivo. */
@@ -116,27 +124,21 @@ const handler: ApiHandler = async (req, res) => {
       await sql`UPDATE validade_products SET status = false WHERE status = true AND validade < NOW() AND motivo IS NULL AND loja = ${loja}`;
     }
 
-    // LIST - items expiring within 2 days
-    if (action === 'list') {
-      if (payload.role === 'encarregado') {
-        const equipe = await equipeDoEncarregado(sql, username, loja);
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-            WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
-              AND v.created_by = ANY($2::text[])
-            ORDER BY v.validade ASC`,
-          [loja, equipe],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
+    // LIST / NOTIFICATIONS - itens vencendo em até 2 dias
+    if (action === 'list' || action === 'notifications') {
+      const escopo = await escopoDeValidade(sql, username, payload.role, loja);
+      const params: unknown[] = [loja];
+      const where = whereValidade(
+        ['v.loja = $1', 'v.status = true', "v.validade <= (NOW() + INTERVAL '2 days')"],
+        params,
+        escopo,
+      );
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
-          WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
+          ${where}
           ORDER BY v.validade ASC`,
-        [loja],
+        params,
       );
       sendJson(res, { items: data });
       return;
@@ -144,67 +146,19 @@ const handler: ApiHandler = async (req, res) => {
 
     // LIST_ALL
     if (action === 'list_all') {
-      const userRole = payload.role;
-
-      if (userRole === 'col_validade') {
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-            WHERE v.loja = $1 AND v.status = true AND v.created_by = $2
-            ORDER BY v.validade ASC`,
-          [loja, username],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
-
-      if (userRole === 'promotor') {
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-             INNER JOIN app_users u ON v.created_by = u.username
-            WHERE v.loja = $1 AND v.status = true AND u.role = 'promotor'
-            ORDER BY v.validade ASC`,
-          [loja],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
-
-      if (userRole === 'encarregado') {
-        // O encarregado vê as próprias validades e as da equipe vinculada.
-        const equipe = await equipeDoEncarregado(sql, username, loja);
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-            WHERE v.loja = $1 AND v.status = true AND v.created_by = ANY($2::text[])
-            ORDER BY v.validade ASC`,
-          [loja, equipe],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
-
-      if (userRole === 'user') {
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-             INNER JOIN app_users u ON v.created_by = u.username
-            WHERE v.loja = $1 AND v.status = true AND u.role IN ('promotor', 'user', 'encarregado', 'col_validade')
-            ORDER BY v.validade ASC`,
-          [loja],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
-
-      // admin sees all (da loja atual)
+      const escopo = await escopoDeValidade(sql, username, payload.role, loja);
+      const params: unknown[] = [loja];
+      const where = whereValidade(
+        ['v.loja = $1', 'v.status = true'],
+        params,
+        escopo,
+      );
       const data = await sql(
         `SELECT v.*, ${SECAO_COLUNAS}
            FROM validade_products v ${secaoJoin('v')}
-          WHERE v.loja = $1 AND v.status = true
+          ${where}
           ORDER BY v.validade ASC`,
-        [loja],
+        params,
       );
       sendJson(res, { items: data });
       return;
@@ -270,9 +224,9 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
 
-      // O encarregado só mexe nos itens coletados pela própria equipe.
+      // O encarregado só mexe nos itens coletados pela própria equipe direta.
       if (payload.role === 'encarregado') {
-        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const equipe = (await escopoDeEscrita(sql, username, payload.role, loja)) ?? [];
         const alvo = await sql`SELECT id FROM validade_products WHERE id = ${id} AND loja = ${loja} AND created_by = ANY(${equipe}::text[]) LIMIT 1`;
         if (alvo.length === 0) {
           sendJson(res, { error: 'Item não encontrado' }, 404);
@@ -313,9 +267,9 @@ const handler: ApiHandler = async (req, res) => {
         sendJson(res, { error: 'ID inválido' }, 400);
         return;
       }
-      // O encarregado só remove itens coletados pela própria equipe.
+      // O encarregado só remove itens coletados pela própria equipe direta.
       if (payload.role === 'encarregado') {
-        const equipe = await equipeDoEncarregado(sql, username, loja);
+        const equipe = (await escopoDeEscrita(sql, username, payload.role, loja)) ?? [];
         const alvo = await sql`SELECT id FROM validade_products WHERE id = ${id} AND loja = ${loja} AND created_by = ANY(${equipe}::text[]) LIMIT 1`;
         if (alvo.length === 0) {
           sendJson(res, { error: 'Item não encontrado' }, 404);
@@ -348,10 +302,10 @@ const handler: ApiHandler = async (req, res) => {
       const conditions: string[] = [];
       const params: unknown[] = [];
       conditions.push(filtroLoja(params, loja, 'v'));
-      // Encarregado: a consulta por período também fica limitada à equipe.
-      if (payload.role === 'encarregado') {
-        const equipe = await equipeDoEncarregado(sql, username, loja);
-        params.push(equipe);
+      // O escopo de leitura vale também para a consulta por período.
+      const escopo = await escopoDeValidade(sql, username, payload.role, loja);
+      if (escopo) {
+        params.push(escopo);
         conditions.push(`v.created_by = ANY($${params.length}::text[])`);
       }
       if (startDate) {
@@ -393,42 +347,16 @@ const handler: ApiHandler = async (req, res) => {
         return;
       }
       if (payload.role === 'encarregado') {
-        // O encarregado vê o **roster da equipe** (usuários vinculados a ele),
-        // não só quem já coletou — assim o filtro "Coletado por" já traz
-        // todos os usuários da equipe.
-        const equipe = await equipeDoEncarregado(sql, username, loja);
+        // O encarregado vê o **roster do escopo**: ele, a equipe direta e os
+        // encarregados que compartilham alguém da equipe. Assim o filtro
+        // "Coletado por" já traz todos os nomes que ele pode consultar.
+        const equipe = (await escopoDeValidade(sql, username, payload.role, loja)) ?? [];
         sendJson(res, { users: equipe });
         return;
       }
       const data = await sql`SELECT DISTINCT created_by FROM validade_products WHERE loja = ${loja} AND created_by IS NOT NULL ORDER BY created_by`;
       const users = data.map((row: any) => row.created_by);
       sendJson(res, { users });
-      return;
-    }
-
-    // NOTIFICATIONS
-    if (action === 'notifications') {
-      if (payload.role === 'encarregado') {
-        const equipe = await equipeDoEncarregado(sql, username, loja);
-        const data = await sql(
-          `SELECT v.*, ${SECAO_COLUNAS}
-             FROM validade_products v ${secaoJoin('v')}
-            WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
-              AND v.created_by = ANY($2::text[])
-            ORDER BY v.validade ASC`,
-          [loja, equipe],
-        );
-        sendJson(res, { items: data });
-        return;
-      }
-      const data = await sql(
-        `SELECT v.*, ${SECAO_COLUNAS}
-           FROM validade_products v ${secaoJoin('v')}
-          WHERE v.loja = $1 AND v.status = true AND v.validade <= (NOW() + INTERVAL '2 days')
-          ORDER BY v.validade ASC`,
-        [loja],
-      );
-      sendJson(res, { items: data });
       return;
     }
 

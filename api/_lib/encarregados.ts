@@ -123,6 +123,96 @@ export async function usuariosDaEquipe(
   return rows.map((row) => String(row.usuario));
 }
 
+/** Ordena nomes de usuário, mantendo o dono do escopo em primeiro lugar. */
+function ordenarUsuarios(nomes: Iterable<string>, primeiro?: string): string[] {
+  const unicos = [...new Set(nomes)].filter((nome) => nome !== primeiro);
+  unicos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  return primeiro ? [primeiro, ...unicos] : unicos;
+}
+
+/**
+ * Escopo de **leitura** da Validade.
+ *
+ * - `admin` → `null` (root: vê a loja inteira);
+ * - `col_validade` → só as próprias coletas (perfil restrito);
+ * - demais perfis → ele mesmo + vínculos diretos (supervisores e
+ *   subordinados) + colegas da mesma equipe + encarregados que compartilham
+ *   pelo menos um subordinado.
+ *
+ * A regra é derivada **somente** de `usuario_encarregados`, nunca do perfil.
+ * Se a consulta falhar, o erro sobe: o endpoint falha fechado em vez de
+ * liberar a loja inteira.
+ */
+export async function escopoDeValidade(
+  sql: Sql,
+  usuario: string,
+  role: unknown,
+  loja: number,
+): Promise<string[] | null> {
+  if (role === 'admin') return null;
+  if (role === 'col_validade') return [usuario];
+
+  await ensureEncarregadosSchema(sql);
+
+  const rows = await sql`
+    WITH meus_supervisores AS (
+      SELECT encarregado AS nome
+        FROM public.usuario_encarregados
+       WHERE usuario = ${usuario} AND loja = ${loja}
+    ),
+    meus_subordinados AS (
+      SELECT usuario AS nome
+        FROM public.usuario_encarregados
+       WHERE encarregado = ${usuario} AND loja = ${loja}
+    ),
+    colegas AS (
+      SELECT DISTINCT ue2.usuario AS nome
+        FROM public.usuario_encarregados ue1
+        JOIN public.usuario_encarregados ue2
+          ON ue2.encarregado = ue1.encarregado
+         AND ue2.loja = ue1.loja
+       WHERE ue1.usuario = ${usuario} AND ue1.loja = ${loja}
+    ),
+    co_supervisores AS (
+      SELECT DISTINCT ue2.encarregado AS nome
+        FROM public.usuario_encarregados ue1
+        JOIN public.usuario_encarregados ue2
+          ON ue2.usuario = ue1.usuario
+         AND ue2.loja = ue1.loja
+       WHERE ue1.encarregado = ${usuario} AND ue1.loja = ${loja}
+    )
+    SELECT ${usuario}::text AS nome
+    UNION
+    SELECT nome FROM meus_supervisores
+    UNION
+    SELECT nome FROM meus_subordinados
+    UNION
+    SELECT nome FROM colegas
+    UNION
+    SELECT nome FROM co_supervisores
+  `;
+
+  return ordenarUsuarios([usuario, ...rows.map((row) => String(row.nome))], usuario);
+}
+
+/**
+ * Escopo de **escrita** da Validade.
+ *
+ * Mantém a regra histórica: admin escreve em tudo da loja; encarregado
+ * escreve apenas nos itens dele e da equipe **direta**. A visão entre
+ * co-supervisores é só de leitura.
+ */
+export async function escopoDeEscrita(
+  sql: Sql,
+  usuario: string,
+  role: unknown,
+  loja: number,
+): Promise<string[] | null> {
+  if (role === 'admin') return null;
+  await ensureEncarregadosSchema(sql);
+  return ordenarUsuarios([usuario, ...(await usuariosDaEquipe(sql, usuario, loja))], usuario);
+}
+
 /**
  * Substitui os vínculos de um usuário operacional.
  *

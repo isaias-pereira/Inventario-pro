@@ -10,7 +10,7 @@
 | Perfil | Papel |
 | --- | --- |
 | `admin` | **Root** da loja atual: vê e faz tudo. Pode trocar de loja em runtime. |
-| `encarregado` | Responsável por uma equipe (`user`, `promotor`, `col_validade`). Vê as validades dele **e as da equipe**. Edita/exclui os itens da equipe. Tem inventário (só o próprio), rebaixa, e-mail, cadastro de produto e cadastro de usuários da equipe. |
+| `encarregado` | Responsável por uma equipe (`user`, `promotor`, `col_validade`). Vê as validades do seu escopo (ele, equipe direta, colegas e encarregados que compartilham equipe) e edita/exclui apenas os itens dele e da equipe direta. Tem inventário (só o próprio), rebaixa, e-mail, cadastro de produto e cadastro de usuários da equipe. |
 | `user` | Operador de validade. **Não tem acesso ao inventário.** |
 | `promotor` | Promotor de loja. Só Validade. |
 | `col_validade` | Coletor de validade. Só Validade e vê apenas as próprias coletas. |
@@ -82,23 +82,32 @@ recebe **acesso excepcional** às seguintes áreas administrativas:
 ## 3. Visibilidade da Validade
 
 `validade_products.created_by` guarda quem coletou (o Arrastão copia
-`scanned_by`). A leitura aplica:
+`scanned_by`). A leitura é centralizada em `escopoDeValidade`
+(`api/_lib/encarregados.ts`) e vale para `list`, `list_all`, `notifications`,
+`consulta_periodo`, `list_users` e para o `consulta_all_items` do Arrastão:
 
-| Perfil | `list_all` | `list` / `notifications` | `consulta_periodo` / `list_users` |
-| --- | --- | --- | --- |
-| `admin` | Tudo da loja | Tudo da loja | Tudo da loja |
-| `encarregado` | **Próprias + equipe vinculada** | **Próprias + equipe vinculada** | **Próprias + equipe vinculada** |
-| `user` | Conjunto operacional amplo (`promotor`, `user`, `encarregado`, `col_validade`) | Tudo da loja (sino) | — |
-| `promotor` | Todos os promotores | Tudo da loja (sino) | — |
-| `col_validade` | Apenas as próprias | Tudo da loja (sino) | — |
+| Perfil | O que vê |
+| --- | --- |
+| `admin` | Tudo da loja (root, sem filtro de criador) |
+| `coletor` (`user`, `promotor`, `encarregado`) | Ele mesmo + vínculos diretos (supervisores e subordinados) + colegas da mesma equipe + encarregados que compartilham ao menos um subordinado |
+| `col_validade` | **Apenas as próprias coletas** |
 
-O `consulta_all_items` do Arrastão (usado na Consulta por Período) também
-limita o encarregado a `scanned_by` dele + da equipe.
+A regra sai **somente** da tabela `usuario_encarregados`, nunca do perfil: dois
+encarregados que não compartilham nenhum usuário **não se enxergam**. O caso de
+regressão é o usuário da Luana vendo os itens do Isaias — os dois não
+compartilham vínculo, então o escopo não cruza.
 
-O `list_users` do encarregado devolve o **roster da equipe** (ele + os usuários
-vinculados a ele), mesmo os que ainda não coletaram nada — é o que alimenta o
+A consulta de vínculo **falha fechado**: se ela quebrar, o endpoint responde
+erro em vez de liberar a loja inteira.
+
+O `list_users` devolve o **roster do escopo** (ele + os vínculos + os
+co-supervisores), mesmo os que ainda não coletaram nada — é o que alimenta o
 dropdown "Coletado por" da Consulta por Período. Na tela, o encarregado **não
 vê a opção "Arrastão"** nesse dropdown (o admin vê).
+
+A **escrita** (`update`/`remove`) é mais estreita que a leitura: o encarregado
+alcança apenas os itens dele e da **equipe direta** (`escopoDeEscrita`). Ver um
+item de um co-supervisor não dá permissão para editá-lo.
 
 ## 4. Telas por perfil
 
@@ -128,8 +137,8 @@ vê a opção "Arrastão"** nesse dropdown (o admin vê).
 | `list`, `list_all`, `notifications` | todos os logados | Filtro de visibilidade da seção 3 |
 | `add` | todos os logados | Grava `created_by` = usuário do token |
 | `update`, `remove` | admin, **encarregado** | O encarregado só alcança os itens **da própria equipe** (`created_by = ANY(equipe)`) |
-| `consulta_periodo` | admin, encarregado | Encarregado limitado à equipe |
-| `list_users` | admin, encarregado | Encarregado recebe o **roster da equipe** |
+| `consulta_periodo` | admin, encarregado | Encarregado limitado ao escopo de leitura (seção 3) |
+| `list_users` | admin, encarregado | Encarregado recebe o **roster do escopo** |
 | `whatsapp_*` | **admin** | Credenciais só no servidor; o alerta é **da loja** (não é filtrado por equipe) |
 
 ### `api/manage-inventory.ts`
@@ -187,7 +196,7 @@ O encarregado vê a tela **Adicionar Produto** sem o modo "Editar"
 | `api/manage-consulta.ts` | `list`: qualquer logado. `replace`: **admin**. |
 | `api/manage-metas.ts` | **admin**. |
 | `api/ai-assist.ts` | `read_label`: qualquer logado. `import_review` e `review_categorias`: **admin**. |
-| `api/manage-arrastao.ts` | Sessão/itens: participantes logados. `consulta_all_items`: admin (tudo) / encarregado (equipe). |
+| `api/manage-arrastao.ts` | Sessão/itens: participantes logados. `consulta_all_items`: admin (tudo) / demais (escopo de vínculo, seção 3). |
 | `api/auth.ts` | Normaliza `enc_flv` → `encarregado` no token. |
 
 ## 6. Conta de e-mail de envio (remetente)

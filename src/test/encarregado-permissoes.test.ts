@@ -53,7 +53,11 @@ function responderPadrao(text: string): unknown[] {
   if (text.includes('to_regclass')) return [{ table_name: 'tabela' }];
   if (text.includes('COUNT(*)::int AS c')) return [{ c: 0 }];
   if (text.includes('information_schema.columns')) return [{ column_name: 'loja' }];
-  // Equipe do encarregado.
+  // Equipe do encarregado (consulta de escopo da Validade).
+  if (text.includes('WITH meus_supervisores')) {
+    return EQUIPE.map((nome) => ({ nome }));
+  }
+  // Equipe do encarregado (consulta de escrita).
   if (text.includes('FROM public.usuario_encarregados') && text.includes('encarregado =')) {
     return EQUIPE.map((usuario) => ({ usuario }));
   }
