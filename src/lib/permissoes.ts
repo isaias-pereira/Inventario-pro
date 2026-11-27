@@ -12,7 +12,8 @@ export type ViewType =
   | 'add-produto'
   | 'email'
   | 'revisao-secoes'
-  | 'guias';
+  | 'guias'
+  | 'recebimento';
 
 /**
  * Áreas administrativas que a conta do dono do projeto também acessa.
@@ -40,7 +41,8 @@ export function podeAcessarView(
   if (role === 'encarregado') {
     if (dono && AREAS_EXTRAS_DONO.includes(view)) return true;
     return view === 'validade' || view === 'rebaixa' || view === 'email'
-      || view === 'inventario' || view === 'add-produto' || view === 'usuarios' || view === 'guias';
+      || view === 'inventario' || view === 'add-produto' || view === 'usuarios' || view === 'guias'
+      || view === 'recebimento';
   }
   if (role === 'user') return view === 'validade';
   if (role === 'promotor' || role === 'col_validade') return view === 'validade';

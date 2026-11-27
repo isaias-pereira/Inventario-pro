@@ -3,6 +3,7 @@ import { authenticate } from './_lib/auth.js';
 import { requirePost, readJsonBody, sendJson, type ApiHandler } from './_lib/http.js';
 import { SECAO_COLUNAS, secaoJoin } from './_lib/categoria.js';
 import { handleWhatsappCron, handleWhatsappPost } from './_lib/whatsapp-endpoint.js';
+import { handleFlvPost } from './_lib/flv-endpoint.js';
 import { DEFAULT_LOJA, ensureLojaSchema, filtroLoja, resolveLoja } from './_lib/loja.js';
 import { escopoDeEscrita, escopoDeValidade } from './_lib/encarregados.js';
 import { codigoEhKg, MSG_KG_VALIDADE } from './_lib/produto-tipo.js';
@@ -117,6 +118,13 @@ const handler: ApiHandler = async (req, res) => {
     await ensureLojaSchema(sql);
     // Validação completa da loja (resolvendo tokens antigos).
     const lojaValidada = await resolveLoja(sql, payload);
+
+    // Ações `flv_*` (ficha técnica FLV + recebimento) ficam em `_lib/flv-endpoint.ts`
+    // pelo mesmo motivo do WhatsApp: o plano Hobby limita o total de funções.
+    if (typeof action === 'string' && action.startsWith('flv_')) {
+      await handleFlvPost(req, res, body, { sql, payload, loja: lojaValidada });
+      return;
+    }
 
     // Auto-expire only on read actions (avoid unnecessary write on every request)
     const readActions = new Set(['list', 'list_all', 'notifications', 'consulta_periodo']);

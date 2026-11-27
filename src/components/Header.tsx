@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags, Store, Loader2, QrCode } from 'lucide-react';
+import { LogOut, ClipboardList, Target, Database, Users, ChevronDown, CalendarClock, ScanBarcode, PackagePlus, Tag, Mail, Tags, Store, Loader2, QrCode, ClipboardCheck } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,6 +67,10 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
   // Guias de Hortifrui + QR das bancas: admin e encarregado do setor.
   const guiasItems = [{ key: 'guias' as const, label: 'Guias & QR', icon: QrCode }];
   const showGuiasItems = isAdmin || userRole === 'encarregado';
+
+  // Recebimento FLV (ficha técnica + checklist de qualidade): admin e encarregado.
+  const recebimentoItems = [{ key: 'recebimento' as const, label: 'Recebimento FLV', icon: ClipboardCheck }];
+  const showRecebimentoItems = isAdmin || userRole === 'encarregado';
 
   const handleNav = (view: ViewType) => {
     onNavigate(view);
@@ -217,6 +221,21 @@ const Header = ({ currentView, onNavigate }: HeaderProps) => {
               {showGuiasItems && (
                 <>
                   {guiasItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onClick={() => handleNav(item.key)}
+                      className={`gap-2 cursor-pointer ${currentView === item.key ? 'bg-accent font-medium' : ''}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {!isAdmin && <DropdownMenuSeparator />}
+                </>
+              )}
+              {showRecebimentoItems && (
+                <>
+                  {recebimentoItems.map((item) => (
                     <DropdownMenuItem
                       key={item.key}
                       onClick={() => handleNav(item.key)}

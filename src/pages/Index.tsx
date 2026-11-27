@@ -21,6 +21,7 @@ const RebaixaView = lazy(() => import('@/components/RebaixaView'));
 const EmailView = lazy(() => import('@/components/EmailView'));
 const RevisaoSecoesView = lazy(() => import('@/components/RevisaoSecoesView'));
 const GuiasAdminView = lazy(() => import('@/components/GuiasAdminView'));
+const RecebimentoFlvView = lazy(() => import('@/components/RecebimentoFlvView'));
 
 /** Wrapper com ErrorBoundary para cada view lazy. */
 function ViewWrapper({ children }: { children: React.ReactNode }) {
@@ -81,6 +82,7 @@ const Index = () => {
     'add-produto': 'Adicionar Produto',
     'revisao-secoes': 'Revisão de Seções',
     'guias': 'Guias & QR Code',
+    'recebimento': 'Recebimento FLV',
   };
 
   return (
@@ -104,6 +106,7 @@ const Index = () => {
         {safeView === 'add-produto' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><AddProductView canEdit={isAdmin} /></ViewWrapper>}
         {safeView === 'revisao-secoes' && (isAdmin || isDono) && <ViewWrapper><RevisaoSecoesView /></ViewWrapper>}
         {safeView === 'guias' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><GuiasAdminView /></ViewWrapper>}
+        {safeView === 'recebimento' && (isAdmin || userRole === 'encarregado') && <ViewWrapper><RecebimentoFlvView /></ViewWrapper>}
       </Suspense>
 
     </div>

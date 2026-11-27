@@ -123,6 +123,7 @@ item de um co-supervisor não dá permissão para editá-lo.
 | Base de Dados | ✅ | ★ (dono) | — | — | — |
 | Usuários | ✅ | ✅ (só cadastro e lista da equipe) | — | — | — |
 | Revisão de Seções | ✅ | ★ (dono) | — | — | — |
+| Recebimento FLV | ✅ | ✅ | — | — | — |
 
 > ★ = acesso excepcional apenas para a **conta do dono do projeto** (hoje `Isaias`),
 > que mantém o perfil `encarregado` e o escopo da própria loja, mas abre essas
@@ -140,6 +141,7 @@ item de um co-supervisor não dá permissão para editá-lo.
 | `consulta_periodo` | admin, encarregado | Encarregado limitado ao escopo de leitura (seção 3) |
 | `list_users` | admin, encarregado | Encarregado recebe o **roster do escopo** |
 | `whatsapp_*` | **admin** | Credenciais só no servidor; o alerta é **da loja** (não é filtrado por equipe) |
+| `flv_ficha`, `flv_listar_fichas`, `flv_registrar_recebimento`, `flv_list_recebimentos` | admin, encarregado | Roteadas para `api/_lib/flv-endpoint.ts` (limite de funções da Vercel); o registro de recebimento grava na **loja do token** |
 
 ### `api/manage-inventory.ts`
 

@@ -6,8 +6,10 @@ import { ScanBarcode, PackageX, AlertCircle, ShoppingBasket, AlertTriangle, Pack
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import FichaFlvDialog from '@/components/FichaFlvDialog';
 import SecaoBadge from '@/components/SecaoBadge';
 import { guiaParaDescricao } from '@/data/guias';
+import { buscarFicha, type FichaFlv } from '@/lib/flv';
 
 interface ConsultaResult {
   codigo: string;
@@ -24,6 +26,14 @@ const ConsultaView = () => {
   const [code, setCode] = useState('');
   const [result, setResult] = useState<ConsultaResult | null | undefined>(undefined);
   const [searching, setSearching] = useState(false);
+  const [ficha, setFicha] = useState<FichaFlv | null>(null);
+  const [fichaOpen, setFichaOpen] = useState(false);
+
+  /** Ficha técnica FLV do produto consultado (se houver no MVP). */
+  const carregarFicha = async (codigoConsulta: string) => {
+    const { data, error } = await buscarFicha(codigoConsulta);
+    if (!error) setFicha(data?.ficha ?? null);
+  };
 
   /** Busca primeiro na base de consulta; sem ela, cai no catálogo de produtos. */
   const searchByCode = async (value: string) => {
@@ -39,6 +49,7 @@ const ConsultaView = () => {
         preco: local.preco,
         secao: local.secao ?? null,
       });
+      void carregarFicha(local.codigo);
       return;
     }
 
@@ -50,13 +61,15 @@ const ConsultaView = () => {
       }>('query-product', { body: { codigo: clean } });
       if (error) throw new Error(error.message);
       if (data?.found && data.product) {
+        const codigoProduto = String(data.product.codigo ?? clean);
         setResult({
-          codigo: String(data.product.codigo ?? clean),
+          codigo: codigoProduto,
           descricao: data.product.descricao ?? 'Produto sem descrição',
           estoque: null,
           preco: null,
           secao: data.product.secao ?? null,
         });
+        void carregarFicha(codigoProduto);
       } else {
         setResult(null);
       }
@@ -211,6 +224,16 @@ const ConsultaView = () => {
                         Guia do cliente: {guiaDoProduto.nome}
                       </a>
                     )}
+                    {ficha && (
+                      <button
+                        type="button"
+                        onClick={() => setFichaOpen(true)}
+                        className="mt-2 ml-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
+                      >
+                        <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                        Ficha técnica FLV: {ficha.codigo}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -272,6 +295,13 @@ const ConsultaView = () => {
           )}
         </div>
       </div>
+
+      <FichaFlvDialog
+        ficha={ficha}
+        produto={result ? { codigo: result.codigo, descricao: result.descricao } : null}
+        open={fichaOpen}
+        onOpenChange={setFichaOpen}
+      />
     </div>
   );
 };
